@@ -24,18 +24,31 @@ description: >-
 
 ## Hybrid execution model
 
-Deterministic Python does everything structural: init-flag checks, index
-merge/compile, typed parsers, conflict detection. LLM agents are used only
-where judgment is required: doc generation, doc-vs-code drift detection, and
-interface extraction where no deterministic parser exists. Never design an
+Deterministic Python does everything structural: init checks (the child
+repo's `panopticon/config.json` is the initialization flag and holds repo
+settings), index merge/compile, typed parsers, conflict detection. LLM agents are used only
+where judgment is required: doc generation, doc-vs-code drift detection,
+interface extraction where no deterministic parser exists, and interface
+naming/matching where normalization rules are inconclusive. Never design an
 LLM step for work a script can do deterministically.
+
+Developers keep their repo's docs and local index up to date with their own
+agents; CI verifies currency and fails loudly and clearly when they are
+stale, so the developer knows exactly what to fix. CI agent evaluations are
+scoped to what changed plus the minimal context required to understand it —
+full-repo work (initial doc generation, full indexing) happens locally via
+the user's agent.
 
 ## Provider-agnostic agents
 
 CI agent steps are configured via `PANOPTICON_LLM_API_KEY` and
 `PANOPTICON_LLM_ENDPOINT` secrets. litellm-compatible endpoints are the first
 supported target. Never hardcode a specific LLM provider into workflows or
-tooling.
+tooling. All local actions — initialization, doc updates, interface indexing
+— run through the user's preferred AI agent with the bundled skills and need
+no Panopticon LLM secrets. When a CI requirement (endpoint, key, token) is
+missing or unreachable, fail loudly and clearly naming what is missing —
+never skip silently.
 
 ## Sync and auth model
 
@@ -43,16 +56,20 @@ tooling.
   to `docs/{repo}/` and the repo's index shard is replaced, then the compiled
   index is rebuilt. Direct push, no PR.
 - When the final merge produces conflict entries, open issues in **both** the
-  instance repo and the child repo.
+  instance repo and the child repo — at most one open conflict issue per
+  child repo in each repository; later merges update it.
 - PR workflows run a **pre-merge simulation** against the instance repo's
   compiled index and report detected conflicts as PR comments.
 - PR workflows also push the PR's docs and index state to a matching branch
   named `{repo}/{branch}` in the instance repo, so in-flight branch state is
   visible org-wide. Only merges to main touch the instance repo's default
   branch.
-- The default CI `GITHUB_TOKEN` cannot reach the private instance repo. Child
-  repos need a configured token secret (`PANOPTICON_INSTANCE_TOKEN`) granting
-  instance-repo read and write (PR simulation, branch pushes, merge push).
+- The default CI `GITHUB_TOKEN` cannot reach the private instance repo. An
+  org-level token secret (`PANOPTICON_INSTANCE_TOKEN`) grants instance-repo
+  read and write (PR simulation, branch pushes, merge push).
+- All Panopticon secrets are org-level. Child repos never configure per-repo
+  secrets or env vars — their caller workflows are trivial references to the
+  shared workflows.
 
 ## Index lifecycle
 
@@ -63,8 +80,12 @@ as durable.
 
 ## Gating
 
-Conflict checks are advisory by default; orgs may escalate check types to
-blocking via instance configuration. Never hardcode blocking behavior.
+Default outcomes per check type: initialization and doc-drift checks fail
+the workflow when they detect a problem — the developer must know what to
+fix. Interface-conflict checks are advisory by default because LLM-extracted
+entries can false-positive. Orgs may adjust each check type between advisory
+and blocking via instance configuration. Never hardcode outcomes; read the
+gating config.
 
 ## Parser coverage growth
 

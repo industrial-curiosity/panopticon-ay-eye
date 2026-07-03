@@ -20,27 +20,35 @@ There are three repository roles:
 
 ### Lifecycle
 
-1. **Initialization** — a script from the instance fork wires the child repo to the shared workflows, generates its
-   documentation (architecture overview, per-component, interface, and operational docs), builds its local interface
-   index, and drops a flag file marking the repo as initialized.
+1. **Initialization** — the user's AI agent, guided by the bundled skills, generates the repo's documentation
+   (architecture overview, per-component, interface, and operational docs) and builds its local interface index;
+   tooling run from the instance fork wires the child repo to the shared workflows, validates that docs and index
+   meet requirements, and writes `panopticon/config.json` — the initialization flag, which also records
+   repo-level settings such as the documentation location.
 2. **Pull requests** — shared workflows check that the repo is initialized, that documentation was updated when code
    or configuration changes require it, and run a **pre-merge simulation** of the repo's interface changes against
    the instance repo's compiled index, reporting conflicts as PR comments. The PR's docs and index state are pushed
    to a matching branch named `{repo}/{branch}` in the instance repo, making in-flight branch state visible
-   org-wide. Checks are advisory by default; organizations can escalate specific checks to blocking.
+   org-wide. Initialization and doc-drift checks fail loudly by default so the developer knows what to fix;
+   interface-conflict checks are advisory by default. Organizations can adjust each check type.
 3. **Merge to main** — the child repo pushes directly to the instance repo: docs are copied to `docs/{repo}/`, the
    repo's index shard is replaced wholesale, and the compiled org-wide index is rebuilt. If the merge produces
-   conflict entries, issues are opened in both the instance repo and the child repo.
+   conflict entries, issues are opened in both the instance repo and the child repo (at most one open conflict
+   issue per repo, updated in place). Conflicts live only in the instance repo — a child repo only knows what it
+   knows.
 4. **Planning** — when planning a change, a developer's agent reads the instance repo's compiled index (via the
    GitHub CLI or MCP with their personal token) to see which interface connections a change would affect.
 
 ### The interface index
 
 The index maps meaningful **interface names** (REST endpoints, Kafka topics, gRPC services, S3 buckets, …) to arrays
-of interface objects: owner, consumer/producer flags, type, and source files. It describes the **state declared by
-code, not deployments** — branches are a first-class dimension; environments (prod/staging) are not. Interfaces are
-extracted by deterministic parsers where one exists for the interface type, with LLM-driven extraction as the
-fallback; extraction without a parser logs a recommendation to create one.
+of interface objects: owner, type, and consumer/producer lists of repos with the source files each repo uses to
+create or configure the interface. Names are canonicalized by normalization rules plus LLM judgment at
+extraction/merge time, persisted as `panopticon-` hint comments in source files so judgments are stable. The
+index describes the **state declared by code, not deployments** — branches are a
+first-class dimension; environments (prod/staging) are not. Interfaces are extracted by deterministic parsers where
+one exists for the interface type, with LLM-driven extraction as the fallback; extraction without a parser logs a
+recommendation to create one.
 
 The owning repo always re-asserts truth on its next merge; manual edits to the instance repo's index are temporary
 stopgaps.
@@ -50,11 +58,14 @@ stopgaps.
 - **Hybrid execution** — deterministic Python for everything structural (checks, index merge/compile, parsers);
   LLM agents only where judgment is required (doc generation, drift detection, extraction fallback).
 - **Provider-agnostic agents** — CI agent steps are configured via `PANOPTICON_LLM_API_KEY` and
-  `PANOPTICON_LLM_ENDPOINT` secrets; litellm-compatible endpoints are supported first.
+  `PANOPTICON_LLM_ENDPOINT` secrets; litellm-compatible endpoints are supported first. Local flows
+  (initialization, doc updates) run the same skills in the user's preferred AI agent harness and need no LLM
+  secrets.
 - **Minimal Python requirements** — stdlib-first, checkout-and-run on a bare CI runner, every dependency justified
   and pinned.
-- **Cross-repo auth** — child repos need a `PANOPTICON_INSTANCE_TOKEN` secret granting read/write access to the
-  private instance repo (PR simulation, `{repo}/{branch}` branch pushes, and the merge push).
+- **Cross-repo auth** — an org-level `PANOPTICON_INSTANCE_TOKEN` secret grants read/write access to the private
+  instance repo (PR simulation, `{repo}/{branch}` branch pushes, and the merge push). All Panopticon secrets are
+  org-level: child repos inherit them and never need per-repo secret or env configuration.
 
 ## Repository layout
 
