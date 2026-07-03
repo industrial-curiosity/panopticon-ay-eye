@@ -1,0 +1,6 @@
+# panopticon-interface billing-api
+openapi: 3.0.0
+info:
+  title: Billing Service HTTP API
+  version: 2.1.0
+paths: {}

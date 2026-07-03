@@ -1,0 +1,41 @@
+{
+  "interfaces": {
+    "order-events": [
+      {
+        "consumer": [],
+        "owner": {
+          "component": "order-service",
+          "repo": "svc-a"
+        },
+        "producer": [
+          {
+            "repo": "svc-a",
+            "source_files": [
+              "config/kafka-topics.json"
+            ]
+          }
+        ],
+        "type": "kafka"
+      }
+    ],
+    "orders-api": [
+      {
+        "consumer": [],
+        "owner": {
+          "component": "api",
+          "repo": "svc-a"
+        },
+        "producer": [
+          {
+            "repo": "svc-a",
+            "source_files": [
+              "api/openapi.json"
+            ]
+          }
+        ],
+        "type": "rest"
+      }
+    ]
+  },
+  "schema_version": 1
+}

@@ -2,11 +2,11 @@
 
 * Interface: a mechanism that can be produced to or consumed from, eg. REST endpoint, queue, gRPC endpoint, etc.
 * Panopticon repo: a template repo that contains all the tools needed
-* Master repo / Panopticon instance: a private forked repository that also includes its repository documentation and interface index
+* Master repo / Panopticon instance: a private copy of the template repo that also includes its repository documentation and interface index
 
 # New project
 
-The org owner creates a private fork of the Panopticon repo. This will be used as the knowledge base for the organization’s repos, as well as for customizing its shared workflows and skills.
+The org owner creates a private copy of the Panopticon repo via GitHub’s **Use this template** (GitHub does not allow private forks of public repos; template updates are pulled by adding the template as a git remote). This will be used as the knowledge base for the organization’s repos, as well as for customizing its shared workflows and skills. See docs/setup-guide.md for the full procedure.
 
 Workflows:
 
@@ -25,9 +25,9 @@ Workflows:
 We initialize a repo by running a script that’s run directly from the instance fork.
 The script does the following:
 
-* Sets up the repo’s workflows to use the shared workflows. Each repo needs CI access to PANOPTICON\_LLM\_API\_KEY and PANOPTICON\_LLM\_ENDPOINT secrets which the agents will use.
-* Uses Panopticon skills to generate documentation for the repository.
-* Adds a file that indicates that the repo has been initialized.
+* Sets up the repo’s workflows to use the shared workflows. CI consumes the org-level PANOPTICON\_LLM\_API\_KEY, PANOPTICON\_LLM\_ENDPOINT and PANOPTICON\_INSTANCE\_TOKEN secrets — child repos configure no per-repo secrets, and local initialization needs none of them.
+* The user’s own agent uses the Panopticon skills to generate the four-layer documentation and the local interface index; the script validates the results.
+* Writes `panopticon/config.json` — the initialization flag, which also records repo settings such as the documentation location — only once validation passes.
 
 ## Plan
 
@@ -54,9 +54,9 @@ When planning a change, the agent should be able to read the interface\* index (
   * A meaningful name based on its use or function
 * Each index key is an array of interface objects
   * Owner (“null” if unknown or manually created infra, otherwise repo and component)
-  * Consumer / Producer (booleans)
   * Type (eg. kafka, REST, gRPC, S3)
-  * Source file array (creating the interface, configuring instances eg. prod/staging)
+  * Consumer / Producer — each a list of repo objects, where a repo object holds the repo name and that repo’s
+    array of source files (creating the interface, configuring instances eg. prod/staging)
 * Unknowns / conflicts
   * When a repo is a consumer of external interfaces but not the owner
     * Checks for existing entry, checks to see if its values make sense
@@ -66,4 +66,6 @@ When planning a change, the agent should be able to read the interface\* index (
     * Checks for existing entry
     * If it finds a match, checks for inaccuracies
     * If it’s not a clear match, adds a conflict entry
+  * Conflict entries live only in the master repo’s compiled index (its `conflicts` array, recomputed on every
+    rebuild) — a repo’s local index only knows what the repo knows
   * If there are conflicts, log and warn in the CI summary

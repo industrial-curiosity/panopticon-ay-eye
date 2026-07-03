@@ -1,0 +1,23 @@
+{
+  "interfaces": {
+    "order-events": [
+      {
+        "consumer": [],
+        "owner": {
+          "component": "event-hub",
+          "repo": "svc-c"
+        },
+        "producer": [
+          {
+            "repo": "svc-c",
+            "source_files": [
+              "infra/kafka-topics.yaml"
+            ]
+          }
+        ],
+        "type": "kafka"
+      }
+    ]
+  },
+  "schema_version": 1
+}

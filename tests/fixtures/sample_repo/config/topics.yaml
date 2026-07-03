@@ -1,0 +1,7 @@
+topics:
+  # panopticon-interface audit-log-events
+  - name: audit_log.events
+    partitions: 6
+    replication_factor: 3
+consumers:
+  topic: billing-events

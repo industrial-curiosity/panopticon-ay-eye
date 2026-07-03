@@ -1,0 +1,196 @@
+# Panopticon reusable merge-to-main sync workflow.
+#
+# Called by child repos on push to their default branch. Pushes directly to the instance repo's
+# default branch (no PR): copies the repo's docs to docs/{repo}/, replaces the repo's index shard
+# wholesale, and rebuilds the compiled index. Concurrent pushes from other child repos are
+# handled with a fetch-rebase-retry loop: every retry re-applies only THIS repo's docs and shard
+# over the fresh instance state and re-runs the deterministic compiled rebuild — other repos'
+# shards are never modified.
+#
+# When the merge produces conflict entries, issues are opened (or updated — at most one open
+# Panopticon conflict issue per child repo in each repository) in BOTH the instance repo and the
+# child repo, cross-linked.
+name: Panopticon merge sync
+
+on:
+  workflow_call:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      PANOPTICON_INSTANCE_DIR: .panopticon-instance
+      MAX_PUSH_ATTEMPTS: "5"
+    steps:
+      - name: Check out merged default branch
+        uses: actions/checkout@v4
+
+      - name: Initialization check
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f panopticon/config.json ]; then
+            echo "::error::Panopticon: repo not initialized (panopticon/config.json missing); run the init tooling from your org's instance checkout (docs/setup-guide.md)"
+            exit 1
+          fi
+          {
+            echo "PANOPTICON_REPO=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["repo"])')"
+            echo "PANOPTICON_INSTANCE=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["instance"])')"
+            echo "PANOPTICON_DOCS=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["docs_location"])')"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate CI requirements
+        shell: bash
+        env:
+          PANOPTICON_INSTANCE_TOKEN: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PANOPTICON_INSTANCE_TOKEN:-}" ]; then
+            echo "::error::Panopticon: org-level secret PANOPTICON_INSTANCE_TOKEN is not available to this repo; configure it in the org's Actions secrets (docs/setup-guide.md)"
+            exit 1
+          fi
+
+      - name: Check out instance repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PANOPTICON_INSTANCE }}
+          token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+          path: .panopticon-instance
+
+      - name: Sync docs and index shard (fetch-rebase-retry)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "PYTHONPATH=$GITHUB_WORKSPACE/$PANOPTICON_INSTANCE_DIR" >> "$GITHUB_ENV"
+          export PYTHONPATH="$GITHUB_WORKSPACE/$PANOPTICON_INSTANCE_DIR"
+          cd "$PANOPTICON_INSTANCE_DIR"
+          git config user.name "panopticon[bot]"
+          git config user.email "panopticon-bot@users.noreply.github.com"
+          default_branch=$(git symbolic-ref --short HEAD)
+          pushed=false
+          for attempt in $(seq 1 "$MAX_PUSH_ATTEMPTS"); do
+            git fetch origin "$default_branch"
+            git reset --hard "origin/$default_branch"
+            # Re-apply only this repo's state over whatever landed meanwhile.
+            mkdir -p "docs/$PANOPTICON_REPO"
+            rsync -a --delete "$GITHUB_WORKSPACE/$PANOPTICON_DOCS/" "docs/$PANOPTICON_REPO/"
+            set +e
+            python3 -m panopticon.merge merge \
+              --local "$GITHUB_WORKSPACE/panopticon/index.json" \
+              --repo "$PANOPTICON_REPO" \
+              --instance-root . \
+              --report-file /tmp/panopticon-merge-report.md \
+              --json-report /tmp/panopticon-merge-report.json
+            status=$?
+            set -e
+            if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+              echo "::error::Panopticon merge sync: shard merge failed (exit $status); see the step log"
+              exit "$status"
+            fi
+            if [ -z "$(git status --porcelain)" ]; then
+              echo "instance repo already up to date"
+              pushed=true
+              break
+            fi
+            git add -A
+            git commit -m "panopticon: sync $PANOPTICON_REPO @ ${{ github.sha }}"
+            if git push origin "HEAD:$default_branch"; then
+              pushed=true
+              break
+            fi
+            echo "::warning::push attempt $attempt rejected (concurrent merge); fetching and rebuilding"
+          done
+          if [ "$pushed" != "true" ]; then
+            echo "::error::Panopticon merge sync: could not push to the instance repo after $MAX_PUSH_ATTEMPTS attempts; re-run this workflow"
+            exit 1
+          fi
+          cat /tmp/panopticon-merge-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prepare conflict issue body
+        id: conflicts
+        shell: python
+        run: |
+          import json
+          import os
+          import sys
+
+          def fail(reason):
+              print(f"::error::{reason}")
+              sys.exit(1)
+
+          try:
+              repo = os.environ["PANOPTICON_REPO"]
+              report = json.load(open("/tmp/panopticon-merge-report.json"))
+              conflicts = report["conflicts"]["new"] + [
+                  c for c in report["conflicts"]["unchanged"]
+                  if any(claim["claimed_by"] == repo for claim in c["claims"])
+              ]
+              has_new = bool(report["conflicts"]["new"])
+              lines = [
+                  f"## Interface conflicts involving `{repo}`",
+                  "",
+                  f"Updated by the Panopticon merge sync for commit {os.environ['GITHUB_SHA']}.",
+                  "",
+              ]
+              for c in conflicts:
+                  claims = "; ".join(
+                      f"`{claim['claimed_by']}` → "
+                      + (f"{claim['owner']['repo']}/{claim['owner']['component']}" if claim["owner"] else "null")
+                      for claim in c["claims"]
+                  )
+                  lines.append(f"- **`{c['name']}` ({c['type']})** — {c['reason']}: {c['details']} (claims: {claims})")
+              lines += [
+                  "",
+                  "Resolve by agreeing canonical names/ownership between the repos involved and adding",
+                  "`panopticon-interface` hints where naming is ambiguous, then merge the correction.",
+              ]
+              with open("/tmp/panopticon-issue-body.md", "w") as handle:
+                  handle.write("\n".join(lines) + "\n")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                  # act when this merge produced conflicts or ones involving this repo persist
+                  out.write(f"has_conflicts={'true' if conflicts else 'false'}\n")
+                  out.write(f"has_new={'true' if has_new else 'false'}\n")
+          except SystemExit:
+              raise
+          except Exception as exc:
+              fail(f"Panopticon conflict-issue preparation failed: {exc}")
+
+      - name: Open or update conflict issues in both repos
+        if: steps.conflicts.outputs.has_conflicts == 'true'
+        shell: bash
+        env:
+          GH_TOKEN_CHILD: ${{ github.token }}
+          GH_TOKEN_INSTANCE: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          title="Panopticon: interface conflicts involving $PANOPTICON_REPO"
+          label="panopticon-conflict"
+
+          # upsert_issue <repo-slug> <token> <body-file> -> issue html url (via stdout last line)
+          upsert_issue() {
+            local slug="$1" token="$2" body_file="$3"
+            GH_TOKEN="$token" gh api -X POST "repos/$slug/labels" -f name="$label" -f color=d93f0b \
+              > /dev/null 2>&1 || true  # already exists
+            local existing
+            existing=$(GH_TOKEN="$token" gh api "repos/$slug/issues?state=open&labels=$label" \
+              --paginate --jq "[.[] | select(.title == \"$title\")][0].number" 2>/dev/null || true)
+            if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+              GH_TOKEN="$token" gh api -X PATCH "repos/$slug/issues/$existing" -F body=@"$body_file" \
+                --jq .html_url
+            else
+              GH_TOKEN="$token" gh api -X POST "repos/$slug/issues" -f title="$title" \
+                -f "labels[]=$label" -F body=@"$body_file" --jq .html_url
+            fi
+          }
+
+          instance_url=$(upsert_issue "$PANOPTICON_INSTANCE" "$GH_TOKEN_INSTANCE" /tmp/panopticon-issue-body.md | tail -1)
+          cp /tmp/panopticon-issue-body.md /tmp/panopticon-issue-child.md
+          echo -e "\nInstance-repo issue: $instance_url" >> /tmp/panopticon-issue-child.md
+          child_url=$(upsert_issue "${{ github.repository }}" "$GH_TOKEN_CHILD" /tmp/panopticon-issue-child.md | tail -1)
+          cp /tmp/panopticon-issue-body.md /tmp/panopticon-issue-instance.md
+          echo -e "\nChild-repo issue: $child_url" >> /tmp/panopticon-issue-instance.md
+          upsert_issue "$PANOPTICON_INSTANCE" "$GH_TOKEN_INSTANCE" /tmp/panopticon-issue-instance.md > /dev/null
+          echo "conflict issues: $instance_url / $child_url" >> "$GITHUB_STEP_SUMMARY"

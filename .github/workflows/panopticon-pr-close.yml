@@ -1,0 +1,47 @@
+# Panopticon reusable PR-close workflow.
+#
+# Called by child repos on pull_request: closed (merged or abandoned). Deletes the matching
+# {repo}/{branch} branch in the instance repo — the branch is fully derived in-flight state, so
+# deletion is always safe. Pruning of orphaned branches beyond this trigger is deliberately
+# deferred (design non-goal).
+name: Panopticon PR close
+
+on:
+  workflow_call:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repo (for panopticon/config.json)
+        uses: actions/checkout@v4
+
+      - name: Delete instance branch for this PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ ! -f panopticon/config.json ]; then
+            echo "repo not Panopticon-initialized; nothing to clean up"
+            exit 0
+          fi
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Panopticon: org-level secret PANOPTICON_INSTANCE_TOKEN is not available to this repo; configure it in the org's Actions secrets (docs/setup-guide.md)"
+            exit 1
+          fi
+          repo=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["repo"])')
+          instance=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["instance"])')
+          branch="$repo/${{ github.event.pull_request.head.ref }}"
+          status=$(gh api -X DELETE "repos/$instance/git/refs/heads/$branch" 2>&1) && {
+            echo "deleted instance branch $branch"
+            exit 0
+          }
+          if echo "$status" | grep -qi "Reference does not exist\|Not Found"; then
+            echo "instance branch $branch does not exist; nothing to delete"
+            exit 0
+          fi
+          echo "::error::Panopticon: could not delete instance branch $branch: $status"
+          exit 1

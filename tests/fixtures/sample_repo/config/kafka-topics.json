@@ -1,0 +1,10 @@
+{
+  "topics": [
+    {
+      "name": "order.events",
+      "partitions": 3,
+      "replication_factor": 2
+    },
+    "billing-events"
+  ]
+}

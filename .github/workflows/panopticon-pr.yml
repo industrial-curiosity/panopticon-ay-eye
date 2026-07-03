@@ -1,0 +1,271 @@
+# Panopticon reusable PR evaluation workflow.
+#
+# Lives in the instance repo (a copy of this template); child repos call it via a thin caller
+# written by the init tooling (`uses: <org>/<instance>/.github/workflows/panopticon-pr.yml@<ref>`
+# with `secrets: inherit`). All secrets are org-level: PANOPTICON_LLM_API_KEY,
+# PANOPTICON_LLM_ENDPOINT, PANOPTICON_INSTANCE_TOKEN.
+#
+# Checks (pr-evaluation spec): initialization → doc drift → index currency → pre-merge
+# simulation → branch state push. Check outcomes honor the org gating configuration in the
+# instance repo's panopticon.config.json (init/doc-drift blocking by default,
+# interface-conflict advisory by default). Checks run and report even when an earlier check
+# found problems; a final gate step applies gating and fails the workflow.
+name: Panopticon PR evaluation
+
+on:
+  workflow_call:
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      PANOPTICON_INSTANCE_DIR: .panopticon-instance
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Skip-and-instruct: an uninitialized repo fails this check with the init procedure and
+      # every later Panopticon check is skipped. Org gating is unreadable without the config
+      # (it lives in the instance repo named there), so the documented default (blocking)
+      # applies here.
+      - name: Initialization check
+        id: init
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f panopticon/config.json ]; then
+            {
+              echo "## Panopticon: repo not initialized"
+              echo "No \`panopticon/config.json\` found. Initialize this repo from your org's"
+              echo "instance checkout (see docs/setup-guide.md in the instance repo):"
+              echo '```bash'
+              echo "python3 -m panopticon.init_repo --child <path-to-this-repo> --instance <org>/<instance>"
+              echo '```'
+              echo "All other Panopticon checks were skipped."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Panopticon: repo not initialized (panopticon/config.json missing); see the step summary for the init procedure"
+            echo "initialized=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "initialized=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "PANOPTICON_REPO=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["repo"])')"
+            echo "PANOPTICON_INSTANCE=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["instance"])')"
+            echo "PANOPTICON_DOCS=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["docs_location"])')"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate CI requirements
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        env:
+          PANOPTICON_LLM_API_KEY: ${{ secrets.PANOPTICON_LLM_API_KEY }}
+          PANOPTICON_LLM_ENDPOINT: ${{ secrets.PANOPTICON_LLM_ENDPOINT }}
+          PANOPTICON_INSTANCE_TOKEN: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=""
+          for name in PANOPTICON_LLM_API_KEY PANOPTICON_LLM_ENDPOINT PANOPTICON_INSTANCE_TOKEN; do
+            if [ -z "${!name:-}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            {
+              echo "## Panopticon: missing org-level secrets"
+              echo "The following required org-level secrets are not available to this repo:"
+              for name in $missing; do echo "- \`$name\`"; done
+              echo ""
+              echo "Configure them in the org's Actions secrets (Settings → Secrets and variables"
+              echo "→ Actions) and grant this repo access — see docs/setup-guide.md in the"
+              echo "instance repo. LLM-dependent checks never skip silently."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Panopticon: missing org-level secrets:$missing (see step summary for setup instructions)"
+            exit 1
+          fi
+
+      - name: Check out instance repo (tooling, skills, compiled index, org config)
+        if: steps.init.outputs.initialized == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PANOPTICON_INSTANCE }}
+          token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+          path: .panopticon-instance
+
+      - name: Read gating configuration and prepare diff
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "PYTHONPATH=$GITHUB_WORKSPACE/$PANOPTICON_INSTANCE_DIR" >> "$GITHUB_ENV"
+          export PYTHONPATH="$GITHUB_WORKSPACE/$PANOPTICON_INSTANCE_DIR"
+          {
+            echo "GATE_DOC_DRIFT=$(python3 -c "from panopticon.config import load_org_config;print(load_org_config('$PANOPTICON_INSTANCE_DIR')['gating']['doc-drift'])")"
+            echo "GATE_CONFLICT=$(python3 -c "from panopticon.config import load_org_config;print(load_org_config('$PANOPTICON_INSTANCE_DIR')['gating']['interface-conflict'])")"
+          } >> "$GITHUB_ENV"
+          git diff "origin/${{ github.base_ref }}...HEAD" -- ':!.panopticon-instance' > /tmp/panopticon-pr.diff
+          mkdir -p /tmp/panopticon-reports
+
+      # Doc drift and index currency both fail loudly on operational errors (missing skill,
+      # unreachable endpoint, malformed verdict). A stale verdict is recorded and gated at the end.
+      - name: Doc-drift check
+        id: drift
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        env:
+          PANOPTICON_LLM_API_KEY: ${{ secrets.PANOPTICON_LLM_API_KEY }}
+          PANOPTICON_LLM_ENDPOINT: ${{ secrets.PANOPTICON_LLM_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          set +e
+          python3 -m panopticon.drift \
+            --diff-file /tmp/panopticon-pr.diff \
+            --docs-root "$PANOPTICON_DOCS" \
+            --skill-root "$PANOPTICON_INSTANCE_DIR" \
+            --report-file /tmp/panopticon-reports/drift.md
+          status=$?
+          set -e
+          if [ "$status" -gt 1 ]; then
+            echo "::error::Panopticon doc-drift check could not run (exit $status); see the step log"
+            exit "$status"
+          fi
+          echo "stale=$([ "$status" -eq 1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          cat /tmp/panopticon-reports/drift.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Index-currency check
+        id: currency
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        env:
+          PANOPTICON_LLM_API_KEY: ${{ secrets.PANOPTICON_LLM_API_KEY }}
+          PANOPTICON_LLM_ENDPOINT: ${{ secrets.PANOPTICON_LLM_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          set +e
+          python3 -m panopticon.currency \
+            --diff-file /tmp/panopticon-pr.diff \
+            --index panopticon/index.json \
+            --repo "$PANOPTICON_REPO" \
+            --skill-root "$PANOPTICON_INSTANCE_DIR" \
+            --report-file /tmp/panopticon-reports/currency.md
+          status=$?
+          set -e
+          if [ "$status" -gt 1 ]; then
+            echo "::error::Panopticon index-currency check could not run (exit $status); see the step log"
+            exit "$status"
+          fi
+          echo "stale=$([ "$status" -eq 1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          cat /tmp/panopticon-reports/currency.md >> "$GITHUB_STEP_SUMMARY"
+
+      # Same merge code path as the real merge, in dry-run mode, against the compiled index
+      # fetched from the instance repo's default branch (design D4).
+      - name: Pre-merge simulation
+        id: simulate
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$PANOPTICON_INSTANCE_DIR/interfaces/index.json" ]; then
+            # Fresh instance with no merges yet: simulate against an empty compiled index.
+            python3 -c "from panopticon.index import KIND_COMPILED, empty_index, save_index; save_index(empty_index(KIND_COMPILED), '$PANOPTICON_INSTANCE_DIR/interfaces/index.json', kind=KIND_COMPILED)"
+          fi
+          set +e
+          python3 -m panopticon.merge simulate \
+            --local panopticon/index.json \
+            --repo "$PANOPTICON_REPO" \
+            --compiled "$PANOPTICON_INSTANCE_DIR/interfaces/index.json" \
+            --report-file /tmp/panopticon-reports/simulation.md
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "::error::Panopticon pre-merge simulation could not run (exit $status); see the step log"
+            exit "$status"
+          fi
+          echo "conflicts=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          cat /tmp/panopticon-reports/simulation.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post PR comment
+        if: steps.init.outputs.initialized == 'true' && always() && steps.simulate.outcome != 'skipped'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          marker='<!-- panopticon-report -->'
+          body_file=/tmp/panopticon-comment.md
+          {
+            echo "$marker"
+            echo "## Panopticon report"
+            echo ""
+            for report in drift currency simulation; do
+              if [ -f "/tmp/panopticon-reports/$report.md" ]; then
+                cat "/tmp/panopticon-reports/$report.md"
+                echo ""
+              fi
+            done
+          } > "$body_file"
+          existing=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --paginate --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id" 2>/dev/null || true)
+          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -F body=@"$body_file" > /dev/null
+          else
+            gh api -X POST "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              -F body=@"$body_file" > /dev/null
+          fi
+
+      # In-flight branch state, visible org-wide: docs + index pushed (same merge code path) to
+      # {repo}/{branch} in the instance repo. Never touches the instance default branch; the
+      # branch is fully derived, so force-push is safe.
+      - name: Push branch state to instance repo
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PANOPTICON_INSTANCE_DIR"
+          git checkout -B "$PANOPTICON_REPO/${{ github.head_ref }}"
+          mkdir -p "docs/$PANOPTICON_REPO"
+          rsync -a --delete "$GITHUB_WORKSPACE/$PANOPTICON_DOCS/" "docs/$PANOPTICON_REPO/"
+          set +e
+          python3 -m panopticon.merge merge \
+            --local "$GITHUB_WORKSPACE/panopticon/index.json" \
+            --repo "$PANOPTICON_REPO" \
+            --instance-root . > /dev/null
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "::error::Panopticon branch-state push: index merge failed (exit $status)"
+            exit "$status"
+          fi
+          git config user.name "panopticon[bot]"
+          git config user.email "panopticon-bot@users.noreply.github.com"
+          git add -A
+          git commit --allow-empty -m "panopticon: branch state for $PANOPTICON_REPO/${{ github.head_ref }} @ ${{ github.event.pull_request.head.sha }}"
+          git push --force origin "HEAD:refs/heads/$PANOPTICON_REPO/${{ github.head_ref }}"
+
+      # Gating applies here so every check above could run and report first.
+      - name: Apply gating
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=""
+          warn() { echo "::warning::$1"; }
+          fail() { failed="$failed$1\n"; echo "::error::$1"; }
+          if [ "${{ steps.drift.outputs.stale }}" = "true" ]; then
+            message="Panopticon doc-drift check found stale docs (see PR comment for what to update)"
+            [ "$GATE_DOC_DRIFT" = "blocking" ] && fail "$message" || warn "$message (advisory by org configuration)"
+          fi
+          if [ "${{ steps.currency.outputs.stale }}" = "true" ]; then
+            # A stale index always fails: simulation over a stale index predicts the wrong merge.
+            fail "Panopticon index-currency check found a stale local index (see PR comment)"
+          fi
+          if [ "${{ steps.simulate.outputs.conflicts }}" = "true" ]; then
+            message="Panopticon pre-merge simulation predicts interface conflicts (see PR comment)"
+            [ "$GATE_CONFLICT" = "blocking" ] && fail "$message" || warn "$message (advisory by org configuration)"
+          fi
+          if [ -n "$failed" ]; then
+            printf '%b' "$failed" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
