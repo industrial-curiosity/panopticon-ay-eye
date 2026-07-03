@@ -1,0 +1,56 @@
+schema: spec-driven
+
+# Project context shown to AI when creating artifacts.
+context: |
+  Panopticon: a public template repo forked privately per organization to
+  autogenerate per-repo documentation and maintain an org-wide interface
+  index, so changes can be checked for cross-repo breakage.
+
+  Repository roles:
+  - Template repo (this repo, public): Python tooling, deterministic parsers,
+    shared GitHub Actions workflows, agent skills.
+  - Instance repo (private fork per org, aka "master"): docs/{repo}/ copies,
+    per-repo interface index shards, compiled org-wide index, org config
+    (gating mode, workflow ref policy).
+  - Child repos: org repos initialized by Panopticon; each owns its local
+    docs and index and is authoritative for interfaces it owns.
+
+  Tech stack: Python (stdlib-first, minimal pinned dependencies,
+  checkout-and-run in CI), GitHub Actions, provider-agnostic LLM agents
+  configured via PANOPTICON_LLM_API_KEY / PANOPTICON_LLM_ENDPOINT
+  (litellm-compatible endpoints supported first).
+
+  Settled architecture decisions (do not re-litigate in artifacts):
+  - Hybrid execution: deterministic Python for structural checks, index
+    merge/compile, and typed parsers; LLM only for doc generation,
+    doc-vs-code drift judgment, and interface extraction where no parser
+    exists (with a logged recommendation to create one).
+  - Sync: child repos push directly to the instance repo on merge to main
+    (docs copy + whole-shard index replace, then compiled index rebuild).
+    Merge-time conflicts open issues in both instance and child repo.
+    PR workflows run a pre-merge simulation against the compiled index and
+    report conflicts as PR comments, and push the PR's docs and index state
+    to a matching instance-repo branch named {repo}/{branch}; only merges to
+    main touch the instance repo's default branch.
+  - Auth: child repos hold a PANOPTICON_INSTANCE_TOKEN secret for instance
+    repo read/write (PR simulation, branch pushes, merge push); the default
+    GITHUB_TOKEN cannot reach the private instance repo.
+  - Index semantics: describes code state, not deployment state — branches
+    are first-class dimensions, environments are not. Keyed on interface
+    name; entries carry owner, consumer/producer flags, type, source files.
+    Owning repo re-asserts truth on merge; manual instance-index edits are
+    temporary stopgaps.
+  - Gating: advisory by default, org-configurable escalation to blocking.
+  - Parsers are self-contained and contributed upstream to the template.
+  - Docs layers per repo: architecture overview, per-component, interface,
+    operational.
+
+  Ground rules are codified as repo skills in .agents/skills/:
+  panopticon-architecture, panopticon-index-schema, panopticon-python-tooling.
+
+# Per-artifact rules (optional)
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
