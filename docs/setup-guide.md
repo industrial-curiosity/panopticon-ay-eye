@@ -28,11 +28,15 @@ GitHub does not allow private forks of public repositories, so the instance is c
 ## 2. Configure org-level secrets and variables
 
 Go to your org's **Settings → Secrets and variables → Actions (https://github.com/organizations/YOUR-ORG/settings/secrets/actions)**
-(replace `YOUR-ORG` with your GitHub org slug) and grant each item access to:
+(replace `YOUR-ORG` with your GitHub org slug).
+
+For each secret and variable below, set **Repository access → Selected repositories** and add:
 - the **instance repo** (created in step 1), and
 - every **child repo** Panopticon should cover.
 
-The instance repo needs access too because the Sync from template workflow runs there.
+Make sure that your token is visible to your instance repository as well as your child repositories.
+
+The instance repo needs access because the Sync from template workflow runs there.
 Child repos never configure per-repo secrets or variables — their caller workflows are
 trivial references to the shared workflows.
 
@@ -63,6 +67,7 @@ index updates — run in each developer's own AI agent harness and need none of 
 4. Under **Permissions → Repository permissions**, add:
    - **Contents** → Read and write
    - **Issues** → Read and write
+   - **Workflows** → Read and write *(required to push `.github/workflows/` files during sync)*
    - *(Metadata → Read-only is added automatically by GitHub)*
 5. Set an expiration, click **Generate token**, and copy it immediately.
 6. Add the copied token as the `PANOPTICON_INSTANCE_TOKEN` org secret at
