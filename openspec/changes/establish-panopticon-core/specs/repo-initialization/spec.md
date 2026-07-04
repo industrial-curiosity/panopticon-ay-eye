@@ -161,6 +161,8 @@ manually to pull upstream template changes. The workflow SHALL:
    then push without requiring manual intervention.
 3. When a common ancestor **does** exist, use the default merge strategy and surface genuine conflicts with
    local-resolution instructions rather than overriding them silently.
+4. Declare both `contents: write` and `workflows: write` permissions — GitHub rejects pushes that modify
+   `.github/workflows/` files when only `contents: write` is granted.
 
 Auto-resolution in case 2 is safe because instance repos created via "Use this template" contain only
 files that originated from the template; instance-specific files (`panopticon.config.json`, org skills)
