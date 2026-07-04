@@ -34,7 +34,13 @@ not open questions.
 
 GitHub does not allow private forks of public repositories. The template repo is marked as a **template
 repository**, and org owners create their private instance via "Use this template". Template updates are pulled
-by adding the template as a git remote. The strategy doc's word "fork" is interpreted as "private copy".
+by adding the template as a git remote; the template repo ships `sync-from-template.yml` so instance owners
+do not have to set this up manually.
+
+"Use this template" creates a repo with no shared git history, so the first sync has no common ancestor.
+`sync-from-template.yml` detects this and resolves add/add conflicts with `-X theirs` automatically — safe
+because the instance at that point contains only files that came from the template. Subsequent syncs use the
+normal merge strategy. The strategy doc's word "fork" is interpreted as "private copy".
 
 ### D2: Index files are JSON with an explicit schema version
 

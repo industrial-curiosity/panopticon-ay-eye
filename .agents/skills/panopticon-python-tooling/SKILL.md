@@ -34,3 +34,18 @@ simple as possible.
 - **No heavy frameworks.** LLM access goes through the org-configured
   endpoint (litellm-compatible HTTP first); do not add agent frameworks or
   provider SDKs to the Python tooling.
+- **Importable logic, thin entry points.** Any script meant to be curl-runnable
+  or invoked externally must put all logic in an importable module (e.g.,
+  `panopticon/bootstrap.py`). The entry-point file (`install.py`) is a single
+  `from module import main; sys.exit(main() or 0)`. This makes the logic
+  unit-testable without subprocess invocation.
+- **Injectable dependencies for testability.** Functions that call
+  `urllib.request.urlopen` must accept it as a keyword parameter with the real
+  implementation as the default (e.g., `def fetch(url, urlopen=urllib.request.urlopen)`).
+  Tests inject a mock; production callers pass nothing. Never patch at the module
+  level when injection is possible.
+- **Initialization flag last.** `panopticon/config.json` (and any equivalent
+  completion sentinel) must be the absolute last artifact written, only after all
+  validation passes. If validation fails, the flag must not exist. Tests that check
+  this invariant must confirm the flag is absent on failure and present on success
+  in a single test (not two independent tests that can drift).

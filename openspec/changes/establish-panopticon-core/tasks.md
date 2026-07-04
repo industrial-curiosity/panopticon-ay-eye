@@ -95,6 +95,9 @@
 
 ## 8. Documentation
 
+- [x] 8.3 Ship `sync-from-template.yml` in the template repo: manual-trigger workflow that detects missing
+      common ancestor (first sync after "Use this template") and resolves add/add conflicts with `-X theirs`
+      automatically; subsequent syncs use normal merge strategy and surface genuine conflicts for manual resolution
 - [x] 8.1 Write template-repo docs: org-owner setup guide (create instance from template, secrets, variables,
       config) and parser contribution guide
 - [x] 8.2 Update README.md and docs/FUSE Panopticon Strategy.md to reflect any user-facing or architectural

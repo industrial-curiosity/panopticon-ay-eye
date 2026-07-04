@@ -34,7 +34,19 @@ jobs:
 
       - name: Merge template changes
         run: |
-          if ! git merge template/main --no-edit --allow-unrelated-histories 2>&1; then
+          # Detect whether repos share history (first-time sync after "Use this template" has none).
+          # When there is no common ancestor every shared file shows as add/add conflict, which is
+          # always safe to resolve with -X theirs because the instance only contains files that came
+          # from the template at creation time.  Instance-specific files (panopticon.config.json,
+          # org skills, etc.) don't exist in the template so they are never overridden.
+          if git merge-base HEAD template/main > /dev/null 2>&1; then
+            MERGE_OPTS="--no-edit"
+          else
+            echo "No common ancestor detected — first-time sync. Template version wins for any conflicts."
+            MERGE_OPTS="--no-edit --allow-unrelated-histories -X theirs"
+          fi
+
+          if ! git merge template/main $MERGE_OPTS 2>&1; then
             echo "::error::Merge conflict — resolve locally then push:"
             echo "::error::  git remote add template https://github.com/industrial-curiosity/panopticon-ay-eye.git"
             echo "::error::  git fetch template main"

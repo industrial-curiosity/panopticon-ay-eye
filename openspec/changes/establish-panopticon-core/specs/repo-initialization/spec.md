@@ -150,6 +150,34 @@ with `docs/` as the default. The chosen location SHALL be recorded in `panoptico
 - **WHEN** the finalization step runs on a repo with no existing documentation
 - **THEN** the user is prompted for the desired location, defaulting to `docs/`
 
+### Requirement: Template update workflow
+
+The template repo SHALL ship a `sync-from-template.yml` workflow that instance repo owners can trigger
+manually to pull upstream template changes. The workflow SHALL:
+
+1. Detect whether the instance repo shares git history with the template (i.e., a common ancestor exists).
+2. When **no common ancestor exists** (first-time sync after "Use this template" which creates unrelated
+   histories), automatically resolve all add/add conflicts by preferring the template version (`-X theirs`),
+   then push without requiring manual intervention.
+3. When a common ancestor **does** exist, use the default merge strategy and surface genuine conflicts with
+   local-resolution instructions rather than overriding them silently.
+
+Auto-resolution in case 2 is safe because instance repos created via "Use this template" contain only
+files that originated from the template; instance-specific files (`panopticon.config.json`, org skills)
+do not exist in the template and are therefore never overridden.
+
+#### Scenario: First-time sync after "Use this template"
+
+- **GIVEN** an instance repo created via GitHub's "Use this template" (no shared git history with the template)
+- **WHEN** the sync workflow runs
+- **THEN** it detects the missing common ancestor, merges with `-X theirs`, and pushes without error
+
+#### Scenario: Routine sync with common ancestor
+
+- **GIVEN** an instance repo that has previously synced with the template (common ancestor exists)
+- **WHEN** the sync workflow runs
+- **THEN** it merges normally; any genuine divergence surfaces as a conflict with local-resolution instructions
+
 ### Requirement: Idempotent re-initialization
 
 Re-running the bootstrap script or the finalization step on an already-initialized repo SHALL update all
