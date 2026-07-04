@@ -31,12 +31,13 @@ from .docs import validate_docs
 from .index import KIND_LOCAL, IndexValidationError, load_index
 
 CALLER_WORKFLOWS = ("panopticon-pr.yml", "panopticon-merge.yml", "panopticon-pr-close.yml")
-ORG_SECRETS = ("PANOPTICON_LLM_API_KEY", "PANOPTICON_LLM_ENDPOINT", "PANOPTICON_INSTANCE_TOKEN")
+ORG_SECRETS = ("PANOPTICON_LLM_API_KEY", "PANOPTICON_INSTANCE_TOKEN")
+ORG_VARS = ("PANOPTICON_LLM_ENDPOINT", "PANOPTICON_LLM_MODEL")
 
 _CALLER_HEADER = (
     "# Wired by Panopticon init — a thin reference to the shared workflow in the instance repo.\n"
-    "# Do not edit by hand; re-run the init tooling to update. Secrets are org-level; this repo\n"
-    "# configures none of its own.\n"
+    "# Do not edit by hand; re-run the init tooling to update. Secrets and variables are\n"
+    "# org-level; this repo configures none of its own.\n"
 )
 
 _EXISTING_DOC_DIRS = ("docs", "doc", "documentation")
@@ -100,44 +101,69 @@ def validate_child(child_root, repo_name, docs_location):
     return problems
 
 
-def verify_org_secrets(org, runner=subprocess.run):
-    """Report-only org secret verification via the gh CLI. Never blocks local init."""
-    report = []
-    if shutil.which("gh") is None:
-        report.append(
-            "could not verify org secrets: the 'gh' CLI is not installed. Verify manually that "
-            f"the org-level secrets {', '.join(ORG_SECRETS)} exist (GitHub → org Settings → "
-            "Secrets and variables → Actions)."
-        )
-        return report
+def _gh_api_names(runner, url, jq_expr):
+    """Run a gh api call and return a set of names, or None on failure."""
     try:
         result = runner(
-            ["gh", "api", f"orgs/{org}/actions/secrets", "--jq", ".secrets[].name"],
+            ["gh", "api", url, "--jq", jq_expr],
             capture_output=True,
             text=True,
             timeout=30,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        result = None
-        report.append(f"could not verify org secrets ({exc}); verify manually.")
-    if result is not None:
-        if result.returncode != 0:
-            report.append(
-                f"could not verify org secrets (gh api failed: {result.stderr.strip()[:200]}). "
-                "Verify manually or re-run with credentials that can read org secrets."
-            )
-        else:
-            existing = set(result.stdout.split())
-            for secret in ORG_SECRETS:
-                if secret not in existing:
-                    report.append(
-                        f"missing org-level secret {secret}: create it at "
-                        f"https://github.com/organizations/{org}/settings/secrets/actions and "
-                        "grant access to all repositories Panopticon should cover. See "
-                        "docs/setup-guide.md. Workflow wiring is not complete until it exists."
-                    )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return set(result.stdout.split())
+
+
+def verify_org_secrets(org, runner=subprocess.run):
+    """Report-only org secret/variable verification via the gh CLI. Never blocks local init."""
+    report = []
+    settings_url = f"https://github.com/organizations/{org}/settings/secrets/actions"
+    if shutil.which("gh") is None:
+        report.append(
+            "could not verify org secrets/variables: the 'gh' CLI is not installed. Verify "
+            f"manually that org-level secrets {', '.join(ORG_SECRETS)} and org-level variables "
+            f"{', '.join(ORG_VARS)} exist (GitHub → org Settings → Secrets and variables → Actions)."
+        )
+        return report
+
+    existing_secrets = _gh_api_names(runner, f"orgs/{org}/actions/secrets", ".secrets[].name")
+    if existing_secrets is None:
+        report.append(
+            "could not verify org secrets (gh api failed); verify manually or re-run with "
+            "credentials that can read org secrets."
+        )
+    else:
+        for secret in ORG_SECRETS:
+            if secret not in existing_secrets:
+                report.append(
+                    f"missing org-level secret {secret}: create it at {settings_url} and "
+                    "grant access to all repositories Panopticon should cover. See "
+                    "docs/setup-guide.md. Workflow wiring is not complete until it exists."
+                )
+
+    existing_vars = _gh_api_names(runner, f"orgs/{org}/actions/variables", ".variables[].name")
+    if existing_vars is None:
+        report.append(
+            "could not verify org variables (gh api failed); verify manually or re-run with "
+            "credentials that can read org variables."
+        )
+    else:
+        for var in ORG_VARS:
+            if var not in existing_vars:
+                report.append(
+                    f"missing org-level variable {var}: create it at {settings_url} and "
+                    "grant access to all repositories Panopticon should cover. See "
+                    "docs/setup-guide.md. Workflow wiring is not complete until it exists."
+                )
+
     if not report:
-        report.append(f"all org-level secrets present: {', '.join(ORG_SECRETS)}")
+        report.append(
+            f"all org-level secrets present: {', '.join(ORG_SECRETS)}; "
+            f"all org-level variables present: {', '.join(ORG_VARS)}"
+        )
     return report
 
 

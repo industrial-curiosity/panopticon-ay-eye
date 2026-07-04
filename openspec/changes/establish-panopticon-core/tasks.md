@@ -41,9 +41,13 @@
 - [x] 4.1 Implement the init tooling: caller-workflow wiring at the org-configured ref, validation that the
       agent-produced docs and index meet requirements, `panopticon/config.json` written only after validation
       passes — no `PANOPTICON_LLM_*` needed locally
-- [x] 4.2 Implement org-level secret verification with actionable setup instructions (secrets are consumed by
-      the shared CI workflows; child repos need no per-repo secret/env configuration; missing secrets must not
-      block local init steps)
+- [x] 4.2 Implement org-level secret and variable verification with actionable setup instructions (secrets
+      `PANOPTICON_LLM_API_KEY`/`PANOPTICON_INSTANCE_TOKEN` and variables `PANOPTICON_LLM_ENDPOINT`/
+      `PANOPTICON_LLM_MODEL` checked separately via the gh API; child repos need no per-repo configuration;
+      missing items must not block local init steps)
+- [x] 4.6 Add test for missing org-level variable scenario: verify that `verify_org_secrets` reports a clear
+      message with setup instructions when a variable such as `PANOPTICON_LLM_ENDPOINT` is absent (mirrors
+      existing `test_missing_secret_reported_with_instructions`)
 - [x] 4.3 Make re-initialization idempotent (update in place, no duplicates)
 - [x] 4.4 Implement documentation-location adoption: existing docs adopted and aligned; otherwise prompt with
       `docs/` default; record the location in `panopticon/config.json`
@@ -80,7 +84,7 @@
 
 ## 8. Documentation
 
-- [x] 8.1 Write template-repo docs: org-owner setup guide (create instance from template, secrets, config) and
-      parser contribution guide
+- [x] 8.1 Write template-repo docs: org-owner setup guide (create instance from template, secrets, variables,
+      config) and parser contribution guide
 - [x] 8.2 Update README.md and docs/FUSE Panopticon Strategy.md to reflect any user-facing or architectural
       changes introduced by this change

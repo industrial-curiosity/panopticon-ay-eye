@@ -148,10 +148,10 @@ class TestDegradationPaths(unittest.TestCase):
     def test_require_lists_missing_requirements(self):
         with self.assertRaises(MissingRequirementError) as ctx:
             require((ENDPOINT_VAR, API_KEY_VAR, "PANOPTICON_INSTANCE_TOKEN"), env={ENDPOINT_VAR: "x"})
-        message = str(ctx.exception)
-        self.assertNotIn(ENDPOINT_VAR + " ", message.split(":")[1])
-        self.assertIn(API_KEY_VAR, message)
-        self.assertIn("PANOPTICON_INSTANCE_TOKEN", message)
+        exc = ctx.exception
+        self.assertNotIn(ENDPOINT_VAR, exc.names)
+        self.assertIn(API_KEY_VAR, exc.names)
+        self.assertIn("PANOPTICON_INSTANCE_TOKEN", exc.names)
 
     def test_malformed_response_is_a_loud_error(self):
         with StubLLMServer() as stub:

@@ -119,19 +119,51 @@ class TestSecretVerification(unittest.TestCase):
         result.returncode, result.stdout, result.stderr = returncode, stdout, stderr
         return lambda *args, **kwargs: result
 
+    def gh_stub_url_aware(self, secrets_stdout="", vars_stdout="", returncode=0):
+        """Return different output for secrets vs variables API calls."""
+        class Result:
+            pass
+
+        def runner(*args, **kwargs):
+            r = Result()
+            r.returncode = returncode
+            r.stderr = ""
+            url = args[0][2]
+            r.stdout = secrets_stdout if "secrets" in url else vars_stdout
+            return r
+
+        return runner
+
     def test_missing_secret_reported_with_instructions(self):
         report = verify_org_secrets(
-            "acme", runner=self.gh_stub(stdout="PANOPTICON_LLM_API_KEY\nPANOPTICON_LLM_ENDPOINT\n")
+            "acme",
+            runner=self.gh_stub_url_aware(
+                secrets_stdout="PANOPTICON_LLM_API_KEY\n",
+                vars_stdout="PANOPTICON_LLM_ENDPOINT\nPANOPTICON_LLM_MODEL\n",
+            ),
         )
         text = "\n".join(report)
         self.assertIn("PANOPTICON_INSTANCE_TOKEN", text)
         self.assertIn("settings/secrets/actions", text)
 
+    def test_missing_variable_reported_with_instructions(self):
+        report = verify_org_secrets(
+            "acme",
+            runner=self.gh_stub_url_aware(
+                secrets_stdout="PANOPTICON_LLM_API_KEY\nPANOPTICON_INSTANCE_TOKEN\n",
+                vars_stdout="PANOPTICON_LLM_MODEL\n",
+            ),
+        )
+        text = "\n".join(report)
+        self.assertIn("PANOPTICON_LLM_ENDPOINT", text)
+        self.assertIn("settings/secrets/actions", text)
+
     def test_all_present(self):
         report = verify_org_secrets(
             "acme",
-            runner=self.gh_stub(
-                stdout="PANOPTICON_LLM_API_KEY\nPANOPTICON_LLM_ENDPOINT\nPANOPTICON_INSTANCE_TOKEN\n"
+            runner=self.gh_stub_url_aware(
+                secrets_stdout="PANOPTICON_LLM_API_KEY\nPANOPTICON_INSTANCE_TOKEN\n",
+                vars_stdout="PANOPTICON_LLM_ENDPOINT\nPANOPTICON_LLM_MODEL\n",
             ),
         )
         self.assertIn("all org-level secrets present", report[0])

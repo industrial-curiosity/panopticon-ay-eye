@@ -22,19 +22,27 @@ settings such as the documentation location — only after that validation passe
 - **WHEN** validation runs before the agent has produced all four documentation layers
 - **THEN** no config file is written and the tooling reports exactly which requirements are unmet
 
-### Requirement: Org-level secret prerequisites
+### Requirement: Org-level CI prerequisites
 
-The init tooling SHALL verify that `PANOPTICON_LLM_API_KEY`, `PANOPTICON_LLM_ENDPOINT`, and
-`PANOPTICON_INSTANCE_TOKEN` are configured as org-level secrets available to the child repo — they are
-consumed only by the shared CI workflows — and SHALL report clear setup instructions for any that are missing
-rather than failing opaquely. Child repos MUST NOT require per-repo secret or environment configuration: the
-caller workflows a child repo receives are trivial references to the shared workflows. Missing secrets SHALL
-NOT block the local initialization steps themselves.
+The init tooling SHALL verify that the org-level **secrets** `PANOPTICON_LLM_API_KEY` and
+`PANOPTICON_INSTANCE_TOKEN`, and the org-level **variables** `PANOPTICON_LLM_ENDPOINT` and
+`PANOPTICON_LLM_MODEL`, are all configured and available to the child repo — they are consumed only by the
+shared CI workflows — and SHALL report clear setup instructions for any that are missing rather than failing
+opaquely, distinguishing whether each missing item is a secret or a variable. Child repos MUST NOT require
+per-repo secret or variable configuration: the caller workflows a child repo receives are trivial references
+to the shared workflows. Missing secrets or variables SHALL NOT block the local initialization steps
+themselves.
 
 #### Scenario: Missing instance token
 
 - **WHEN** initialization runs for a repo whose org has not configured `PANOPTICON_INSTANCE_TOKEN`
 - **THEN** it reports which org-level secret is missing and how to configure it before workflow wiring is
+  considered complete
+
+#### Scenario: Missing endpoint variable
+
+- **WHEN** initialization runs for a repo whose org has not configured the `PANOPTICON_LLM_ENDPOINT` variable
+- **THEN** it reports which org-level variable is missing and how to configure it before workflow wiring is
   considered complete
 
 ### Requirement: Documentation location adoption

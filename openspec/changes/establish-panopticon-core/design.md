@@ -89,8 +89,10 @@ no build step.
 ### D7: Cross-repo auth is a fine-grained PAT (GitHub App later)
 
 `PANOPTICON_INSTANCE_TOKEN` is a fine-grained PAT scoped to the instance repo with `contents: read/write` and
-`issues: write`, configured as an org-level secret so all child repos inherit it. All three Panopticon secrets
-are org-level: child repos never configure per-repo secrets or env vars — their caller workflows are trivial
+`issues: write`, configured as an org-level secret so all child repos inherit it. Panopticon's CI configuration
+is split by sensitivity: **secrets** (`PANOPTICON_LLM_API_KEY`, `PANOPTICON_INSTANCE_TOKEN`) for credentials,
+and **variables** (`PANOPTICON_LLM_ENDPOINT`, `PANOPTICON_LLM_MODEL`) for non-sensitive configuration. All are
+org-level: child repos never configure per-repo secrets or variables — their caller workflows are trivial
 references to the shared workflows. A GitHub App is the cleaner long-term answer but adds setup burden; the
 token interface is a single env var either way, so swapping later is non-breaking.
 

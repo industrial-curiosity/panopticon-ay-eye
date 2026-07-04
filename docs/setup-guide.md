@@ -8,7 +8,7 @@ configure org secrets, tune gating, and initialize child repos.
 GitHub does not allow private forks of public repositories, so the instance is created from a
 **template repository**:
 
-1. On this repo's GitHub page, use **Use this template → Create a new repository** and create a
+1. On [this repo's GitHub page](https://github.com/industrial-curiosity/panopticon-ay-eye), use **Use this template → Create a new repository** and create a
    **private** repo in your org (e.g. `acme/panopticon-instance`). If the button is missing, a
    template-repo owner must first enable **Settings → Template repository**.
 2. The instance repo is your org's knowledge base. It will accumulate:
@@ -25,24 +25,28 @@ GitHub does not allow private forks of public repositories, so the instance is c
 4. Tag the instance repo (e.g. `v1`) so child caller workflows can pin a ref (see step 3's
    `workflow_ref`).
 
-## 2. Configure org-level secrets
+## 2. Configure org-level secrets and variables
 
-All three secrets are **organization-level** Actions secrets (org **Settings → Secrets and
-variables → Actions**), granted to every repo Panopticon should cover. Child repos never
-configure per-repo secrets — their caller workflows are trivial references to the shared
-workflows.
+Go to org **Settings → Secrets and variables → Actions** and grant access to every repo
+Panopticon should cover. Child repos never configure per-repo secrets or variables — their caller
+workflows are trivial references to the shared workflows.
+
+**Secrets** (encrypted; never visible in logs):
 
 | Secret | What it is |
 | --- | --- |
-| `PANOPTICON_LLM_ENDPOINT` | Base URL of any litellm-compatible (OpenAI `/chat/completions`) endpoint |
-| `PANOPTICON_LLM_API_KEY` | Bearer token for that endpoint |
+| `PANOPTICON_LLM_API_KEY` | Bearer token for the LLM endpoint |
 | `PANOPTICON_INSTANCE_TOKEN` | Fine-grained PAT scoped to the instance repo with **contents: read/write** and **issues: read/write** |
 
-Optionally set the org-level **variable** `PANOPTICON_LLM_MODEL` if your endpoint routes models
-by name (defaults to `default`, which litellm proxies commonly alias).
+**Variables** (plaintext; visible in logs):
 
-These secrets are consumed only by the shared CI workflows. Local flows — initialization, doc
-generation, index updates — run in each developer's own AI agent harness and need none of them.
+| Variable | What it is |
+| --- | --- |
+| `PANOPTICON_LLM_ENDPOINT` | Base URL of any litellm-compatible (OpenAI `/chat/completions`) endpoint |
+| `PANOPTICON_LLM_MODEL` | Model name passed to the endpoint (defaults to `default`, which litellm proxies commonly alias) |
+
+These are consumed only by the shared CI workflows. Local flows — initialization, doc generation,
+index updates — run in each developer's own AI agent harness and need none of them.
 
 ## 3. Org configuration
 

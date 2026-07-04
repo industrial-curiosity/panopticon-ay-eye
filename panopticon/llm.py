@@ -4,13 +4,13 @@ This module is the **CI execution path only** (design D5). Local flows — initi
 updating, interface indexing — run the same skill files in the user's preferred agent harness and
 never need ``PANOPTICON_LLM_*`` configuration.
 
-Configuration comes from org-level secrets exposed as environment variables:
+Configuration comes from org-level Actions secrets and variables exposed as environment variables:
 
 - ``PANOPTICON_LLM_ENDPOINT`` — base URL of any litellm-compatible endpoint
-  (``/chat/completions`` is appended if not already present)
-- ``PANOPTICON_LLM_API_KEY`` — bearer token for that endpoint
+  (``/chat/completions`` is appended if not already present); org-level **variable**
+- ``PANOPTICON_LLM_API_KEY`` — bearer token for that endpoint; org-level **secret**
 - ``PANOPTICON_LLM_MODEL`` — optional model name passed through to the endpoint; defaults to
-  ``default`` (litellm proxies commonly route a default alias)
+  ``default`` (litellm proxies commonly route a default alias); org-level **variable**
 
 No provider SDKs, no agent frameworks, no provider-specific code paths. Missing or unreachable
 requirements fail loudly (``MissingRequirementError`` / ``LLMRequestError``) naming exactly what
@@ -30,9 +30,10 @@ MODEL_VAR = "PANOPTICON_LLM_MODEL"
 DEFAULT_MODEL = "default"
 
 SETUP_HINT = (
-    "Configure it as an org-level GitHub Actions secret so every child repo inherits it "
-    "(see docs/setup-guide.md in the Panopticon template repo). Child repos never configure "
-    "per-repo secrets."
+    "Configure PANOPTICON_LLM_API_KEY and PANOPTICON_INSTANCE_TOKEN as org-level GitHub Actions "
+    "secrets, and PANOPTICON_LLM_ENDPOINT and PANOPTICON_LLM_MODEL as org-level Actions variables "
+    "(Settings → Secrets and variables → Actions). Child repos inherit everything automatically "
+    "(see docs/setup-guide.md in the Panopticon template repo)."
 )
 
 PURPOSES = {

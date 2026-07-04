@@ -2,8 +2,8 @@
 #
 # Lives in the instance repo (a copy of this template); child repos call it via a thin caller
 # written by the init tooling (`uses: <org>/<instance>/.github/workflows/panopticon-pr.yml@<ref>`
-# with `secrets: inherit`). All secrets are org-level: PANOPTICON_LLM_API_KEY,
-# PANOPTICON_LLM_ENDPOINT, PANOPTICON_INSTANCE_TOKEN.
+# with `secrets: inherit`). Org-level secrets: PANOPTICON_LLM_API_KEY, PANOPTICON_INSTANCE_TOKEN.
+# Org-level variables: PANOPTICON_LLM_ENDPOINT, PANOPTICON_LLM_MODEL.
 #
 # Checks (pr-evaluation spec): initialization → doc drift → index currency → pre-merge
 # simulation → branch state push. Check outcomes honor the org gating configuration in the
@@ -64,7 +64,7 @@ jobs:
         shell: bash
         env:
           PANOPTICON_LLM_API_KEY: ${{ secrets.PANOPTICON_LLM_API_KEY }}
-          PANOPTICON_LLM_ENDPOINT: ${{ secrets.PANOPTICON_LLM_ENDPOINT }}
+          PANOPTICON_LLM_ENDPOINT: ${{ vars.PANOPTICON_LLM_ENDPOINT }}
           PANOPTICON_INSTANCE_TOKEN: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
         run: |
           set -euo pipefail
@@ -74,15 +74,17 @@ jobs:
           done
           if [ -n "$missing" ]; then
             {
-              echo "## Panopticon: missing org-level secrets"
-              echo "The following required org-level secrets are not available to this repo:"
+              echo "## Panopticon: missing org-level configuration"
+              echo "The following required org-level configuration is not available to this repo:"
               for name in $missing; do echo "- \`$name\`"; done
               echo ""
-              echo "Configure them in the org's Actions secrets (Settings → Secrets and variables"
-              echo "→ Actions) and grant this repo access — see docs/setup-guide.md in the"
-              echo "instance repo. LLM-dependent checks never skip silently."
+              echo "Secrets (\`PANOPTICON_LLM_API_KEY\`, \`PANOPTICON_INSTANCE_TOKEN\`) and"
+              echo "variables (\`PANOPTICON_LLM_ENDPOINT\`, \`PANOPTICON_LLM_MODEL\`) are all"
+              echo "configured under org Settings → Secrets and variables → Actions."
+              echo "Grant this repo access — see docs/setup-guide.md in the instance repo."
+              echo "LLM-dependent checks never skip silently."
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::Panopticon: missing org-level secrets:$missing (see step summary for setup instructions)"
+            echo "::error::Panopticon: missing org-level configuration:$missing (see step summary for setup instructions)"
             exit 1
           fi
 
@@ -116,7 +118,8 @@ jobs:
         shell: bash
         env:
           PANOPTICON_LLM_API_KEY: ${{ secrets.PANOPTICON_LLM_API_KEY }}
-          PANOPTICON_LLM_ENDPOINT: ${{ secrets.PANOPTICON_LLM_ENDPOINT }}
+          PANOPTICON_LLM_ENDPOINT: ${{ vars.PANOPTICON_LLM_ENDPOINT }}
+          PANOPTICON_LLM_MODEL: ${{ vars.PANOPTICON_LLM_MODEL }}
         run: |
           set -euo pipefail
           set +e
@@ -140,7 +143,8 @@ jobs:
         shell: bash
         env:
           PANOPTICON_LLM_API_KEY: ${{ secrets.PANOPTICON_LLM_API_KEY }}
-          PANOPTICON_LLM_ENDPOINT: ${{ secrets.PANOPTICON_LLM_ENDPOINT }}
+          PANOPTICON_LLM_ENDPOINT: ${{ vars.PANOPTICON_LLM_ENDPOINT }}
+          PANOPTICON_LLM_MODEL: ${{ vars.PANOPTICON_LLM_MODEL }}
         run: |
           set -euo pipefail
           set +e
