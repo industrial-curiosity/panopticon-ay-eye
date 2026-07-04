@@ -8,35 +8,36 @@ configure org secrets, tune gating, and initialize child repos.
 GitHub does not allow private forks of public repositories, so the instance is created from a
 **template repository**:
 
-1. On [this repo's GitHub page](https://github.com/industrial-curiosity/panopticon-ay-eye), use **Use this template → Create a new repository** and create a
-   **private** repo in your org (e.g. `acme/panopticon-instance`). If the button is missing, a
-   template-repo owner must first enable **Settings → Template repository**.
+1. On [this repo's GitHub page](https://github.com/industrial-curiosity/panopticon-ay-eye), click
+   **Use this template → Create a new repository** and create a **private** repo in your org
+   (e.g. `acme/panopticon-instance`). If the button is missing, a template-repo owner must first
+   enable it at [**Settings → Template repository**](https://github.com/industrial-curiosity/panopticon-ay-eye/settings).
 2. The instance repo is your org's knowledge base. It will accumulate:
    - `docs/{repo}/` — a copy of each child repo's generated documentation
    - `interfaces/{repo}.json` — one interface index shard per child repo
    - `interfaces/index.json` — the compiled org-wide index (with its `conflicts` array)
    - `panopticon.config.json` — org configuration (see step 3)
-3. To pull template updates later, run the **Sync from template** workflow from
-   **Actions → Sync from template → Run workflow**. If the merge produces conflicts
+3. To pull template updates later, go to your instance repo's **Actions** tab, select
+   **Sync from template**, and click **Run workflow**. If the merge produces conflicts
    (e.g. both sides modified `panopticon.config.json`), the workflow fails with
    instructions to resolve them locally. You can also enable the weekly schedule
    in the workflow file to receive updates automatically.
-
 4. Tag the instance repo (e.g. `v1`) so child caller workflows can pin a ref (see step 3's
    `workflow_ref`).
 
 ## 2. Configure org-level secrets and variables
 
-Go to org **Settings → Secrets and variables → Actions** and grant access to every repo
-Panopticon should cover. Child repos never configure per-repo secrets or variables — their caller
-workflows are trivial references to the shared workflows.
+Go to your org's **Settings → Secrets and variables → Actions (https://github.com/organizations/YOUR-ORG/settings/secrets/actions)**
+(replace `YOUR-ORG` with your GitHub org slug) and grant each item access to every repo Panopticon
+should cover. Child repos never configure per-repo secrets or variables — their caller workflows are
+trivial references to the shared workflows.
 
 **Secrets** (encrypted; never visible in logs):
 
 | Secret | What it is |
 | --- | --- |
 | `PANOPTICON_LLM_API_KEY` | Bearer token for the LLM endpoint |
-| `PANOPTICON_INSTANCE_TOKEN` | Fine-grained PAT scoped to the instance repo with **contents: read/write** and **issues: read/write** |
+| `PANOPTICON_INSTANCE_TOKEN` | Fine-grained PAT scoped to the instance repo — [see instructions below](#creating-panopticon_instance_token) |
 
 **Variables** (plaintext; visible in logs):
 
@@ -47,6 +48,20 @@ workflows are trivial references to the shared workflows.
 
 These are consumed only by the shared CI workflows. Local flows — initialization, doc generation,
 index updates — run in each developer's own AI agent harness and need none of them.
+
+### Creating PANOPTICON_INSTANCE_TOKEN
+
+1. Go to [**New fine-grained personal access token**](https://github.com/settings/personal-access-tokens/new).
+2. Set **Resource owner** to your org (e.g. `acme`).
+3. Under **Repository access**, choose **Only select repositories** and add your instance repo
+   (e.g. `acme/panopticon-instance`).
+4. Under **Permissions → Repository permissions**, add:
+   - **Contents** → Read and write
+   - **Issues** → Read and write
+   - *(Metadata → Read-only is added automatically by GitHub)*
+5. Set an expiration, click **Generate token**, and copy it immediately.
+6. Add the copied token as the `PANOPTICON_INSTANCE_TOKEN` org secret at
+   **Settings → Secrets and variables → Actions (https://github.com/organizations/YOUR-ORG/settings/secrets/actions)**.
 
 ## 3. Org configuration
 
