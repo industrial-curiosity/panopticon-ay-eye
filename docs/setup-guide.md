@@ -16,12 +16,11 @@ GitHub does not allow private forks of public repositories, so the instance is c
    - `interfaces/{repo}.json` — one interface index shard per child repo
    - `interfaces/index.json` — the compiled org-wide index (with its `conflicts` array)
    - `panopticon.config.json` — org configuration (see step 3)
-3. To pull template updates later, add this repo as a git remote and merge:
-
-   ```bash
-   git remote add template https://github.com/therightstuff/panopticon-ay-eye.git
-   git fetch template && git merge template/main
-   ```
+3. To pull template updates later, run the **Sync from template** workflow from
+   **Actions → Sync from template → Run workflow**. If the merge produces conflicts
+   (e.g. both sides modified `panopticon.config.json`), the workflow fails with
+   instructions to resolve them locally. You can also enable the weekly schedule
+   in the workflow file to receive updates automatically.
 
 4. Tag the instance repo (e.g. `v1`) so child caller workflows can pin a ref (see step 3's
    `workflow_ref`).

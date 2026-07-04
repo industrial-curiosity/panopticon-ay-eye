@@ -1,0 +1,48 @@
+# Pulls updates from the panopticon-ay-eye template repo into this instance repo.
+#
+# Run manually from Actions → Sync from template → Run workflow.
+# If the merge produces conflicts (e.g. panopticon.config.json edited on both sides),
+# the workflow fails with instructions to resolve locally.
+#
+# Optionally enable the schedule below to check for updates automatically.
+name: Sync from template
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: '0 9 * * 1'  # weekly, Monday 09:00 UTC
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch template
+        run: |
+          git remote add template https://github.com/industrial-curiosity/panopticon-ay-eye.git 2>/dev/null || true
+          git fetch template main
+
+      - name: Merge template changes
+        run: |
+          if ! git merge template/main --no-edit --allow-unrelated-histories 2>&1; then
+            echo "::error::Merge conflict — resolve locally then push:"
+            echo "::error::  git remote add template https://github.com/industrial-curiosity/panopticon-ay-eye.git"
+            echo "::error::  git fetch template main"
+            echo "::error::  git merge template/main --allow-unrelated-histories"
+            echo "::error::  # resolve conflicts, then:"
+            echo "::error::  git push origin main"
+            exit 1
+          fi
+
+      - name: Push
+        run: git push origin main
