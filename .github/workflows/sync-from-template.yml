@@ -17,11 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      workflows: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Fine-grained PAT with Contents R/W on this repo — required because GITHUB_TOKEN
+          # cannot push to .github/workflows/ regardless of permissions granted to the job.
+          token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
 
       - name: Configure git identity
         run: |

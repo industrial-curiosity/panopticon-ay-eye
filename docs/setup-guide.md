@@ -28,8 +28,12 @@ GitHub does not allow private forks of public repositories, so the instance is c
 ## 2. Configure org-level secrets and variables
 
 Go to your org's **Settings → Secrets and variables → Actions (https://github.com/organizations/YOUR-ORG/settings/secrets/actions)**
-(replace `YOUR-ORG` with your GitHub org slug) and grant each item access to every repo Panopticon
-should cover. Child repos never configure per-repo secrets or variables — their caller workflows are
+(replace `YOUR-ORG` with your GitHub org slug) and grant each item access to:
+- the **instance repo** (created in step 1), and
+- every **child repo** Panopticon should cover.
+
+The instance repo needs access too because the Sync from template workflow runs there.
+Child repos never configure per-repo secrets or variables — their caller workflows are
 trivial references to the shared workflows.
 
 **Secrets** (encrypted; never visible in logs):
@@ -53,8 +57,9 @@ index updates — run in each developer's own AI agent harness and need none of 
 
 1. Go to [**New fine-grained personal access token**](https://github.com/settings/personal-access-tokens/new).
 2. Set **Resource owner** to your org (e.g. `acme`).
-3. Under **Repository access**, choose **Only select repositories** and add your instance repo
-   (e.g. `acme/panopticon-instance`).
+3. Under **Repository access**, choose **Only select repositories** and add your **instance repo**
+   — the private repo you created in step 1 (e.g. `acme/panopticon-instance`). This is not a child
+   repo; it is the central knowledge-base repo that all child repos push into.
 4. Under **Permissions → Repository permissions**, add:
    - **Contents** → Read and write
    - **Issues** → Read and write
