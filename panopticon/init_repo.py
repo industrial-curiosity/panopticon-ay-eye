@@ -1,23 +1,21 @@
-"""Child-repo initialization, run from an instance-fork checkout.
+"""Child-repo initialization finalization step.
 
-Division of labor (repo-initialization spec): the **user's agent** generates the four-layer docs
-and the local interface index via the bundled skills (panopticon-doc-generation,
-panopticon-interface-naming — no ``PANOPTICON_LLM_*`` needed locally). This deterministic tool
-then:
+After the bootstrap installer (``install.py``) has wired skills and workflows, and after the
+user's agent has generated documentation and the local interface index via the bundled skills,
+this module validates those artifacts and writes ``panopticon/config.json`` — the initialization
+flag — as the last artifact created.
 
-1. adopts or asks for the documentation location (existing docs win; default ``docs/``),
-2. validates that the agent-produced docs and index meet requirements,
-3. wires thin caller workflows referencing the instance repo's reusable workflows at the
-   org-configured ref,
-4. verifies org-level secrets exist (report-only — missing secrets never block local init), and
-5. writes ``panopticon/config.json`` — the initialization flag — **only after validation passes**.
+Run from the child repo::
 
-Re-initialization is idempotent: workflows, docs wiring, and config are updated in place; nothing
-is duplicated.
+    python3 -m panopticon.init_repo --instance acme/panopticon-instance
 
-Usage (from the instance repo checkout)::
+Division of labor (repo-initialization spec):
 
-    python3 -m panopticon.init_repo --child ../svc-a --instance acme/panopticon-instance
+- **Bootstrap** (``install.py`` / ``panopticon/bootstrap.py``): downloads skills, wires
+  caller workflows, prints agent prompts.  No local instance clone required.
+- **Agent**: generates docs and interface index using the installed skills.
+- **Finalization** (this module): validates agent-produced docs and index, writes
+  ``panopticon/config.json`` only after validation passes.  Re-running is idempotent.
 """
 
 import argparse
@@ -26,55 +24,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .config import DEFAULT_WORKFLOW_REF, load_org_config, load_repo_config, save_repo_config
+from .config import DEFAULT_WORKFLOW_REF, load_repo_config, save_repo_config
 from .docs import validate_docs
 from .index import KIND_LOCAL, IndexValidationError, load_index
 
-CALLER_WORKFLOWS = ("panopticon-pr.yml", "panopticon-merge.yml", "panopticon-pr-close.yml")
 ORG_SECRETS = ("PANOPTICON_LLM_API_KEY", "PANOPTICON_INSTANCE_TOKEN")
 ORG_VARS = ("PANOPTICON_LLM_ENDPOINT", "PANOPTICON_LLM_MODEL")
 
-_CALLER_HEADER = (
-    "# Wired by Panopticon init — a thin reference to the shared workflow in the instance repo.\n"
-    "# Do not edit by hand; re-run the init tooling to update. Secrets and variables are\n"
-    "# org-level; this repo configures none of its own.\n"
-)
-
 _EXISTING_DOC_DIRS = ("docs", "doc", "documentation")
-
-
-def caller_workflow_text(name, instance, ref, default_branch):
-    triggers = {
-        "panopticon-pr.yml": "on:\n  pull_request:\n",
-        "panopticon-merge.yml": f"on:\n  push:\n    branches: [{default_branch}]\n",
-        "panopticon-pr-close.yml": "on:\n  pull_request:\n    types: [closed]\n",
-    }[name]
-    workflow_name = {
-        "panopticon-pr.yml": "Panopticon PR checks",
-        "panopticon-merge.yml": "Panopticon merge sync",
-        "panopticon-pr-close.yml": "Panopticon PR close",
-    }[name]
-    return (
-        f"{_CALLER_HEADER}"
-        f"name: {workflow_name}\n"
-        f"{triggers}"
-        "jobs:\n"
-        "  panopticon:\n"
-        f"    uses: {instance}/.github/workflows/{name}@{ref}\n"
-        "    secrets: inherit\n"
-    )
-
-
-def wire_workflows(child_root, instance, ref, default_branch):
-    """Write/refresh the three caller workflows in place; returns their paths."""
-    workflows_dir = Path(child_root) / ".github" / "workflows"
-    workflows_dir.mkdir(parents=True, exist_ok=True)
-    written = []
-    for name in CALLER_WORKFLOWS:
-        path = workflows_dir / name
-        path.write_text(caller_workflow_text(name, instance, ref, default_branch), encoding="utf-8")
-        written.append(path)
-    return written
 
 
 def detect_docs_location(child_root, configured=None, requested=None, prompt=input):
@@ -167,9 +124,12 @@ def verify_org_secrets(org, runner=subprocess.run):
     return report
 
 
-def initialize(child_root, repo_name, instance, workflow_ref, docs_location, default_branch="main",
+def initialize(child_root, repo_name, instance, docs_location=None, workflow_ref=DEFAULT_WORKFLOW_REF,
                skip_secret_check=False, prompt=input):
-    """Full init pass. Returns (exit_code, messages)."""
+    """Finalization pass: validate agent output and write panopticon/config.json.
+
+    Returns (exit_code, messages). Idempotent — safe to re-run.
+    """
     messages = []
     child_root = Path(child_root)
     existing = load_repo_config(child_root)
@@ -182,8 +142,6 @@ def initialize(child_root, repo_name, instance, workflow_ref, docs_location, def
         requested=requested,
         prompt=prompt,
     )
-    if docs_location != requested and not existing:
-        messages.append(f"documentation location: {docs_location}/")
 
     problems = validate_child(child_root, repo_name, docs_location)
     if problems:
@@ -191,12 +149,9 @@ def initialize(child_root, repo_name, instance, workflow_ref, docs_location, def
         messages.extend(f"  - {p}" for p in problems)
         messages.append(
             "Generate/repair the docs and index with your agent (panopticon-doc-generation, "
-            "panopticon-interface-naming skills), then re-run init."
+            "panopticon-interface-naming skills), then re-run the finalization step."
         )
         return 1, messages
-
-    for path in wire_workflows(child_root, instance, workflow_ref, default_branch):
-        messages.append(f"wired {path.relative_to(child_root)}")
 
     if not skip_secret_check:
         messages.extend(verify_org_secrets(instance.split("/")[0]))
@@ -215,27 +170,24 @@ def initialize(child_root, repo_name, instance, workflow_ref, docs_location, def
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Initialize a child repo for Panopticon.")
-    parser.add_argument("--child", required=True, help="path to the child repo checkout")
+    parser = argparse.ArgumentParser(
+        description="Finalize Panopticon initialization for a child repo."
+    )
+    parser.add_argument("--child", default=".", help="path to the child repo (default: current directory)")
     parser.add_argument("--repo-name", help="child repo name (default: directory name)")
     parser.add_argument("--instance", required=True, help="instance repo as owner/name")
-    parser.add_argument("--workflow-ref", help="ref for caller workflows (default: org config workflow_ref)")
+    parser.add_argument("--workflow-ref", default=DEFAULT_WORKFLOW_REF,
+                        help=f"ref recorded in panopticon/config.json (default: {DEFAULT_WORKFLOW_REF})")
     parser.add_argument("--docs-location", help="documentation location (skips adoption/prompt)")
-    parser.add_argument("--default-branch", default="main")
-    parser.add_argument("--instance-root", default=".", help="instance checkout holding panopticon.config.json")
     parser.add_argument("--skip-secret-check", action="store_true")
     args = parser.parse_args(argv)
 
-    workflow_ref = args.workflow_ref or load_org_config(args.instance_root).get(
-        "workflow_ref", DEFAULT_WORKFLOW_REF
-    )
     code, messages = initialize(
         child_root=args.child,
         repo_name=args.repo_name or Path(args.child).resolve().name,
         instance=args.instance,
-        workflow_ref=workflow_ref,
         docs_location=args.docs_location,
-        default_branch=args.default_branch,
+        workflow_ref=args.workflow_ref,
         skip_secret_check=args.skip_secret_check,
     )
     for message in messages:

@@ -38,9 +38,20 @@
 
 ## 4. Repo initialization (repo-initialization)
 
-- [x] 4.1 Implement the init tooling: caller-workflow wiring at the org-configured ref, validation that the
-      agent-produced docs and index meet requirements, `panopticon/config.json` written only after validation
-      passes — no `PANOPTICON_LLM_*` needed locally
+- [x] 4.1 Implement bootstrap installer script (`install.py` in the template repo root): stdlib-only Python,
+      reads `PANOPTICON_INSTANCE` env var or prompts, downloads skills from instance repo via GitHub API to
+      child repo's `.agents/skills/`, downloads and wires the three caller workflows to `.github/workflows/`,
+      runs org prerequisite verification (report-only), prints copy-pasteable agent prompts — does NOT write
+      `panopticon/config.json` (was: init_repo.py bundled wiring + validation + config write; that assumption
+      breaks under the new bootstrap design which runs from the child repo without a local instance clone)
+- [x] 4.7 Refactor `panopticon/init_repo.py` into a finalization-only step: remove workflow wiring (now
+      handled by the bootstrap script), retain validation of agent-produced docs and index, write
+      `panopticon/config.json` only after validation passes — keep as the last artifact created
+- [x] 4.8 Write the agent prompt strings output by the bootstrap script: prompts for
+      `panopticon-doc-generation`, `panopticon-interface-naming`/`panopticon-interface-extraction`, and the
+      finalization command — all copy-pasteable with no user substitution required
+- [x] 4.9 Unit tests for the bootstrap installer: skill download, workflow wiring, idempotent re-run, env var
+      vs prompt fallback, missing-prerequisite reporting
 - [x] 4.2 Implement org-level secret and variable verification with actionable setup instructions (secrets
       `PANOPTICON_LLM_API_KEY`/`PANOPTICON_INSTANCE_TOKEN` and variables `PANOPTICON_LLM_ENDPOINT`/
       `PANOPTICON_LLM_MODEL` checked separately via the gh API; child repos need no per-repo configuration;

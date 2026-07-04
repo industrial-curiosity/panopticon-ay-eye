@@ -1,4 +1,4 @@
-"""Init tooling: validation gate, workflow wiring, docs-location adoption, idempotent re-init."""
+"""Finalization step: validation gate, docs-location adoption, idempotent re-init."""
 
 import unittest
 import tempfile
@@ -7,7 +7,6 @@ from pathlib import Path
 from panopticon.config import load_repo_config
 from panopticon.index import save_index
 from panopticon.init_repo import (
-    CALLER_WORKFLOWS,
     detect_docs_location,
     initialize,
     verify_org_secrets,
@@ -47,33 +46,32 @@ class TestValidationGate(unittest.TestCase):
             code, messages = run_init(tmp, docs_location="docs")
             self.assertEqual(code, 1)
             self.assertIsNone(load_repo_config(tmp))
-            self.assertFalse((Path(tmp) / ".github").exists())
         text = "\n".join(messages)
         self.assertIn("NOT written", text)
         self.assertIn("architecture overview", text)
         self.assertIn("local index", text)
 
-    def test_successful_init_writes_everything(self):
+    def test_successful_finalization_writes_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             make_valid_child(tmp)
             code, messages = run_init(tmp)
             self.assertEqual(code, 0, messages)
             config = load_repo_config(tmp)
-            workflows = sorted(p.name for p in (Path(tmp) / ".github" / "workflows").iterdir())
         self.assertEqual(config["repo"], "svc-a")
         self.assertEqual(config["docs_location"], "docs")
-        self.assertEqual(workflows, sorted(CALLER_WORKFLOWS))
+        self.assertIn("wrote panopticon/config.json", "\n".join(messages))
 
-    def test_caller_workflows_reference_instance_at_ref(self):
+    def test_config_is_last_artifact_written(self):
+        """panopticon/config.json must not exist before validation passes."""
         with tempfile.TemporaryDirectory() as tmp:
+            # Incomplete child — finalization fails; config must not be created.
+            run_init(tmp, docs_location="docs")
+            self.assertFalse((Path(tmp) / "panopticon" / "config.json").exists())
+            # Complete child — finalization succeeds; config is now written.
             make_valid_child(tmp)
-            run_init(tmp, workflow_ref="v2.1")
-            text = (Path(tmp) / ".github" / "workflows" / "panopticon-pr.yml").read_text()
-        self.assertIn(
-            "uses: acme/panopticon-instance/.github/workflows/panopticon-pr.yml@v2.1", text
-        )
-        self.assertIn("secrets: inherit", text)
-        self.assertNotIn("PANOPTICON_", text)  # no per-repo secret configuration
+            code, _ = run_init(tmp)
+            self.assertEqual(code, 0)
+            self.assertTrue((Path(tmp) / "panopticon" / "config.json").exists())
 
 
 class TestDocsLocationAdoption(unittest.TestCase):
@@ -95,16 +93,13 @@ class TestDocsLocationAdoption(unittest.TestCase):
         self.assertEqual(location, "site")
 
 
-class TestIdempotentReinit(unittest.TestCase):
-    def test_reinit_updates_in_place_without_duplicates(self):
+class TestIdempotentRefinalization(unittest.TestCase):
+    def test_refinalization_updates_config_in_place(self):
         with tempfile.TemporaryDirectory() as tmp:
             make_valid_child(tmp)
-            self.assertEqual(run_init(tmp)[0], 0)
+            self.assertEqual(run_init(tmp, workflow_ref="v1")[0], 0)
             code, messages = run_init(tmp, workflow_ref="v2")
             self.assertEqual(code, 0)
-            workflows_dir = Path(tmp) / ".github" / "workflows"
-            self.assertEqual(len(list(workflows_dir.iterdir())), len(CALLER_WORKFLOWS))
-            self.assertIn("@v2", (workflows_dir / "panopticon-pr.yml").read_text())
             config = load_repo_config(tmp)
         self.assertEqual(config["workflow_ref"], "v2")
         self.assertIn("idempotent re-init", "\n".join(messages))
@@ -172,7 +167,7 @@ class TestSecretVerification(unittest.TestCase):
         report = verify_org_secrets("acme", runner=self.gh_stub(returncode=1, stderr="HTTP 403"))
         self.assertIn("could not verify", report[0])
 
-    def test_missing_secrets_never_block_init(self):
+    def test_missing_secrets_never_block_finalization(self):
         from unittest import mock
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -182,7 +177,6 @@ class TestSecretVerification(unittest.TestCase):
                 return_value=["missing org-level secret PANOPTICON_INSTANCE_TOKEN: ..."],
             ):
                 code, messages = run_init(tmp, skip_secret_check=False)
-        # verification reported a missing secret, but init still completed
         self.assertEqual(code, 0, messages)
         self.assertIn("missing org-level secret", "\n".join(messages))
 

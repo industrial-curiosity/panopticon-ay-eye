@@ -1,26 +1,116 @@
 ## ADDED Requirements
 
+### Requirement: Bootstrap installer script
+
+The template repo SHALL include a Python bootstrap script that can be run directly from a child repo
+without cloning the instance repo locally, invoked via:
+
+```
+curl -fsSL https://raw.githubusercontent.com/<instance>/main/install.py | python3
+```
+
+or equivalently by downloading and running it. The script SHALL read the instance org/repo slug from the
+`PANOPTICON_INSTANCE` environment variable, falling back to an interactive prompt when the variable is not
+set. Using only Python stdlib and the GitHub API (no additional dependencies), the script SHALL:
+
+1. Download all skills from the instance repo's `.agents/skills/` directory and write them to the child
+   repo's `.agents/skills/`, creating the directory if absent.
+2. Download the three caller workflow files from the instance repo and write them to the child repo's
+   `.github/workflows/`, creating the directory if absent.
+3. Verify org-level CI prerequisites (secrets and variables) and report any missing items — report-only,
+   never blocking.
+4. Output the exact prompts the user shall give their AI agent to complete the AI-dependent initialization
+   steps (see "Agent prompts output").
+
+The bootstrap script SHALL NOT write `panopticon/config.json`. The config file is the last artifact
+created, by the finalization step after the agent has completed its work.
+
+#### Scenario: First run in an uninitialised repo
+
+- **WHEN** the bootstrap script runs in a child repo with `PANOPTICON_INSTANCE=acme/panopticon-instance`
+  set (or entered at the prompt)
+- **THEN** the child repo's `.agents/skills/` contains the instance skills, `.github/workflows/` contains
+  the three Panopticon caller workflows, and the terminal prints the agent prompts — without creating
+  `panopticon/config.json`
+
+#### Scenario: Instance slug not configured
+
+- **WHEN** the bootstrap script runs with no `PANOPTICON_INSTANCE` env var and the user enters a slug at
+  the prompt
+- **THEN** the script proceeds using the entered slug, identical to supplying the env var
+
+#### Scenario: Re-run on an already-bootstrapped repo
+
+- **WHEN** the bootstrap script is run again on a repo whose skills and workflows are already installed
+- **THEN** all files are updated in place and nothing is duplicated
+
+### Requirement: Agent prompts output
+
+After completing all deterministic steps, the bootstrap script SHALL print the exact prompts the user
+should provide to their AI agent to complete initialization, in order:
+
+1. A prompt to invoke `panopticon-doc-generation` to generate the four-layer documentation.
+2. A prompt to invoke `panopticon-interface-naming` and `panopticon-interface-extraction` to build the
+   local interface index (`panopticon/index.json`).
+3. A prompt instructing the agent to run the finalization step once the above are complete (see
+   "Initialization finalization").
+
+Prompts SHALL be copy-pasteable verbatim with no user substitution required.
+
+#### Scenario: Prompts are printed after all deterministic work
+
+- **WHEN** the bootstrap script has successfully installed skills and workflows
+- **THEN** it prints numbered, copy-pasteable agent prompts and exits with code 0
+
+## MODIFIED Requirements
+
 ### Requirement: Agent-driven initialization
 
-Repo initialization SHALL be performed by the user's preferred AI agent following the bundled skills:
-generating the four-layer documentation and building the local interface index, with no `PANOPTICON_LLM_*`
-configuration required locally. The deterministic tooling, run from an instance fork against the child repo,
-SHALL wire the repo with thin caller workflows referencing the instance repo's reusable workflows at the
-org-configured ref, SHALL validate that the agent-produced docs and index meet the project requirements (all
-four layers present and following their templates; schema-valid index), and SHALL write the repo's Panopticon
-config file (`panopticon/config.json`) — which serves as the initialization flag and records repo-level
-settings such as the documentation location — only after that validation passes.
+Repo initialization SHALL follow a three-phase sequence:
+
+**Phase 1 — Bootstrap (deterministic, no AI):** the bootstrap installer script installs skills and wires
+caller workflows in the child repo and outputs guided agent prompts. No `PANOPTICON_LLM_*` or local
+instance clone is required.
+
+**Phase 2 — Agent (AI-driven):** the user's preferred AI agent follows the installed skills — using the
+prompts output by the bootstrap script — to generate the four-layer documentation and build the local
+interface index (`panopticon/index.json`). No `PANOPTICON_LLM_*` configuration is required locally;
+the agent uses its own harness.
+
+**Phase 3 — Finalization (deterministic):** the finalization step validates that the agent-produced docs
+and index meet requirements (all four layers present and following their templates; schema-valid index)
+and writes `panopticon/config.json` — the initialization flag — only after that validation passes.
+`panopticon/config.json` SHALL be the last artifact created during initialization.
 
 #### Scenario: Successful initialization
 
-- **WHEN** the user's agent has generated docs and index and the deterministic validation passes
-- **THEN** the repo contains caller workflows pointing at the instance repo's reusable workflows, generated
-  docs, a local `panopticon/index.json`, and `panopticon/config.json`
+- **GIVEN** the bootstrap script has installed skills and workflows and printed agent prompts
+- **WHEN** the agent has generated docs and index and the finalization step runs
+- **THEN** `panopticon/config.json` is written as the final artifact, and the repo is fully initialized
 
-#### Scenario: Docs do not yet meet requirements
+#### Scenario: Agent output incomplete at finalization
 
-- **WHEN** validation runs before the agent has produced all four documentation layers
+- **WHEN** the finalization step runs before the agent has produced all four documentation layers
 - **THEN** no config file is written and the tooling reports exactly which requirements are unmet
+
+### Requirement: Initialization finalization
+
+A finalization command, distinct from the bootstrap script, SHALL validate the agent-produced
+documentation and index and write `panopticon/config.json` only when validation passes. It SHALL read
+the documentation location from the child repo (adopting an existing docs folder or using the default
+`docs/`), record it in the config, and verify org-level CI prerequisites (report-only). The finalization
+step SHALL be idempotent: re-running it updates the config in place.
+
+#### Scenario: Validation passes
+
+- **WHEN** all four documentation layers are present and the local index is schema-valid
+- **THEN** `panopticon/config.json` is written with `repo`, `instance`, `workflow_ref`, and
+  `docs_location` fields
+
+#### Scenario: Re-finalization after a docs update
+
+- **WHEN** the finalization step is run again on an already-initialized repo
+- **THEN** `panopticon/config.json` is updated in place and no duplicate files are created
 
 ### Requirement: Org-level CI prerequisites
 
@@ -30,8 +120,7 @@ The init tooling SHALL verify that the org-level **secrets** `PANOPTICON_LLM_API
 shared CI workflows — and SHALL report clear setup instructions for any that are missing rather than failing
 opaquely, distinguishing whether each missing item is a secret or a variable. Child repos MUST NOT require
 per-repo secret or variable configuration: the caller workflows a child repo receives are trivial references
-to the shared workflows. Missing secrets or variables SHALL NOT block the local initialization steps
-themselves.
+to the shared workflows. Missing secrets or variables SHALL NOT block any initialization step.
 
 #### Scenario: Missing instance token
 
@@ -47,29 +136,31 @@ themselves.
 
 ### Requirement: Documentation location adoption
 
-When the child repo already has documentation, initialization SHALL adopt that location as the documentation
-source and align its content to Panopticon's four layers as much as possible — it does not need to be perfect.
-When no documentation exists, the user SHALL be prompted for the desired location, with `docs/` as the
-default. The chosen location SHALL be recorded in `panopticon/config.json` so CI and sync workflows can
-locate the docs.
+When the child repo already has documentation, initialization SHALL adopt that location as the
+documentation source. When no documentation exists, the user SHALL be prompted for the desired location,
+with `docs/` as the default. The chosen location SHALL be recorded in `panopticon/config.json`.
 
 #### Scenario: Repo with existing docs
 
-- **WHEN** initialization runs on a repo with an existing documentation folder
-- **THEN** that folder is configured as the doc source and its content is aligned to the four layers where
-  feasible
+- **WHEN** the finalization step runs on a repo with an existing documentation folder
+- **THEN** that folder is configured as the doc source
 
 #### Scenario: Repo without docs
 
-- **WHEN** initialization runs on a repo with no existing documentation
+- **WHEN** the finalization step runs on a repo with no existing documentation
 - **THEN** the user is prompted for the desired location, defaulting to `docs/`
 
 ### Requirement: Idempotent re-initialization
 
-Re-initializing an already-initialized repo SHALL detect `panopticon/config.json` and update workflow wiring,
-docs, and index in place without duplicating workflows or docs.
+Re-running the bootstrap script or the finalization step on an already-initialized repo SHALL update all
+artifacts in place without creating duplicates.
 
-#### Scenario: Re-run on initialized repo
+#### Scenario: Re-run bootstrap on initialized repo
 
-- **WHEN** initialization runs on a repo that already has `panopticon/config.json`
-- **THEN** existing Panopticon workflows and docs are updated in place and no duplicate files are created
+- **WHEN** the bootstrap script runs again on a repo that already has Panopticon skills and workflows
+- **THEN** skills and workflows are refreshed in place and no duplicates are created
+
+#### Scenario: Re-run finalization on initialized repo
+
+- **WHEN** the finalization step runs again on a repo that already has `panopticon/config.json`
+- **THEN** the config is updated in place and no duplicate files are created

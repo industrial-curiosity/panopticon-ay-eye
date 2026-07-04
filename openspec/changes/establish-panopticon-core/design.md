@@ -82,9 +82,10 @@ exactly what is missing — a silent skip would falsely imply the checks passed.
 ### D6: Workflows are reusable workflows referenced from the instance repo
 
 Child repos get thin caller workflows (`uses: <org>/<instance>/.github/workflows/panopticon-pr.yml@<ref>`)
-written by the init script. The ref is org-configurable at init time (branch or tag; template default is a
-pinned tag). Tooling runs by checking out the instance repo and invoking scripts directly — no pip package,
-no build step.
+written by the bootstrap installer script. The ref is org-configurable at bootstrap time (branch or tag;
+template default is a pinned tag). The bootstrap script fetches skills and workflows from the instance repo
+via the GitHub API — no local clone of the instance repo is required. CI steps run by checking out the
+instance repo and invoking scripts directly — no pip package, no build step.
 
 ### D7: Cross-repo auth is a fine-grained PAT (GitHub App later)
 

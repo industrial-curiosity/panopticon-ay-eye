@@ -89,25 +89,51 @@ index updates — run in each developer's own AI agent harness and need none of 
 
 ## 4. Initialize a child repo
 
-Initialization is a two-step dance between the developer's agent and deterministic tooling:
+Initialization has three phases: a deterministic bootstrap, an AI agent pass, and a final validation step.
 
-1. **Agent step (local, no Panopticon secrets):** in the child repo, have your AI agent follow
-   the bundled skills — `panopticon-doc-generation` for the four documentation layers and
-   `panopticon-interface-naming` / `panopticon-interface-extraction` for the local index
-   (`panopticon/index.json`). The skills live in the instance checkout under `.agents/skills/`.
-2. **Tooling step:** from the instance repo checkout, run:
+### Phase 1 — Bootstrap (from the child repo, no AI needed)
 
-   ```bash
-   python3 -m panopticon.init_repo --child ../my-service --instance acme/panopticon-instance
-   ```
+Run the bootstrap script from inside the child repo. It will prompt for your instance slug if
+`PANOPTICON_INSTANCE` is not already set:
 
-   The tooling adopts the repo's existing documentation location (or asks, defaulting to
-   `docs/`), validates the agent-produced docs and index, wires the three caller workflows, and
-   writes `panopticon/config.json` — the initialization flag — only when validation passes. It
-   also verifies the org secrets exist (report-only; missing secrets never block local init).
-   Re-running init is idempotent.
+```bash
+cd my-service
+export PANOPTICON_INSTANCE=acme/panopticon-instance
+curl -fsSL "https://raw.githubusercontent.com/acme/${PANOPTICON_INSTANCE}/main/install.py" | python3
 
-3. Commit and push the child repo changes (workflows, docs, `panopticon/` directory).
+# or call it directly and enter it again when prompted
+curl -fsSL "https://raw.githubusercontent.com/acme/acme/panopticon-instance/main/install.py" | python3
+```
+
+The script will:
+- Install the Panopticon skills into `.agents/skills/`
+- Wire the three caller GitHub Actions workflows into `.github/workflows/`
+- Check that org secrets and variables are configured (report-only — nothing is blocked)
+- Print the exact prompts to give your AI agent in Phase 2
+
+### Phase 2 — Agent (follow the printed prompts)
+
+Copy the prompts the bootstrap script printed and give them to your AI agent (Claude Code, Cursor,
+or any harness that loads skills from `.agents/skills/`). The agent will:
+1. Generate the four-layer documentation using the `panopticon-doc-generation` skill
+2. Build the local interface index (`panopticon/index.json`) using the
+   `panopticon-interface-naming` and `panopticon-interface-extraction` skills
+
+No `PANOPTICON_LLM_*` secrets or variables are needed locally — the agent uses its own harness.
+
+### Phase 3 — Finalize
+
+The final prompt from the bootstrap output will instruct your agent to run the finalization step,
+which validates the agent-produced docs and index and writes `panopticon/config.json` — the
+initialization flag — only once validation passes.
+
+### Commit and push
+
+```bash
+git add .github/workflows/ .agents/skills/ docs/ panopticon/
+git commit -m "chore: initialize Panopticon"
+git push
+```
 
 ## 5. What runs afterwards
 
