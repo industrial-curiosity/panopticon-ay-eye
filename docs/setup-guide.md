@@ -109,10 +109,10 @@ Run the bootstrap script from inside the child repo. It will prompt for your ins
 ```bash
 cd my-service
 export PANOPTICON_INSTANCE=acme/panopticon-instance
-curl -fsSL "https://raw.githubusercontent.com/acme/${PANOPTICON_INSTANCE}/main/install.py" | python3
+curl -fsSL "https://raw.githubusercontent.com/${PANOPTICON_INSTANCE}/main/install.py" | python3
 
 # or call it directly and enter it again when prompted
-curl -fsSL "https://raw.githubusercontent.com/acme/acme/panopticon-instance/main/install.py" | python3
+curl -fsSL "https://raw.githubusercontent.com/acme/panopticon-instance/main/install.py" | python3
 ```
 
 The script will:

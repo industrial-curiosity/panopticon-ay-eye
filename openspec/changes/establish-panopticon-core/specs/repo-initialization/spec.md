@@ -11,7 +11,8 @@ curl -fsSL https://raw.githubusercontent.com/<instance>/main/install.py | python
 
 or equivalently by downloading and running it. The script SHALL read the instance org/repo slug from the
 `PANOPTICON_INSTANCE` environment variable, falling back to an interactive prompt when the variable is not
-set. Using only Python stdlib and the GitHub API (no additional dependencies), the script SHALL:
+set and stdin is a terminal. Using only Python stdlib and the GitHub API (no additional dependencies), the
+script SHALL:
 
 1. Download all skills from the instance repo's `.agents/skills/` directory and write them to the child
    repo's `.agents/skills/`, creating the directory if absent.
@@ -25,6 +26,20 @@ set. Using only Python stdlib and the GitHub API (no additional dependencies), t
 The bootstrap script SHALL NOT write `panopticon/config.json`. The config file is the last artifact
 created, by the finalization step after the agent has completed its work.
 
+#### Self-bootstrapping when piped via curl
+
+When `install.py` is piped from the instance repo via `curl | python3`, it runs outside the instance repo
+directory and cannot import the `panopticon` package locally. The script SHALL detect this condition
+(import failure at startup) and self-bootstrap by downloading `panopticon/__init__.py` and
+`panopticon/bootstrap.py` from the instance repo via the GitHub API, installing them into `sys.modules`
+in-process, then continuing with the normal import flow — without requiring any local clone of the
+instance repo.
+
+Token discovery for GitHub API calls SHALL follow the same precedence used by bootstrap.py: `GH_TOKEN`
+env var, then `GITHUB_TOKEN` env var, then `gh auth token` if the `gh` CLI is available. When no token is
+found the API call is made unauthenticated (suitable for public instance repos; private repos will receive
+a 404 and the script SHALL exit with a clear error).
+
 #### Scenario: First run in an uninitialised repo
 
 - **WHEN** the bootstrap script runs in a child repo with `PANOPTICON_INSTANCE=acme/panopticon-instance`
@@ -33,11 +48,27 @@ created, by the finalization step after the agent has completed its work.
   the three Panopticon caller workflows, and the terminal prints the agent prompts — without creating
   `panopticon/config.json`
 
-#### Scenario: Instance slug not configured
+#### Scenario: Piped curl execution with panopticon package unavailable
 
-- **WHEN** the bootstrap script runs with no `PANOPTICON_INSTANCE` env var and the user enters a slug at
-  the prompt
-- **THEN** the script proceeds using the entered slug, identical to supplying the env var
+- **GIVEN** the user runs `curl -fsSL https://raw.githubusercontent.com/<instance>/main/install.py | python3`
+  from a child repo that does not contain the `panopticon` package
+- **WHEN** the initial import of `panopticon.bootstrap` fails with `ModuleNotFoundError`
+- **THEN** the script downloads `panopticon/__init__.py` and `panopticon/bootstrap.py` from the instance
+  repo, installs them in-process, and proceeds identically to a local run with no error surfaced to the
+  user
+
+#### Scenario: Piped curl execution with PANOPTICON_INSTANCE unset
+
+- **GIVEN** the user pipes `install.py` via curl without setting `PANOPTICON_INSTANCE`
+- **WHEN** stdin is not a terminal (no interactive prompt possible)
+- **THEN** the script exits with a non-zero code and a message that names the missing env var and shows
+  the correct export-and-pipe command
+
+#### Scenario: Instance slug not configured in interactive mode
+
+- **WHEN** the bootstrap script runs with no `PANOPTICON_INSTANCE` env var and stdin is a terminal
+- **THEN** the script prompts for the slug and proceeds using the entered value, identical to supplying
+  the env var
 
 #### Scenario: Re-run on an already-bootstrapped repo
 

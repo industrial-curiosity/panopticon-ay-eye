@@ -1,0 +1,138 @@
+{
+  "interfaces": {
+    "fulfillment-queue": [
+      {
+        "consumer": [
+          {
+            "repo": "panopticon-test-child-a",
+            "source_files": [
+              "infra/sqs-queues.yaml"
+            ]
+          }
+        ],
+        "extracted_by": "llm",
+        "owner": {
+          "component": "queue",
+          "repo": "panopticon-test-child-a"
+        },
+        "producer": [
+          {
+            "repo": "panopticon-test-child-a",
+            "source_files": [
+              "infra/sqs-queues.yaml"
+            ]
+          }
+        ],
+        "type": "sqs"
+      }
+    ],
+    "inventory-api": [
+      {
+        "consumer": [],
+        "owner": {
+          "component": "panopticon-test-child-a",
+          "repo": "panopticon-test-child-a"
+        },
+        "producer": [
+          {
+            "repo": "panopticon-test-child-a",
+            "source_files": [
+              "inventory/api/openapi.yaml"
+            ]
+          }
+        ],
+        "type": "rest"
+      }
+    ],
+    "inventory-snapshots": [
+      {
+        "consumer": [
+          {
+            "repo": "panopticon-test-child-a",
+            "source_files": [
+              "infra/s3-buckets.yaml"
+            ]
+          }
+        ],
+        "extracted_by": "llm",
+        "owner": {
+          "component": "storage",
+          "repo": "panopticon-test-child-a"
+        },
+        "producer": [
+          {
+            "repo": "panopticon-test-child-a",
+            "source_files": [
+              "infra/s3-buckets.yaml"
+            ]
+          }
+        ],
+        "type": "s3"
+      }
+    ],
+    "order-events": [
+      {
+        "consumer": [
+          {
+            "repo": "panopticon-test-child-a",
+            "source_files": [
+              "infra/kafka-consumer.properties"
+            ]
+          }
+        ],
+        "owner": null,
+        "producer": [],
+        "type": "kafka"
+      }
+    ],
+    "orders-api": [
+      {
+        "consumer": [
+          {
+            "repo": "panopticon-test-child-a",
+            "source_files": [
+              "infra/services.yaml"
+            ]
+          }
+        ],
+        "extracted_by": "llm",
+        "owner": null,
+        "producer": [],
+        "type": "rest"
+      }
+    ],
+    "product-catalog-db": [
+      {
+        "consumer": [
+          {
+            "repo": "panopticon-test-child-a",
+            "source_files": [
+              "infra/database.yaml"
+            ]
+          }
+        ],
+        "extracted_by": "llm",
+        "owner": null,
+        "producer": [],
+        "type": "postgres"
+      }
+    ],
+    "warehouse-erp": [
+      {
+        "consumer": [
+          {
+            "repo": "panopticon-test-child-a",
+            "source_files": [
+              "infra/services.yaml"
+            ]
+          }
+        ],
+        "extracted_by": "llm",
+        "owner": null,
+        "producer": [],
+        "type": "rest"
+      }
+    ]
+  },
+  "schema_version": 1
+}

@@ -52,6 +52,10 @@
       finalization command — all copy-pasteable with no user substitution required
 - [x] 4.9 Unit tests for the bootstrap installer: skill download, workflow wiring, idempotent re-run, env var
       vs prompt fallback, missing-prerequisite reporting
+- [ ] 4.10 Unit tests for the install.py self-bootstrapping path: `_load_from_github` downloads
+      `panopticon/__init__.py` and `panopticon/bootstrap.py`, installs fake modules into `sys.modules`, and
+      the top-level `except ModuleNotFoundError` block exits clearly when `PANOPTICON_INSTANCE` is unset
+      and stdin is not a tty
 - [x] 4.2 Implement org-level secret and variable verification with actionable setup instructions (secrets
       `PANOPTICON_LLM_API_KEY`/`PANOPTICON_INSTANCE_TOKEN` and variables `PANOPTICON_LLM_ENDPOINT`/
       `PANOPTICON_LLM_MODEL` checked separately via the gh API; child repos need no per-repo configuration;
