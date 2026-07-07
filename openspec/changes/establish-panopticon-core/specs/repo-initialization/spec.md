@@ -14,8 +14,10 @@ or equivalently by downloading and running it. The script SHALL read the instanc
 set and stdin is a terminal. Using only Python stdlib and the GitHub API (no additional dependencies), the
 script SHALL:
 
-1. Download all skills from the instance repo's `.agents/skills/` directory and write them to the child
-   repo's `.agents/skills/`, creating the directory if absent.
+1. Download only skills whose directory name begins with `panopticon-` from the instance repo's
+   `.agents/skills/` directory and write them to the child repo's `.agents/skills/`, creating the
+   directory if absent. Skills at other name prefixes (org-internal skills, tooling skills, etc.) SHALL
+   NOT be written to the child repo.
 2. Download the three caller workflow files from the instance repo and write them to the child repo's
    `.github/workflows/`, creating the directory if absent.
 3. Verify org-level CI prerequisites (secrets and variables) and report any missing items — report-only,
@@ -39,6 +41,14 @@ Token discovery for GitHub API calls SHALL follow the same precedence used by bo
 env var, then `GITHUB_TOKEN` env var, then `gh auth token` if the `gh` CLI is available. When no token is
 found the API call is made unauthenticated (suitable for public instance repos; private repos will receive
 a 404 and the script SHALL exit with a clear error).
+
+#### Scenario: Only panopticon-prefixed skills are installed
+
+- **GIVEN** the instance repo's `.agents/skills/` contains both `panopticon-doc-generation/` and
+  `openspec-apply-change/` (an org-internal skill)
+- **WHEN** the bootstrap script runs
+- **THEN** `.agents/skills/panopticon-doc-generation/` is written to the child repo and
+  `.agents/skills/openspec-apply-change/` is not
 
 #### Scenario: First run in an uninitialised repo
 

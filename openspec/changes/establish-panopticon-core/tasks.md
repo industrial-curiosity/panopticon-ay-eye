@@ -38,20 +38,23 @@
 
 ## 4. Repo initialization (repo-initialization)
 
-- [x] 4.1 Implement bootstrap installer script (`install.py` in the template repo root): stdlib-only Python,
-      reads `PANOPTICON_INSTANCE` env var or prompts, downloads skills from instance repo via GitHub API to
-      child repo's `.agents/skills/`, downloads and wires the three caller workflows to `.github/workflows/`,
-      runs org prerequisite verification (report-only), prints copy-pasteable agent prompts — does NOT write
-      `panopticon/config.json` (was: init_repo.py bundled wiring + validation + config write; that assumption
-      breaks under the new bootstrap design which runs from the child repo without a local instance clone)
+- [ ] 4.1 Implement bootstrap installer script (`install.py` in the template repo root): stdlib-only Python,
+      reads `PANOPTICON_INSTANCE` env var or prompts, downloads **only `panopticon-*` skills** from instance
+      repo's `.agents/skills/` to child repo's `.agents/skills/`, downloads and wires the three caller
+      workflows to `.github/workflows/`, runs org prerequisite verification (report-only), prints
+      copy-pasteable agent prompts — does NOT write `panopticon/config.json` [unchecked: `download_skills`
+      filter updated from all `.agents/skills/` blobs to `panopticon-` prefix only; code change done in
+      bootstrap.py]
 - [x] 4.7 Refactor `panopticon/init_repo.py` into a finalization-only step: remove workflow wiring (now
       handled by the bootstrap script), retain validation of agent-produced docs and index, write
       `panopticon/config.json` only after validation passes — keep as the last artifact created
 - [x] 4.8 Write the agent prompt strings output by the bootstrap script: prompts for
       `panopticon-doc-generation`, `panopticon-interface-naming`/`panopticon-interface-extraction`, and the
       finalization command — all copy-pasteable with no user substitution required
-- [x] 4.9 Unit tests for the bootstrap installer: skill download, workflow wiring, idempotent re-run, env var
-      vs prompt fallback, missing-prerequisite reporting
+- [ ] 4.9 Unit tests for the bootstrap installer: skill download, workflow wiring, idempotent re-run, env var
+      vs prompt fallback, missing-prerequisite reporting [unchecked: existing tests use generic skill names
+      (`my-skill`, `foo`) — update to `panopticon-*` names and add a test that non-`panopticon-` skills in
+      the tree are NOT downloaded]
 - [ ] 4.10 Unit tests for the install.py self-bootstrapping path: `_load_from_github` downloads
       `panopticon/__init__.py` and `panopticon/bootstrap.py`, installs fake modules into `sys.modules`, and
       the top-level `except ModuleNotFoundError` block exits clearly when `PANOPTICON_INSTANCE` is unset

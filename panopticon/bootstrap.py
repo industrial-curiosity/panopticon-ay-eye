@@ -173,13 +173,14 @@ def fetch_org_config(owner, repo, ref, token=None, urlopen=urllib.request.urlope
 
 def download_skills(owner, repo, ref, tree, token=None, child_root=".",
                     urlopen=urllib.request.urlopen):
-    """Download all .agents/skills/ blobs from the instance tree; returns count."""
+    """Download panopticon-* skills from the instance tree to the child repo; returns count."""
     blobs = [
         item for item in tree
-        if item["type"] == "blob" and item["path"].startswith(SKILLS_PREFIX)
+        if item["type"] == "blob"
+        and item["path"].startswith(SKILLS_PREFIX + "panopticon-")
     ]
     if not blobs:
-        print("  warning: no skills found under .agents/skills/ in the instance repo")
+        print("  warning: no panopticon-* skills found under .agents/skills/ in the instance repo")
         return 0
     count = 0
     for item in blobs:
