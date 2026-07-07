@@ -141,30 +141,34 @@ class TestDownloadSkills(unittest.TestCase):
         return tree, _make_urlopen(responses)
 
     def test_downloads_skills_to_local_path(self):
-        paths = [".agents/skills/my-skill/SKILL.md"]
+        paths = [".agents/skills/panopticon-my-skill/SKILL.md"]
         tree, urlopen = self._make_tree_and_urlopen(paths)
         with tempfile.TemporaryDirectory() as tmp:
             count = download_skills("acme", "instance", "main", tree, child_root=tmp,
                                     urlopen=urlopen)
-            local = Path(tmp) / ".agents" / "skills" / "my-skill" / "SKILL.md"
+            local = Path(tmp) / ".agents" / "skills" / "panopticon-my-skill" / "SKILL.md"
             self.assertEqual(count, 1)
             self.assertTrue(local.exists())
 
-    def test_skips_non_skill_tree_entries(self):
+    def test_skips_non_panopticon_skills(self):
         tree = [
-            _tree_entry(".agents/skills/foo/SKILL.md"),
+            _tree_entry(".agents/skills/panopticon-doc-generation/SKILL.md"),
+            _tree_entry(".agents/skills/openspec-apply-change/SKILL.md"),
             _tree_entry("panopticon/config.py"),
             _tree_entry(".github/workflows/pr.yml"),
         ]
-        responses = [(".agents/skills/foo/SKILL.md", _file_response(b"# foo"))]
+        responses = [(".agents/skills/panopticon-doc-generation/SKILL.md",
+                      _file_response(b"# panopticon-doc-generation"))]
         urlopen = _make_urlopen(responses)
         with tempfile.TemporaryDirectory() as tmp:
             count = download_skills("acme", "instance", "main", tree, child_root=tmp,
                                     urlopen=urlopen)
-        self.assertEqual(count, 1)
+            excluded = Path(tmp) / ".agents" / "skills" / "openspec-apply-change"
+            self.assertEqual(count, 1)
+            self.assertFalse(excluded.exists())
 
     def test_idempotent_rerun_overwrites_existing(self):
-        path = ".agents/skills/foo/SKILL.md"
+        path = ".agents/skills/panopticon-foo/SKILL.md"
         tree = [_tree_entry(path)]
         with tempfile.TemporaryDirectory() as tmp:
             local = Path(tmp) / path
@@ -230,6 +234,12 @@ class TestAgentPrompts(unittest.TestCase):
         self.assertIn("panopticon-doc-generation", text)
         self.assertIn("panopticon-interface-naming", text)
         self.assertIn("panopticon-interface-extraction", text)
+
+    def test_prompts_use_slash_commands(self):
+        text = agent_prompts("acme/instance")
+        self.assertIn("/panopticon-doc-generation", text)
+        self.assertIn("/panopticon-interface-naming", text)
+        self.assertIn("/panopticon-interface-extraction", text)
 
     def test_finalize_command_is_copy_pasteable(self):
         text = agent_prompts("acme/instance")

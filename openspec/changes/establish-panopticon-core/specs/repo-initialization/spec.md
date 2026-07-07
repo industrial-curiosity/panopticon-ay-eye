@@ -90,18 +90,38 @@ a 404 and the script SHALL exit with a clear error).
 After completing all deterministic steps, the bootstrap script SHALL print the exact prompts the user
 should provide to their AI agent to complete initialization, in order:
 
-1. A prompt to invoke `panopticon-doc-generation` to generate the four-layer documentation.
-2. A prompt to invoke `panopticon-interface-naming` and `panopticon-interface-extraction` to build the
-   local interface index (`panopticon/index.json`).
-3. A prompt instructing the agent to run the finalization step once the above are complete (see
-   "Initialization finalization").
+1. The literal slash-command invocation for `panopticon-doc-generation` (e.g. `/panopticon-doc-generation`)
+   — not a description of what the skill does.
+2. The literal slash-command invocations for `panopticon-interface-naming` and
+   `panopticon-interface-extraction`, run in sequence.
+3. The verbatim shell command to run the finalization step (no user substitution required — the instance
+   slug SHALL be interpolated by the bootstrap script before printing).
 
-Prompts SHALL be copy-pasteable verbatim with no user substitution required.
+Each prompt SHALL be the literal text the user pastes into their agent — never a description of what to
+ask. A description alongside is acceptable; it SHALL NOT replace the literal invocation.
+
+The bootstrap script output is the **sole source of truth** for these prompts. Static documentation
+(setup guides, READMEs) describing Phase 2 initialization SHALL NOT enumerate the individual prompts —
+it SHALL instruct the user to run the bootstrap script and follow its output. Duplicating prompts in
+static docs creates drift whenever the prompts change.
 
 #### Scenario: Prompts are printed after all deterministic work
 
 - **WHEN** the bootstrap script has successfully installed skills and workflows
-- **THEN** it prints numbered, copy-pasteable agent prompts and exits with code 0
+- **THEN** it prints numbered prompts, each containing the literal slash command or shell command to
+  paste, and exits with code 0
+
+#### Scenario: Prompt 1 contains the slash command, not a description
+
+- **WHEN** the bootstrap script prints Prompt 1
+- **THEN** the output contains the text `/panopticon-doc-generation` as a standalone pasteable line, not
+  only prose such as "use the panopticon-doc-generation skill"
+
+#### Scenario: Setup guide does not enumerate prompts
+
+- **WHEN** a reader follows the setup guide's Phase 2 instructions
+- **THEN** they are directed to run the bootstrap script and follow what it prints — the guide does not
+  list the individual slash commands
 
 ## MODIFIED Requirements
 

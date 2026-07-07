@@ -232,18 +232,15 @@ harness that loads skills from .agents/skills/):
 
 ━━━ Prompt 1 — Generate documentation ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Use the panopticon-doc-generation skill to generate the four
-  documentation layers for this repo (architecture overview,
-  per-component, interface, and operational docs). Follow the
-  skill's instructions exactly and do not skip any layer.
+  /panopticon-doc-generation
 
 ━━━ Prompt 2 — Build the interface index ━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Use the panopticon-interface-naming and
-  panopticon-interface-extraction skills to build the local
-  interface index at panopticon/index.json. Follow both skills'
-  instructions to identify, name, and record all interfaces this
-  repo exposes or consumes.
+  /panopticon-interface-naming
+
+  When complete:
+
+  /panopticon-interface-extraction
 
 ━━━ Prompt 3 — Finalize ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

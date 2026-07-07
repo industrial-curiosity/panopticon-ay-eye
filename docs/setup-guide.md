@@ -123,11 +123,8 @@ The script will:
 
 ### Phase 2 — Agent (follow the printed prompts)
 
-Copy the prompts the bootstrap script printed and give them to your AI agent (Claude Code, Cursor,
-or any harness that loads skills from `.agents/skills/`). The agent will:
-1. Generate the four-layer documentation using the `panopticon-doc-generation` skill
-2. Build the local interface index (`panopticon/index.json`) using the
-   `panopticon-interface-naming` and `panopticon-interface-extraction` skills
+The bootstrap script prints numbered prompts — follow them in your AI agent (Claude Code, Cursor,
+or any harness that loads skills from `.agents/skills/`).
 
 No `PANOPTICON_LLM_*` secrets or variables are needed locally — the agent uses its own harness.
 
