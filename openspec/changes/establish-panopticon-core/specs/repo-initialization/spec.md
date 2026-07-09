@@ -22,7 +22,10 @@ script SHALL:
    `.github/workflows/`, creating the directory if absent.
 3. Verify org-level CI prerequisites (secrets and variables) and report any missing items — report-only,
    never blocking.
-4. Output the exact prompts the user shall give their AI agent to complete the AI-dependent initialization
+4. Ask which tools listed in `docs/agentskills-support.md` the repo needs to support, and reconcile skill
+   locations for any selected tool that does not natively read `.agents/skills/` (see "IDE compatibility
+   selection during bootstrap" and "Reconciling IDEs that don't read `.agents/skills/`").
+5. Output the exact prompts the user shall give their AI agent to complete the AI-dependent initialization
    steps (see "Agent prompts output").
 
 The bootstrap script SHALL NOT write `panopticon/config.json`. The config file is the last artifact
@@ -122,6 +125,113 @@ static docs creates drift whenever the prompts change.
 - **WHEN** a reader follows the setup guide's Phase 2 instructions
 - **THEN** they are directed to run the bootstrap script and follow what it prints — the guide does not
   list the individual slash commands
+
+### Requirement: Default workflow ref requires no manual instance setup
+
+The bootstrap script SHALL wire child caller workflows to the instance repo's default branch when the
+instance's `panopticon.config.json` does not specify `workflow_ref` (including when the instance repo has
+no config file yet) — rather than to a git tag. A child repo SHALL be initializable against a freshly
+created instance repo with no manual tagging step. Org owners MAY still opt into pinning caller workflows
+to a specific tag or branch by setting `workflow_ref` in `panopticon.config.json`. Automated tag-based
+release versioning of the instance repo is out of scope for this requirement and is deferred to a future
+change.
+
+#### Scenario: Fresh instance repo with no org config and no tags
+
+- **GIVEN** the instance repo has no `panopticon.config.json` and no git tags
+- **WHEN** a child repo runs the bootstrap script against that instance
+- **THEN** the caller workflows it writes reference the instance repo's default branch, and
+  initialization completes without any git tag needing to exist on the instance repo
+
+#### Scenario: Org owner opts into a pinned ref
+
+- **GIVEN** the instance repo's `panopticon.config.json` sets `workflow_ref` to `v1`
+- **WHEN** a child repo runs the bootstrap script against that instance
+- **THEN** the caller workflows it writes reference `v1` exactly as configured
+
+### Requirement: IDE compatibility selection during bootstrap
+
+The bootstrap script SHALL ask the user which tools listed in `docs/agentskills-support.md` the repo
+needs to support, in addition to the default `.agents/skills/` layout. This SHALL be an interactive
+prompt when stdin is a terminal, and SHALL accept a non-interactive override via the `PANOPTICON_IDES`
+environment variable (a comma-separated list of tool names from `docs/agentskills-support.md`) so piped
+or CI installs can skip the prompt. When no selection is made — the interactive prompt is left blank, or
+`PANOPTICON_IDES` is unset and stdin is not a terminal — the bootstrap script SHALL proceed with
+`.agents/skills/` only, without blocking initialization, since that layout alone already covers a
+majority of the listed tools.
+
+#### Scenario: Interactive selection
+
+- **WHEN** the bootstrap script runs with stdin as a terminal
+- **THEN** it prompts the user to choose which tools from `docs/agentskills-support.md` the repo needs to
+  support, before printing the agent prompts
+
+#### Scenario: Non-interactive override via environment variable
+
+- **GIVEN** `PANOPTICON_IDES=claude-code,vscode` is set
+- **WHEN** the bootstrap script runs
+- **THEN** it uses that selection without prompting, identical to entering it interactively
+
+#### Scenario: No selection in non-interactive mode defaults safely
+
+- **GIVEN** `PANOPTICON_IDES` is unset and stdin is not a terminal
+- **WHEN** the bootstrap script runs
+- **THEN** it proceeds using `.agents/skills/` only, without prompting and without failing
+
+### Requirement: Reconciling IDEs that don't read `.agents/skills/`
+
+The bootstrap script SHALL ask the user to choose exactly one reconciliation strategy before proceeding
+when the user's selection includes one or more tools that `docs/agentskills-support.md` marks as not
+natively reading `.agents/skills/` at the project/workspace level (currently only Claude Code; the doc's
+global/user-profile-level column is not relevant here since the bootstrap script only ever writes to the
+child repo, never to a home-directory location):
+
+1. **Duplicate** — copy the installed skill files into each such tool's own project-level skill
+   directory (e.g. `.claude/skills/` for Claude Code), in addition to `.agents/skills/`.
+2. **Single IDE** — narrow support to exactly one of the selected tools that don't read
+   `.agents/skills/`; the bootstrap script asks which one, then applies the Duplicate strategy for that
+   tool only. The other non-`.agents/skills/` tools from the selection receive no local skill files.
+3. **Symlink** — create a symlink from each such tool's project-level skill directory to
+   `.agents/skills/`, so the two locations never drift out of sync.
+
+This choice SHALL also accept a non-interactive override via the `PANOPTICON_IDE_RECONCILE` environment
+variable (`duplicate`, `single:<tool>`, or `symlink`). If symlink creation fails (e.g. the filesystem or
+OS does not support it), the bootstrap script SHALL report the failure clearly and SHALL NOT silently
+fall back to a different strategy.
+
+#### Scenario: Selection includes only .agents/skills/-compatible tools
+
+- **GIVEN** the user's selection contains only tools that `docs/agentskills-support.md` marks as reading
+  `.agents/skills/` natively
+- **WHEN** the bootstrap script runs
+- **THEN** it does not ask about a reconciliation strategy, since none is needed
+
+#### Scenario: Duplicate strategy
+
+- **GIVEN** the user selects Claude Code and chooses the Duplicate strategy
+- **WHEN** the bootstrap script runs
+- **THEN** the installed skills exist both under `.agents/skills/` and under `.claude/skills/` as
+  independent copies
+
+#### Scenario: Single IDE strategy
+
+- **GIVEN** the user's selection includes two tools that `docs/agentskills-support.md` marks as not
+  reading `.agents/skills/`, and the user chooses the Single IDE strategy, picking the first one
+- **WHEN** the bootstrap script runs
+- **THEN** skills are duplicated into that tool's project-level skill directory only; the other selected
+  non-`.agents/skills/` tool receives no local skill directory
+
+#### Scenario: Symlink strategy
+
+- **GIVEN** the user selects Claude Code and chooses the Symlink strategy
+- **WHEN** the bootstrap script runs
+- **THEN** `.claude/skills/` is created as a symlink to `.agents/skills/`
+
+#### Scenario: Symlink creation fails
+
+- **GIVEN** the user chooses the Symlink strategy on a filesystem or OS that does not support symlinks
+- **WHEN** the bootstrap script attempts to create the symlink
+- **THEN** it reports the failure clearly and does not silently substitute another strategy
 
 ## MODIFIED Requirements
 
@@ -288,6 +398,15 @@ artifacts in place without creating duplicates.
 
 - **WHEN** the bootstrap script runs again on a repo that already has Panopticon skills and workflows
 - **THEN** skills and workflows are refreshed in place and no duplicates are created
+
+#### Scenario: Re-run with existing IDE reconciliation artifacts
+
+- **GIVEN** a repo was previously bootstrapped with the Duplicate strategy for Claude Code, so
+  `.claude/skills/` already exists
+- **WHEN** the bootstrap script runs again without `PANOPTICON_IDES` or `PANOPTICON_IDE_RECONCILE` set
+- **THEN** the duplicated `.claude/skills/` files are refreshed in place to match `.agents/skills/`,
+  without re-prompting for a tool selection or reconciliation strategy and without creating additional
+  copies
 
 #### Scenario: Re-run finalization on initialized repo
 

@@ -11,10 +11,10 @@ or::
 
     PANOPTICON_INSTANCE=acme/panopticon-instance python3 install.py
 
-The installer runs three deterministic steps — download skills, wire workflows, check CI
-prerequisites — then prints the exact agent prompts that complete initialization.
-``panopticon/config.json`` is never written here; it is the last artifact created by the
-finalization step after the agent has finished.
+The installer runs a sequence of deterministic steps — download skills, wire workflows, check CI
+prerequisites, reconcile IDE/tool skill locations — then prints the exact agent prompts that
+complete initialization. ``panopticon/config.json`` is never written here; it is the last artifact
+created by the finalization step after the agent has finished.
 """
 
 import base64
@@ -32,7 +32,6 @@ from . import SCHEMA_VERSION
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 DEFAULT_BRANCH = "main"
-DEFAULT_WORKFLOW_REF = "v1"
 SKILLS_PREFIX = ".agents/skills/"
 CALLER_WORKFLOWS = ("panopticon-pr.yml", "panopticon-merge.yml", "panopticon-pr-close.yml")
 ORG_SECRETS = ("PANOPTICON_LLM_API_KEY", "PANOPTICON_INSTANCE_TOKEN")
@@ -246,6 +245,188 @@ def check_prerequisites(org, token=None, urlopen=urllib.request.urlopen):
     _check("variables", "variables", ORG_VARS, "variable")
     return report
 
+# ── IDE / tool compatibility ────────────────────────────────────────────────────
+# Project/workspace-level tool support — mirrors the table in docs/agentskills-support.md, which is
+# the source of truth for which tools read .agents/skills/ natively; keep this constant in sync with
+# that doc. Maps tool id -> (display name, reads .agents/skills/ natively, own skill dir or None).
+SUPPORTED_TOOLS = {
+    "vscode": ("VS Code (GitHub Copilot)", True, None),
+    "visual-studio": ("Visual Studio 2026", True, None),
+    "cursor": ("Cursor", True, None),
+    "jetbrains": ("JetBrains IDEs (AI Assistant)", True, None),
+    "claude-code": ("Claude Code", False, ".claude/skills"),
+    "google-antigravity": ("Google Antigravity", True, None),
+    "openai-codex": ("OpenAI Codex", True, None),
+    "opencode": ("opencode", True, None),
+    "pi": ("Pi", True, None),
+}
+
+
+def outlier_tools(selected):
+    """Return the subset of `selected` tool ids that don't read .agents/skills/ natively."""
+    return [t for t in selected if t in SUPPORTED_TOOLS and not SUPPORTED_TOOLS[t][1]]
+
+
+def select_ides(env=None, prompt_fn=None, child_root="."):
+    """Return the tool ids the repo needs to support, beyond the .agents/skills/ default.
+
+    `PANOPTICON_IDES` (comma-separated) always wins. Otherwise, tools already reconciled by a
+    prior bootstrap run are detected from their on-disk skill directory so re-runs don't
+    re-prompt. Failing both, prompts interactively; a blank answer or non-interactive stdin
+    defaults to no extra tools (``.agents/skills/`` only — never blocks).
+    """
+    env = env if env is not None else os.environ
+    raw = env.get("PANOPTICON_IDES", "").strip()
+    if raw:
+        return [t.strip() for t in raw.split(",") if t.strip()]
+
+    already_reconciled = [
+        tid for tid, (_, compatible, tool_dir) in SUPPORTED_TOOLS.items()
+        if not compatible and (Path(child_root) / tool_dir).exists()
+    ]
+    if already_reconciled:
+        return already_reconciled
+
+    if prompt_fn is None:
+        if not sys.stdin.isatty():
+            return []
+        prompt_fn = input
+
+    listing = "\n".join(f"    {tid} — {name}" for tid, (name, _, _) in SUPPORTED_TOOLS.items())
+    answer = prompt_fn(
+        "Which AI tools/IDEs does this repo need to support (see docs/agentskills-support.md)?\n"
+        f"{listing}\n"
+        "  Enter comma-separated ids, or leave blank for .agents/skills/ only: "
+    ).strip()
+    return [t.strip() for t in answer.split(",") if t.strip()]
+
+
+def select_reconcile_strategy(outliers, env=None, prompt_fn=None):
+    """Return (strategy, single_tool_id_or_None) for reconciling `outliers` with .agents/skills/.
+
+    `PANOPTICON_IDE_RECONCILE` (``duplicate``, ``symlink``, or ``single:<tool>``) always wins.
+    Non-interactive stdin with no override defaults to ``duplicate`` for every outlier, since
+    that's the only strategy that never needs picking a single tool.
+    """
+    env = env if env is not None else os.environ
+    raw = env.get("PANOPTICON_IDE_RECONCILE", "").strip()
+    if raw:
+        if raw.startswith("single:"):
+            return "single", raw.split(":", 1)[1]
+        return raw, None
+
+    if prompt_fn is None:
+        if not sys.stdin.isatty():
+            return "duplicate", None
+        prompt_fn = input
+
+    names = ", ".join(f"{t} ({SUPPORTED_TOOLS[t][0]})" for t in outliers)
+    answer = prompt_fn(
+        f"These selected tools don't read .agents/skills/ natively: {names}\n"
+        "  Choose how to reconcile — duplicate / single / symlink: "
+    ).strip().lower()
+    if answer == "single":
+        if len(outliers) == 1:
+            return "single", outliers[0]
+        chosen = prompt_fn(f"  Which one? ({', '.join(outliers)}): ").strip()
+        return "single", chosen
+    if answer == "symlink":
+        return "symlink", None
+    return "duplicate", None
+
+
+def duplicate_skill_dir(tool_dir, child_root="."):
+    """Copy .agents/skills/ into `tool_dir` as an independent copy, replacing any prior contents."""
+    src = Path(child_root) / SKILLS_PREFIX
+    dest = Path(child_root) / tool_dir
+    if dest.is_symlink():
+        dest.unlink()
+    elif dest.exists():
+        shutil.rmtree(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if src.is_dir():
+        shutil.copytree(src, dest)
+    else:
+        dest.mkdir(parents=True, exist_ok=True)
+
+
+def symlink_skill_dir(tool_dir, child_root="."):
+    """Symlink `tool_dir` to .agents/skills/ (relative target). Returns True on success."""
+    src = Path(child_root) / SKILLS_PREFIX
+    dest = Path(child_root) / tool_dir
+    if dest.is_symlink():
+        dest.unlink()
+    elif dest.exists():
+        shutil.rmtree(dest) if dest.is_dir() else dest.unlink()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        dest.symlink_to(os.path.relpath(src, start=dest.parent), target_is_directory=True)
+        return True
+    except OSError:
+        return False
+
+
+def _refresh_reconciled_tools(outliers, child_root):
+    """Refresh any outlier whose directory already exists from a prior run; returns
+    (status_lines, outliers_still_needing_a_strategy)."""
+    lines = []
+    unreconciled = []
+    for tid in outliers:
+        _, _, tool_dir = SUPPORTED_TOOLS[tid]
+        dest = Path(child_root) / tool_dir
+        if dest.is_symlink():
+            lines.append(f"  {tool_dir} is already a symlink to .agents/skills/ — nothing to refresh")
+        elif dest.is_dir():
+            duplicate_skill_dir(tool_dir, child_root)
+            lines.append(f"  refreshed duplicated skills in {tool_dir}")
+        else:
+            unreconciled.append(tid)
+    return lines, unreconciled
+
+
+def _apply_reconcile_strategy(outliers, strategy, single_tool, child_root):
+    """Apply `strategy` to the given outliers (or just `single_tool`); returns status lines."""
+    lines = []
+    targets = [single_tool] if strategy == "single" else outliers
+    for tid in targets:
+        if tid not in SUPPORTED_TOOLS:
+            lines.append(f"  error: unknown tool id {tid!r} for single-IDE reconciliation")
+            continue
+        _, _, tool_dir = SUPPORTED_TOOLS[tid]
+        if strategy == "symlink":
+            if symlink_skill_dir(tool_dir, child_root):
+                lines.append(f"  symlinked {tool_dir} -> .agents/skills/")
+            else:
+                lines.append(f"  error: could not create symlink at {tool_dir} "
+                              "(unsupported on this filesystem/OS) — no fallback applied")
+        else:
+            duplicate_skill_dir(tool_dir, child_root)
+            lines.append(f"  duplicated skills into {tool_dir}")
+
+    if strategy == "single":
+        for tid in (t for t in outliers if t != single_tool):
+            name = SUPPORTED_TOOLS.get(tid, (tid,))[0]
+            lines.append(f"  skipped {name} — Single IDE strategy selected {single_tool}")
+
+    return lines
+
+
+def reconcile_ides(selected, env=None, prompt_fn=None, child_root="."):
+    """Apply the reconciliation strategy for any selected tool that doesn't read .agents/skills/
+    natively; returns printable status lines. Report-only for already-reconciled tools — refreshes
+    them in place without re-prompting."""
+    outliers = outlier_tools(selected)
+    if not outliers:
+        return []
+
+    lines, unreconciled = _refresh_reconciled_tools(outliers, child_root)
+    if not unreconciled:
+        return lines
+
+    strategy, single_tool = select_reconcile_strategy(unreconciled, env, prompt_fn)
+    return lines + _apply_reconcile_strategy(unreconciled, strategy, single_tool, child_root)
+
+
 # ── Agent prompts ─────────────────────────────────────────────────────────────
 
 def agent_prompts(instance):
@@ -308,10 +489,12 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
 
     default_branch = env.get("PANOPTICON_DEFAULT_BRANCH", DEFAULT_BRANCH)
 
-    # Read workflow_ref from the instance's org config (fall back to default).
+    # Read workflow_ref from the instance's org config. No manual tagging is required to get
+    # started: when the org hasn't set workflow_ref, caller workflows pin to the instance repo's
+    # default branch rather than a git tag (org owners can opt into a pinned tag/branch later).
     print(f"\nFetching org config from {instance}...")
     org_config = fetch_org_config(owner, repo, default_branch, token, urlopen)
-    ref = org_config.get("workflow_ref", DEFAULT_WORKFLOW_REF)
+    ref = org_config.get("workflow_ref", default_branch)
     print(f"  workflow_ref: {ref}")
 
     # Download skills.
@@ -344,6 +527,16 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
         )
     else:
         print("  All org-level secrets and variables are configured.")
+
+    # Ask which tools/IDEs the repo needs to support, and reconcile any that don't read
+    # .agents/skills/ natively (report-only for already-reconciled tools; never blocks).
+    print("\nChecking IDE/tool compatibility (see docs/agentskills-support.md)...")
+    selected = select_ides(env, prompt_fn, child_root)
+    if selected:
+        for line in reconcile_ides(selected, env, prompt_fn, child_root):
+            print(line)
+    else:
+        print("  .agents/skills/ only — no additional tool directories requested.")
 
     print(agent_prompts(instance))
     return 0

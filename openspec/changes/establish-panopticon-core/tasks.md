@@ -56,6 +56,13 @@
       `panopticon/__init__.py` and `panopticon/bootstrap.py`, installs fake modules into `sys.modules`, and
       the top-level `except ModuleNotFoundError` block exits clearly when `PANOPTICON_INSTANCE` is unset
       and stdin is not a tty
+- [x] 4.11 Fix the bootstrap installer's workflow_ref default: `bootstrap.py::main` now falls back to the
+      instance repo's default branch (`default_branch`, already resolved for skill/tree fetching) instead
+      of a hardcoded `DEFAULT_WORKFLOW_REF = "v1"` tag when `panopticon.config.json` omits `workflow_ref`
+      — no manual tagging step required to get started. The now-unused `DEFAULT_WORKFLOW_REF` constant was
+      removed from `bootstrap.py`. `tests/test_install.py::TestMainWorkflowRefDefault` covers both the
+      default-branch fallback and the org-configured-ref-is-respected case end-to-end through `main()`.
+      Automated tag-based release versioning remains out of scope — deferred to a future change.
 - [x] 4.2 Implement org-level secret and variable verification with actionable setup instructions (secrets
       `PANOPTICON_LLM_API_KEY`/`PANOPTICON_INSTANCE_TOKEN` and variables `PANOPTICON_LLM_ENDPOINT`/
       `PANOPTICON_LLM_MODEL` checked separately via the gh API; child repos need no per-repo configuration;
@@ -74,6 +81,19 @@
       `docs/` default; record the location in `panopticon/config.json`
 - [ ] 4.5 Test initialization end-to-end against a sandbox child repo (blocked locally: needs a sandbox GitHub
       org/repo; unit coverage in `tests/test_init_repo.py` exercises the full local flow against a temp repo)
+- [x] 4.12 Implement IDE compatibility selection and reconciliation in the bootstrap script:
+      `select_ides()` prompts (or reads `PANOPTICON_IDES`) for which `SUPPORTED_TOOLS` entries
+      (mirroring `docs/agentskills-support.md`'s project-level table) the repo needs; `outlier_tools()`
+      finds the subset that doesn't read `.agents/skills/` natively (currently only Claude Code —
+      Google Antigravity is project-level compatible, only its global path diverges, irrelevant here);
+      `select_reconcile_strategy()` prompts (or reads `PANOPTICON_IDE_RECONCILE`) for Duplicate /
+      Single IDE / Symlink; `reconcile_ides()` applies it via `duplicate_skill_dir()` /
+      `symlink_skill_dir()` after skills are downloaded to `.agents/skills/`, wired into `main()`.
+      Idempotent re-runs (`_refresh_reconciled_tools`) detect existing duplicated/symlinked
+      directories and refresh them without re-prompting. Symlink failures are reported, never
+      silently substituted. Covered by `tests/test_install.py` (`TestOutlierTools`, `TestSelectIdes`,
+      `TestSelectReconcileStrategy`, `TestDuplicateAndSymlinkSkillDir`, `TestReconcileIdes`,
+      `TestMainIdeReconciliation`).
 
 ## 5. Instance repo structure and config
 

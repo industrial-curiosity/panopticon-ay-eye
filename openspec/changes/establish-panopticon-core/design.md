@@ -88,10 +88,13 @@ exactly what is missing — a silent skip would falsely imply the checks passed.
 ### D6: Workflows are reusable workflows referenced from the instance repo
 
 Child repos get thin caller workflows (`uses: <org>/<instance>/.github/workflows/panopticon-pr.yml@<ref>`)
-written by the bootstrap installer script. The ref is org-configurable at bootstrap time (branch or tag;
-template default is a pinned tag). The bootstrap script fetches skills and workflows from the instance repo
-via the GitHub API — no local clone of the instance repo is required. CI steps run by checking out the
-instance repo and invoking scripts directly — no pip package, no build step.
+written by the bootstrap installer script. The ref is org-configurable via `workflow_ref` in the instance's
+`panopticon.config.json`; the template default (when unset) is the instance repo's default branch, so a
+fresh instance needs no manual tagging step before child repos can initialize. Org owners can still opt
+into pinning a tag or branch. Automated tag-based release versioning of the instance repo is deferred to a
+future change. The bootstrap script fetches skills and workflows from the instance repo via the GitHub API
+— no local clone of the instance repo is required. CI steps run by checking out the instance repo and
+invoking scripts directly — no pip package, no build step.
 
 ### D7: Cross-repo auth is a fine-grained PAT (GitHub App later)
 

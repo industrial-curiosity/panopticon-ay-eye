@@ -22,8 +22,8 @@ GitHub does not allow private forks of public repositories, so the instance is c
    (e.g. both sides modified `panopticon.config.json`), the workflow fails with
    instructions to resolve them locally. You can also enable the weekly schedule
    in the workflow file to receive updates automatically.
-4. Tag the instance repo (e.g. `v1`) so child caller workflows can pin a ref (see step 3's
-   `workflow_ref`).
+4. No tagging is required to get started — child caller workflows default to the instance repo's
+   default branch until you opt into pinning a ref (see step 3's `workflow_ref`).
 
 ## 2. Configure org-level secrets and variables
 
@@ -84,8 +84,7 @@ index updates — run in each developer's own AI agent harness and need none of 
     "init": "blocking",
     "doc-drift": "blocking",
     "interface-conflict": "advisory"
-  },
-  "workflow_ref": "v1"
+  }
 }
 ```
 
@@ -93,9 +92,10 @@ index updates — run in each developer's own AI agent harness and need none of 
   workflow when they find a problem; interface-conflict checks are **advisory** (reported but
   passing) because LLM-extracted entries can false-positive. Each check type can be moved in
   either direction.
-- **`workflow_ref`** — the git ref (tag or branch) at which the init tooling wires child caller
-  workflows to the instance's reusable workflows. A pinned tag is the safe default; a branch
-  gives you rolling updates.
+- **`workflow_ref`** *(optional)* — the git ref (tag or branch) at which the init tooling wires child
+  caller workflows to the instance's reusable workflows. Omit it and the instance repo's default branch
+  is used — no tagging required to get started. Set it once you want to pin caller workflows to a
+  specific tag or branch instead.
 
 ## 4. Initialize a child repo
 
@@ -119,6 +119,12 @@ The script will:
 - Install the Panopticon skills into `.agents/skills/`
 - Wire the three caller GitHub Actions workflows into `.github/workflows/`
 - Check that org secrets and variables are configured (report-only — nothing is blocked)
+- Ask which AI tools/IDEs the repo needs to support (see
+  [`docs/agentskills-support.md`](agentskills-support.md) for the full compatibility list). Most tools
+  read `.agents/skills/` natively at the project level; for the few that don't (currently just Claude
+  Code), you'll be asked to pick one of: duplicate the skills into that tool's own folder, symlink its
+  folder to `.agents/skills/`, or support only a single one of those tools. Set `PANOPTICON_IDES` and
+  `PANOPTICON_IDE_RECONCILE` to skip this prompt in non-interactive installs.
 - Print the exact prompts to give your AI agent in Phase 2
 
 ### Phase 2 — Agent (follow the printed prompts)
