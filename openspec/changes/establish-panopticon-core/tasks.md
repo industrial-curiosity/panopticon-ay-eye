@@ -46,9 +46,12 @@
 - [x] 4.7 Refactor `panopticon/init_repo.py` into a finalization-only step: remove workflow wiring (now
       handled by the bootstrap script), retain validation of agent-produced docs and index, write
       `panopticon/config.json` only after validation passes — keep as the last artifact created
-- [x] 4.8 Write the agent prompt strings output by the bootstrap script: prompts for
-      `panopticon-doc-generation`, `panopticon-interface-naming`/`panopticon-interface-extraction`, and the
-      finalization command — all copy-pasteable with no user substitution required
+- [x] 4.8 `agent_prompts()` now takes no arguments and prints exactly one prompt — the literal
+      `/panopticon-init` invocation — instead of the previous 3 separate prompts (doc-generation,
+      interface-naming/extraction, finalization command). No instance-slug interpolation is needed
+      since `panopticon-init` self-discovers it from the wired caller workflow file. `main()`'s call
+      site updated to `agent_prompts()`. `tests/test_install.py::TestAgentPrompts` rewritten for the
+      single-prompt contract. `docs/testing.md` and `README.md` updated to match.
 - [x] 4.9 Unit tests for the bootstrap installer: skill download, workflow wiring, idempotent re-run, env var
       vs prompt fallback, missing-prerequisite reporting; includes test that non-`panopticon-` skills are
       excluded and test that agent prompts contain literal slash commands (`/panopticon-doc-generation` etc.)
@@ -128,6 +131,16 @@
       it imported and ran successfully (reporting a real missing-docs validation failure, not an import
       crash), directly reproducing and confirming the fix for the reported bug. `docs/testing.md`
       updated.
+- [x] 4.14 Write the `panopticon-init` orchestrating skill at `.agents/skills/panopticon-init/SKILL.md`
+      (the `panopticon-` prefix means the existing skill-download step ships it with no bootstrap.py
+      changes needed). Instructs the agent to run, in order: `panopticon-interface-naming`,
+      `panopticon-interface-extraction`, `panopticon-doc-generation`, then the finalization command with
+      the instance slug self-discovered from the `uses:` line in `.github/workflows/panopticon-pr.yml`
+      (regex/parse `owner/repo` out of `uses: owner/repo/.github/workflows/...@ref`). Maintains a
+      checkpoint log at `panopticon/.init-log.json` (a JSON list of completed step ids) — read before
+      each step to skip already-completed ones, updated after each step completes, deleted once all four
+      steps are done and `panopticon/config.json` exists. Fixes the ordering bug a user hit directly:
+      doc-generation was being run before the index existed to render `interfaces.md` from.
 
 ## 5. Instance repo structure and config
 

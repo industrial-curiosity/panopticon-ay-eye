@@ -599,47 +599,35 @@ class TestMainSkillsLocationFlow(unittest.TestCase):
 # ── Agent prompts ─────────────────────────────────────────────────────────────
 
 class TestAgentPrompts(unittest.TestCase):
-    def test_contains_all_skill_names(self):
-        text = agent_prompts("acme/instance")
-        self.assertIn("panopticon-doc-generation", text)
-        self.assertIn("panopticon-interface-naming", text)
-        self.assertIn("panopticon-interface-extraction", text)
+    def test_contains_single_slash_command(self):
+        text = agent_prompts()
+        self.assertIn("/panopticon-init", text)
 
-    def test_prompts_use_slash_commands(self):
-        text = agent_prompts("acme/instance")
-        self.assertIn("/panopticon-doc-generation", text)
-        self.assertIn("/panopticon-interface-naming", text)
-        self.assertIn("/panopticon-interface-extraction", text)
+    def test_only_one_prompt_is_printed(self):
+        # Exactly one pasteable slash-command line — no separate prompts for the individual
+        # steps panopticon-init now sequences internally.
+        text = agent_prompts()
+        self.assertNotIn("/panopticon-doc-generation", text)
+        self.assertNotIn("/panopticon-interface-naming", text)
+        self.assertNotIn("/panopticon-interface-extraction", text)
+        self.assertNotIn("Prompt 1", text)
+        self.assertNotIn("Prompt 2", text)
+        self.assertNotIn("Prompt 3", text)
 
-    def test_finalize_command_is_copy_pasteable(self):
-        text = agent_prompts("acme/instance")
-        self.assertIn("python3 -m panopticon.init_repo --instance acme/instance", text)
-
-    def test_instance_slug_interpolated(self):
-        text = agent_prompts("myorg/myinstance")
-        self.assertIn("myorg/myinstance", text)
-
-    def test_three_distinct_prompts_present(self):
-        text = agent_prompts("acme/instance")
-        self.assertIn("Prompt 1", text)
-        self.assertIn("Prompt 2", text)
-        self.assertIn("Prompt 3", text)
-
-    def test_prompt_1_is_doc_generation(self):
-        text = agent_prompts("acme/instance")
-        prompt1_idx = text.index("Prompt 1")
-        prompt2_idx = text.index("Prompt 2")
-        prompt1_body = text[prompt1_idx:prompt2_idx]
-        self.assertIn("/panopticon-doc-generation", prompt1_body)
+    def test_no_instance_slug_substitution(self):
+        # panopticon-init self-discovers the instance slug from the wired caller workflow file,
+        # so the prompt needs no per-instance interpolation and takes no argument.
+        text = agent_prompts()
+        self.assertNotIn("panopticon.init_repo --instance", text)
 
     def test_does_not_hardcode_agents_skills_as_sole_location(self):
-        text = agent_prompts("acme/instance")
+        text = agent_prompts()
         self.assertNotIn("loads skills from .agents/skills/", text)
 
     def test_git_add_stages_everything_not_just_agents_skills(self):
         # The skills location is chosen at install time and can differ from .agents/skills/, so a
         # hardcoded `git add .agents/skills/` would silently skip whatever was actually created.
-        text = agent_prompts("acme/instance")
+        text = agent_prompts()
         self.assertIn("git add -A", text)
         self.assertNotIn("git add .github/workflows/ .agents/skills/", text)
 

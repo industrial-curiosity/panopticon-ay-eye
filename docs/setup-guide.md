@@ -128,12 +128,14 @@ Once a location is chosen, the script will:
   instance repo or set up a Python environment yourself
 - Wire the three caller GitHub Actions workflows into `.github/workflows/`
 - Check that org secrets and variables are configured (report-only — nothing is blocked)
-- Print the exact prompts to give your AI agent in Phase 2
+- Print the one prompt to give your AI agent in Phase 2
 
-### Phase 2 — Agent (follow the printed prompts)
+### Phase 2 — Agent (follow the printed prompt)
 
-Follow the printed prompts in your AI agent (Claude Code, Cursor, or whichever tool you configured —
-invoke skills by their slash command; which directory the tool reads them from doesn't matter).
+Give your AI agent (Claude Code, Cursor, or whichever tool you configured) the printed prompt — a single
+skill that sequences interface indexing, documentation generation, and finalization on its own, with a
+resumable checkpoint if your agent session gets interrupted partway through. Each of the underlying
+skills also works standalone if you'd rather run a step by itself.
 
 No `PANOPTICON_LLM_*` secrets or variables are needed locally — the agent uses its own harness.
 

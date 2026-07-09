@@ -461,38 +461,23 @@ def select_skills_location(env=None, prompt_fn=None, child_root="."):
 
 # ── Agent prompts ─────────────────────────────────────────────────────────────
 
-def agent_prompts(instance):
-    """Return the formatted agent prompt block for the given instance slug."""
-    return f"""\
+def agent_prompts():
+    """Return the formatted agent prompt block: a single /panopticon-init invocation."""
+    return """\
 
 ╔══════════════════════════════════════════════════════════════════╗
 ║        Panopticon — complete initialization with your agent     ║
 ╚══════════════════════════════════════════════════════════════════╝
 
-Give these prompts to your AI agent (Claude Code, Cursor, or
-whichever tool reads skills from where you just installed them):
+Give this prompt to your AI agent (Claude Code, Cursor, or whichever
+tool you use — it reads skills from wherever you just installed them):
 
-━━━ Prompt 1 — Generate documentation ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  /panopticon-init
 
-  /panopticon-doc-generation
-
-━━━ Prompt 2 — Build the interface index ━━━━━━━━━━━━━━━━━━━━━━━━
-
-  /panopticon-interface-naming
-
-  When complete:
-
-  /panopticon-interface-extraction
-
-━━━ Prompt 3 — Finalize ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  Once prompts 1-2 are complete, run the finalization step:
-
-    python3 -m panopticon.init_repo --instance {instance}
-
-  This validates the generated docs and index, then writes
-  panopticon/config.json as the final initialization artifact.
-  Re-run if anything needs fixing.
+This runs interface naming, interface extraction, documentation
+generation, and finalization in order, resuming from where it left
+off if interrupted. Each step remains invocable on its own by name
+if you'd rather run just one.
 
 Then commit and push:
 
@@ -577,5 +562,5 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
     else:
         print("  All org-level secrets and variables are configured.")
 
-    print(agent_prompts(instance))
+    print(agent_prompts())
     return 0

@@ -61,8 +61,8 @@ a 404 and the script SHALL exit with a clear error).
   set (or entered at the prompt), and the skills location prompt is accepted at its `.agents/skills/`
   default
 - **THEN** the child repo's `.agents/skills/` contains the instance skills, `.github/workflows/` contains
-  the three Panopticon caller workflows, and the terminal prints the agent prompts — without creating
-  `panopticon/config.json`
+  the three Panopticon caller workflows, and the terminal prints the `/panopticon-init` prompt — without
+  creating `panopticon/config.json`
 
 #### Scenario: Piped curl execution with panopticon package unavailable
 
@@ -93,56 +93,49 @@ a 404 and the script SHALL exit with a clear error).
 
 ### Requirement: Agent prompts output
 
-The bootstrap script SHALL print the exact prompts the user should follow, in order, after completing
-all deterministic steps:
+The bootstrap script SHALL print exactly one prompt after completing all deterministic steps: the
+literal slash-command invocation `/panopticon-init` (see "Orchestrating init skill"), which sequences
+documentation generation, interface index building, and finalization on the user's behalf.
 
-1. The literal slash-command invocation for `panopticon-doc-generation` (e.g. `/panopticon-doc-generation`)
-   — not a description of what the skill does.
-2. The literal slash-command invocations for `panopticon-interface-naming` and
-   `panopticon-interface-extraction`, run in sequence.
-3. The verbatim shell command to run the finalization step (no user substitution required — the instance
-   slug SHALL be interpolated by the bootstrap script before printing).
-
-Each prompt SHALL be the literal text the user pastes into their agent or shell — never a description of
-what to ask. A description alongside is acceptable; it SHALL NOT replace the literal invocation.
+The prompt SHALL be the literal text the user pastes into their agent — never a description of what to
+ask. A description alongside is acceptable; it SHALL NOT replace the literal invocation.
 
 No prompt text or accompanying prose SHALL assert a single hardcoded skill location (e.g. state or imply
 that skills are only ever at `.agents/skills/`) as if it always applies, since the skills location
-selection step lets the user pick a different directory. Prompts SHALL refer to invoking skills by their
-slash command (which works regardless of which directory the user's agent reads them from) rather than
-by claiming a specific path.
+selection step lets the user pick a different directory. Prompt text SHALL refer to invoking skills by
+their slash command (which works regardless of which directory the user's agent reads them from) rather
+than by claiming a specific path.
 
-The bootstrap script output is the **sole source of truth** for these prompts. Static documentation
-(setup guides, READMEs) describing Phase 2 initialization SHALL NOT enumerate the individual prompts —
-it SHALL instruct the user to run the bootstrap script and follow its output. Duplicating prompts in
-static docs creates drift whenever the prompts change. The same rule about not hardcoding a single skill
-location applies to static documentation: any doc, setup guide, or README passage that mentions where
-skills live SHALL be written so it stays accurate no matter which location the reader chose.
+The bootstrap script output is the **sole source of truth** for this prompt. Static documentation (setup
+guides, READMEs) describing Phase 2 initialization SHALL NOT restate or paraphrase the prompt — it SHALL
+instruct the user to run the bootstrap script and follow its output. Duplicating the prompt in static
+docs creates drift whenever it changes. The same rule about not hardcoding a single skill location
+applies to static documentation: any doc, setup guide, or README passage that mentions where skills live
+SHALL be written so it stays accurate no matter which location the reader chose.
 
-#### Scenario: Prompts are printed after all deterministic work
+#### Scenario: Prompt is printed after all deterministic work
 
-- **WHEN** the bootstrap script has successfully installed skills at the chosen location and wired
-  workflows
-- **THEN** it prints numbered prompts, each containing the literal slash command or shell command to
-  paste, and exits with code 0
+- **WHEN** the bootstrap script has successfully installed skills at the chosen location, vendored local
+  tooling, and wired workflows
+- **THEN** it prints the `/panopticon-init` prompt as a standalone pasteable line and exits with code 0
 
-#### Scenario: Doc-generation prompt contains the slash command, not a description
+#### Scenario: Prompt contains the slash command, not a description
 
-- **WHEN** the bootstrap script prints the doc-generation prompt
-- **THEN** the output contains the text `/panopticon-doc-generation` as a standalone pasteable line, not
-  only prose such as "use the panopticon-doc-generation skill"
+- **WHEN** the bootstrap script prints its prompt
+- **THEN** the output contains the text `/panopticon-init` as a standalone pasteable line, not only
+  prose such as "use the panopticon-init skill"
 
 #### Scenario: Prompt prose does not hardcode a single skill location
 
-- **WHEN** the bootstrap script prints its numbered prompts
-- **THEN** no prompt or its accompanying description asserts that skills are only ever at
-  `.agents/skills/`; prompts reference the slash command instead
+- **WHEN** the bootstrap script prints its prompt
+- **THEN** no accompanying description asserts that skills are only ever at `.agents/skills/`; the prompt
+  references the slash command instead
 
 #### Scenario: Setup guide does not enumerate prompts
 
 - **WHEN** a reader follows the setup guide's Phase 2 instructions
 - **THEN** they are directed to run the bootstrap script and follow what it prints — the guide does not
-  list the individual slash commands
+  restate the prompt text
 
 ### Requirement: Default workflow ref requires no manual instance setup
 
@@ -285,6 +278,75 @@ and bootstrap.py's own comment already documents this CI-only split.
 - **THEN** each of the five files is overwritten in place with the instance repo's current content, and
   no duplicate files are created
 
+### Requirement: Orchestrating init skill
+
+The template repo SHALL include a `panopticon-init` skill (name prefix `panopticon-`, so the existing
+skill-download step installs it into the child repo automatically with no bootstrap script changes) that
+runs the other Phase 2 skills and the Phase 3 finalization command in the correct dependency order, from
+a single invocation, while leaving each underlying skill independently invocable on its own.
+
+The order SHALL be:
+
+1. `panopticon-interface-naming`
+2. `panopticon-interface-extraction` — after step 1, since it depends on the naming pass
+3. `panopticon-doc-generation` — after steps 1–2, since the interface-docs layer is rendered from the
+   local index (`panopticon/index.json`) that those steps build; running doc-generation first has no
+   index to render from
+4. The finalization command (`python3 -m panopticon.init_repo --instance <instance>`) — the instance
+   slug SHALL be self-discovered by reading the `uses:` line already wired into
+   `.github/workflows/panopticon-pr.yml`, rather than requiring the user to supply it
+
+`panopticon-init` SHALL maintain a checkpoint log at `panopticon/.init-log.json` recording which of the
+four steps have completed. Before starting a step, it SHALL check the log and skip any step already
+recorded as complete. It SHALL update the log immediately after each step completes, so an interrupted
+run — including one resumed in a new agent session with no memory of the prior one — continues from the
+first incomplete step rather than restarting from scratch or skipping ahead into a step whose
+prerequisites aren't met. Once all four steps have completed and `panopticon/config.json` has been
+written, `panopticon-init` SHALL delete the checkpoint log — a completed initialization has no further
+use for it, and it SHALL NOT remain in the repo afterward.
+
+Each of the four skills SHALL remain fully usable on its own, independent of `panopticon-init` and of any
+checkpoint log state, for users who want to run a single step directly.
+
+#### Scenario: Fresh run starts at interface naming
+
+- **GIVEN** no checkpoint log exists
+- **WHEN** `/panopticon-init` runs
+- **THEN** it starts with `panopticon-interface-naming`, then creates the checkpoint log recording that
+  step's completion before continuing
+
+#### Scenario: Doc generation runs only after the index exists
+
+- **GIVEN** the checkpoint log shows `panopticon-interface-naming` and `panopticon-interface-extraction`
+  complete
+- **WHEN** `panopticon-init` continues
+- **THEN** it runs `panopticon-doc-generation` next, with a populated local index to render
+  `interfaces.md` from
+
+#### Scenario: Resuming after an interrupted session
+
+- **GIVEN** a checkpoint log recording `panopticon-interface-naming` and `panopticon-interface-extraction`
+  as complete, from a prior agent session that did not finish
+- **WHEN** `/panopticon-init` is invoked again, in a new agent session with no memory of the prior one
+- **THEN** it skips the two completed steps and resumes at `panopticon-doc-generation`
+
+#### Scenario: Checkpoint log deleted on successful completion
+
+- **GIVEN** all four steps have completed and `panopticon/config.json` has been written
+- **WHEN** `panopticon-init` finishes
+- **THEN** `panopticon/.init-log.json` no longer exists in the repo
+
+#### Scenario: Individual skills remain independently invocable
+
+- **WHEN** a user invokes `/panopticon-doc-generation` directly instead of `/panopticon-init`
+- **THEN** it runs as its own standalone skill, unaffected by whether a checkpoint log exists
+
+#### Scenario: Finalization instance slug is self-discovered
+
+- **WHEN** `panopticon-init` reaches the finalization step
+- **THEN** it determines the instance slug by reading the `uses:` line in
+  `.github/workflows/panopticon-pr.yml` rather than asking the user for it
+
 ## MODIFIED Requirements
 
 ### Requirement: Agent-driven initialization
@@ -293,12 +355,14 @@ Repo initialization SHALL follow a three-phase sequence:
 
 **Phase 1 — Bootstrap (deterministic, no AI):** the bootstrap installer script installs skills, vendors
 the local-tooling subset of the `panopticon` Python package, and wires caller workflows in the child
-repo, then outputs guided agent prompts. No `PANOPTICON_LLM_*` or local instance clone is required.
+repo, then outputs the `/panopticon-init` prompt. No `PANOPTICON_LLM_*` or local instance clone is
+required.
 
-**Phase 2 — Agent (AI-driven):** the user's preferred AI agent follows the installed skills — using the
-prompts output by the bootstrap script — to generate the four-layer documentation and build the local
-interface index (`panopticon/index.json`). No `PANOPTICON_LLM_*` configuration is required locally;
-the agent uses its own harness.
+**Phase 2 — Agent (AI-driven):** the user's preferred AI agent follows the `panopticon-init` skill
+invoked by the bootstrap script's printed prompt, which sequences the interface-naming,
+interface-extraction, and doc-generation skills in dependency order (with a resumable checkpoint log) to
+build the local interface index (`panopticon/index.json`) and generate the four-layer documentation. No
+`PANOPTICON_LLM_*` configuration is required locally; the agent uses its own harness.
 
 **Phase 3 — Finalization (deterministic):** the finalization step validates that the agent-produced docs
 and index meet requirements (all four layers present and following their templates; schema-valid index)
@@ -307,7 +371,8 @@ and writes `panopticon/config.json` — the initialization flag — only after t
 
 #### Scenario: Successful initialization
 
-- **GIVEN** the bootstrap script has installed skills and workflows and printed agent prompts
+- **GIVEN** the bootstrap script has installed skills and workflows and printed the `/panopticon-init`
+  prompt
 - **WHEN** the agent has generated docs and index and the finalization step runs
 - **THEN** `panopticon/config.json` is written as the final artifact, and the repo is fully initialized
 
