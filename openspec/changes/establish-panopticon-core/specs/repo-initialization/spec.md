@@ -20,11 +20,13 @@ script SHALL:
    `.agents/skills/` directory and write them to the chosen skills location in the child repo, creating
    the directory if absent. Skills at other name prefixes (org-internal skills, tooling skills, etc.)
    SHALL NOT be written to the child repo.
-3. Download the three caller workflow files from the instance repo and write them to the child repo's
+3. Download the local-tooling subset of the `panopticon` Python package into the child repo's
+   `panopticon/` directory (see "Local tooling package vendored into child repo").
+4. Download the three caller workflow files from the instance repo and write them to the child repo's
    `.github/workflows/`, creating the directory if absent.
-4. Verify org-level CI prerequisites (secrets and variables) and report any missing items — report-only,
+5. Verify org-level CI prerequisites (secrets and variables) and report any missing items — report-only,
    never blocking.
-5. Output the exact prompts the user shall give their AI agent to complete the AI-dependent initialization
+6. Output the exact prompts the user shall give their AI agent to complete the AI-dependent initialization
    steps (see "Agent prompts output").
 
 The bootstrap script SHALL NOT write `panopticon/config.json`. The config file is the last artifact
@@ -248,15 +250,50 @@ Panopticon skills from a prior run, the script SHALL reuse that location without
 - **WHEN** the bootstrap script runs again without `PANOPTICON_SKILLS_LOCATION` set
 - **THEN** it reuses `.claude/skills/` without re-prompting, and skills there are refreshed in place
 
+### Requirement: Local tooling package vendored into child repo
+
+The bootstrap script SHALL download the local-tooling subset of the `panopticon` Python package —
+exactly the modules that Phase 2 skills and the Phase 3 finalization command invoke directly
+(`__init__.py`, `config.py`, `docs.py`, `index.py`, `init_repo.py`) — from the instance repo and write
+them to the child repo's `panopticon/` directory, creating it if absent, so `python3 -m panopticon.docs`
+and `python3 -m panopticon.init_repo` are runnable immediately after Phase 1 with no manual setup: no
+cloning the instance repo, no `PYTHONPATH` configuration, no other local Python environment step.
+
+Modules used only by the reusable GitHub Actions workflows that check out the instance repo directly
+(`llm.py`, `drift.py`, `currency.py`, `merge.py`, `extraction.py`, `skills.py`, `bootstrap.py`, and the
+`parsers/` package) SHALL NOT be written to the child repo — they have no role in local Phase 2/3 work
+and bootstrap.py's own comment already documents this CI-only split.
+
+#### Scenario: Local tooling is usable immediately after bootstrap
+
+- **GIVEN** a freshly bootstrapped child repo that has never had the `panopticon` package locally before
+- **WHEN** the user's agent follows the `panopticon-doc-generation` skill's instructions to run
+  `python3 -m panopticon.docs render ...`
+- **THEN** the command runs successfully without the user cloning the instance repo or configuring
+  `PYTHONPATH`
+
+#### Scenario: CI-only modules are excluded
+
+- **WHEN** the bootstrap script vendors the local-tooling subset
+- **THEN** the child repo's `panopticon/` directory contains `__init__.py`, `config.py`, `docs.py`,
+  `index.py`, and `init_repo.py`, and none of `llm.py`, `drift.py`, `currency.py`, `merge.py`,
+  `extraction.py`, `skills.py`, `bootstrap.py`, or `parsers/`
+
+#### Scenario: Re-run refreshes vendored modules in place
+
+- **WHEN** the bootstrap script runs again on a repo that already has the vendored `panopticon/` modules
+- **THEN** each of the five files is overwritten in place with the instance repo's current content, and
+  no duplicate files are created
+
 ## MODIFIED Requirements
 
 ### Requirement: Agent-driven initialization
 
 Repo initialization SHALL follow a three-phase sequence:
 
-**Phase 1 — Bootstrap (deterministic, no AI):** the bootstrap installer script installs skills and wires
-caller workflows in the child repo and outputs guided agent prompts. No `PANOPTICON_LLM_*` or local
-instance clone is required.
+**Phase 1 — Bootstrap (deterministic, no AI):** the bootstrap installer script installs skills, vendors
+the local-tooling subset of the `panopticon` Python package, and wires caller workflows in the child
+repo, then outputs guided agent prompts. No `PANOPTICON_LLM_*` or local instance clone is required.
 
 **Phase 2 — Agent (AI-driven):** the user's preferred AI agent follows the installed skills — using the
 prompts output by the bootstrap script — to generate the four-layer documentation and build the local
@@ -411,9 +448,10 @@ artifacts in place without creating duplicates.
 
 #### Scenario: Re-run bootstrap on initialized repo
 
-- **WHEN** the bootstrap script runs again on a repo that already has Panopticon skills and workflows
-- **THEN** skills (at the previously chosen location) and workflows are refreshed in place and no
-  duplicates are created
+- **WHEN** the bootstrap script runs again on a repo that already has Panopticon skills, vendored local
+  tooling, and workflows
+- **THEN** skills (at the previously chosen location), the vendored `panopticon/` modules, and workflows
+  are refreshed in place and no duplicates are created
 
 #### Scenario: Re-run finalization on initialized repo
 

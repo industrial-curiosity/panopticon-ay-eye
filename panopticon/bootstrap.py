@@ -196,6 +196,28 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
         count += 1
     return count
 
+# ── Local tooling vendoring ─────────────────────────────────────────────────────
+# The exact transitive import closure of `python3 -m panopticon.init_repo` and the
+# `python3 -m panopticon.docs` commands panopticon-doc-generation/SKILL.md invokes directly —
+# confirmed by reading each module's imports. All stdlib-only. Everything else in panopticon/
+# (llm.py, drift.py, currency.py, merge.py, extraction.py, skills.py, bootstrap.py, parsers/) is
+# used only by the reusable GitHub Actions workflows that check out the instance repo directly,
+# and has no role in local Phase 2/3 work — it SHALL NOT be vendored into child repos.
+LOCAL_TOOLING_MODULES = ("__init__.py", "config.py", "docs.py", "index.py", "init_repo.py")
+
+
+def download_local_tooling(owner, repo, ref, token=None, child_root=".",
+                           urlopen=urllib.request.urlopen):
+    """Vendor LOCAL_TOOLING_MODULES into the child repo's panopticon/ directory, so
+    `python3 -m panopticon.docs` / `python3 -m panopticon.init_repo` work immediately after
+    bootstrap with no instance-repo clone or PYTHONPATH setup. Idempotent: overwrites in place."""
+    dest_dir = Path(child_root) / "panopticon"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for name in LOCAL_TOOLING_MODULES:
+        content = _fetch_file_bytes(owner, repo, f"panopticon/{name}", ref, token, urlopen)
+        (dest_dir / name).write_bytes(content)
+    return len(LOCAL_TOOLING_MODULES)
+
 # ── Prerequisite check ────────────────────────────────────────────────────────
 
 def manual_verification_steps(org):
@@ -520,6 +542,16 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
         n_skills = download_skills(owner, repo, default_branch, tree, token, child_root,
                                    location, urlopen)
         print(f"  {n_skills} skill file(s) installed → {location}/")
+    except RuntimeError as exc:
+        print(f"  error: {exc}")
+        return 1
+
+    # Vendor the local-tooling subset of panopticon/ (python3 -m panopticon.docs and
+    # panopticon.init_repo need this to work with no instance-repo clone or PYTHONPATH setup).
+    print("\nVendoring local Python tooling...")
+    try:
+        n_modules = download_local_tooling(owner, repo, default_branch, token, child_root, urlopen)
+        print(f"  {n_modules} module(s) installed → panopticon/")
     except RuntimeError as exc:
         print(f"  error: {exc}")
         return 1

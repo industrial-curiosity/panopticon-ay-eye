@@ -15,6 +15,7 @@ from unittest.mock import patch
 from panopticon.bootstrap import (
     CALLER_WORKFLOWS,
     DEFAULT_SKILLS_LOCATION,
+    LOCAL_TOOLING_MODULES,
     ORG_SECRETS,
     ORG_VARS,
     TOOL_LOCATIONS,
@@ -26,6 +27,7 @@ from panopticon.bootstrap import (
     caller_workflow_text,
     candidate_locations,
     check_prerequisites,
+    download_local_tooling,
     download_skills,
     manual_verification_steps,
     resolve_instance,
@@ -212,6 +214,53 @@ class TestDownloadSkills(unittest.TestCase):
         self.assertFalse(at_default)
 
 
+# ── Local tooling vendoring ──────────────────────────────────────────────────────
+
+class TestDownloadLocalTooling(unittest.TestCase):
+    def _make_urlopen(self):
+        def urlopen(request, timeout=30):
+            url = request.full_url
+            for name in LOCAL_TOOLING_MODULES:
+                if f"/contents/panopticon/{name}" in url:
+                    return BytesIO(json.dumps(_file_response(f"# {name}".encode())).encode())
+            raise AssertionError(f"unexpected url: {url}")
+
+        return urlopen
+
+    def test_writes_all_local_tooling_modules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            count = download_local_tooling("acme", "instance", "main", child_root=tmp,
+                                           urlopen=self._make_urlopen())
+            written = {p.name for p in (Path(tmp) / "panopticon").iterdir()}
+        self.assertEqual(count, len(LOCAL_TOOLING_MODULES))
+        self.assertEqual(written, set(LOCAL_TOOLING_MODULES))
+
+    def test_ci_only_modules_are_not_requested(self):
+        # The stub raises AssertionError for any URL it doesn't recognize — if download_local_tooling
+        # ever asked for a CI-only module (e.g. llm.py, bootstrap.py), this test would fail loudly.
+        with tempfile.TemporaryDirectory() as tmp:
+            download_local_tooling("acme", "instance", "main", child_root=tmp,
+                                   urlopen=self._make_urlopen())
+
+    def test_idempotent_rerun_overwrites_in_place(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "panopticon").mkdir()
+            (Path(tmp) / "panopticon" / "__init__.py").write_text("stale content")
+            download_local_tooling("acme", "instance", "main", child_root=tmp,
+                                   urlopen=self._make_urlopen())
+            content = (Path(tmp) / "panopticon" / "__init__.py").read_text()
+            file_count = len(list((Path(tmp) / "panopticon").iterdir()))
+        self.assertEqual(content, "# __init__.py")
+        self.assertEqual(file_count, len(LOCAL_TOOLING_MODULES))
+
+    def test_content_matches_fetched_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            download_local_tooling("acme", "instance", "main", child_root=tmp,
+                                   urlopen=self._make_urlopen())
+            content = (Path(tmp) / "panopticon" / "docs.py").read_text()
+        self.assertEqual(content, "# docs.py")
+
+
 # ── Prerequisite check ────────────────────────────────────────────────────────
 
 class TestCheckPrerequisites(unittest.TestCase):
@@ -282,6 +331,9 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
                 return BytesIO(json.dumps(_file_response(org_config_content)).encode())
             if "git/trees" in url:
                 return BytesIO(json.dumps({"tree": []}).encode())
+            for name in LOCAL_TOOLING_MODULES:
+                if f"/contents/panopticon/{name}" in url:
+                    return BytesIO(json.dumps(_file_response(f"# {name}".encode())).encode())
             if "actions/secrets" in url:
                 return BytesIO(json.dumps({"secrets": [{"name": n} for n in secrets]}).encode())
             if "actions/variables" in url:
@@ -486,6 +538,9 @@ class TestMainSkillsLocationFlow(unittest.TestCase):
                 return BytesIO(json.dumps({"tree": [_tree_entry(skill_path)]}).encode())
             if "contents/" + skill_path in url:
                 return BytesIO(json.dumps(_file_response(b"# panopticon-foo")).encode())
+            for name in LOCAL_TOOLING_MODULES:
+                if f"/contents/panopticon/{name}" in url:
+                    return BytesIO(json.dumps(_file_response(f"# {name}".encode())).encode())
             if "actions/secrets" in url:
                 return BytesIO(json.dumps({"secrets": [{"name": n} for n in ORG_SECRETS]}).encode())
             if "actions/variables" in url:
@@ -510,6 +565,21 @@ class TestMainSkillsLocationFlow(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(at_chosen)
         self.assertFalse(agents_dir_exists)
+
+    def test_local_tooling_vendored_alongside_skills(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code = bootstrap_main(
+                env={
+                    "PANOPTICON_INSTANCE": "acme/instance",
+                    "GH_TOKEN": "tok",
+                    "PANOPTICON_SKILLS_LOCATION": ".claude/skills",
+                },
+                child_root=tmp,
+                urlopen=self._router(),
+            )
+            vendored = {p.name for p in (Path(tmp) / "panopticon").iterdir()}
+        self.assertEqual(code, 0)
+        self.assertEqual(vendored, set(LOCAL_TOOLING_MODULES))
 
     def test_default_location_used_without_override(self):
         with tempfile.TemporaryDirectory() as tmp:

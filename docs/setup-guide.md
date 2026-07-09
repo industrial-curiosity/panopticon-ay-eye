@@ -123,6 +123,9 @@ non-interactive/CI runs.
 Once a location is chosen, the script will:
 
 - Install the Panopticon skills there
+- Vendor the local-tooling subset of the `panopticon` Python package into `panopticon/`, so the
+  `python3 -m panopticon...` commands the skills use in Phase 2 work immediately — no need to clone the
+  instance repo or set up a Python environment yourself
 - Wire the three caller GitHub Actions workflows into `.github/workflows/`
 - Check that org secrets and variables are configured (report-only — nothing is blocked)
 - Print the exact prompts to give your AI agent in Phase 2

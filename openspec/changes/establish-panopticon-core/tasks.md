@@ -112,6 +112,22 @@
       170 tests pass. `docs/testing.md` updated; `docs/setup-guide.md`/`docs/agentskills-support.md`
       already matched (written during the correction-sweep session) — verified no stale references
       remain.
+- [x] 4.13 Vendor the local-tooling subset of the `panopticon` package into the child repo during
+      bootstrap. Added `LOCAL_TOOLING_MODULES = ("__init__.py", "config.py", "docs.py", "index.py",
+      "init_repo.py")` and `download_local_tooling()` in `panopticon/bootstrap.py`, wired into `main()`
+      as a new step right after skills download and before workflow wiring — writes the five files to
+      the child repo's `panopticon/` directory, overwriting in place on re-run (same pattern as
+      `download_skills`). CI-only modules (`llm.py`, `drift.py`, `currency.py`, `merge.py`,
+      `extraction.py`, `skills.py`, `bootstrap.py`, `parsers/`) are never requested — enforced by a test
+      stub that raises on any unrecognized URL. Updated `panopticon/__init__.py`'s module docstring to
+      document the CI-only vs. vendored-locally split. `tests/test_install.py::TestDownloadLocalTooling`
+      plus updated `main()`-level routers and a new end-to-end assertion
+      (`test_local_tooling_vendored_alongside_skills`). All 179 tests pass. Verified end-to-end with a
+      real subprocess serving this repo's actual `panopticon/*.py` content: bootstrapped an isolated
+      temp child repo, then ran `python3 -m panopticon.docs validate` there with no `PYTHONPATH` set —
+      it imported and ran successfully (reporting a real missing-docs validation failure, not an import
+      crash), directly reproducing and confirming the fix for the reported bug. `docs/testing.md`
+      updated.
 
 ## 5. Instance repo structure and config
 
