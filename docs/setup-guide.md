@@ -115,22 +115,22 @@ curl -fsSL "https://raw.githubusercontent.com/${PANOPTICON_INSTANCE}/main/instal
 curl -fsSL "https://raw.githubusercontent.com/acme/panopticon-instance/main/install.py" | python3
 ```
 
-The script will:
-- Install the Panopticon skills into `.agents/skills/`
+Before installing anything, the script asks where skills should live (default `.agents/skills/`; see
+[`docs/agentskills-support.md`](agentskills-support.md) for which tools read which locations) — this
+works even when piped through `curl`. Set `PANOPTICON_SKILLS_LOCATION` to skip the prompt for
+non-interactive/CI runs.
+
+Once a location is chosen, the script will:
+
+- Install the Panopticon skills there
 - Wire the three caller GitHub Actions workflows into `.github/workflows/`
 - Check that org secrets and variables are configured (report-only — nothing is blocked)
-- Ask which AI tools/IDEs the repo needs to support (see
-  [`docs/agentskills-support.md`](agentskills-support.md) for the full compatibility list). Most tools
-  read `.agents/skills/` natively at the project level; for the few that don't (currently just Claude
-  Code), you'll be asked to pick one of: duplicate the skills into that tool's own folder, symlink its
-  folder to `.agents/skills/`, or support only a single one of those tools. Set `PANOPTICON_IDES` and
-  `PANOPTICON_IDE_RECONCILE` to skip this prompt in non-interactive installs.
 - Print the exact prompts to give your AI agent in Phase 2
 
 ### Phase 2 — Agent (follow the printed prompts)
 
-The bootstrap script prints numbered prompts — follow them in your AI agent (Claude Code, Cursor,
-or any harness that loads skills from `.agents/skills/`).
+Follow the printed prompts in your AI agent (Claude Code, Cursor, or whichever tool you configured —
+invoke skills by their slash command; which directory the tool reads them from doesn't matter).
 
 No `PANOPTICON_LLM_*` secrets or variables are needed locally — the agent uses its own harness.
 
@@ -142,11 +142,8 @@ initialization flag — only once validation passes.
 
 ### Commit and push
 
-```bash
-git add .github/workflows/ .agents/skills/ docs/ panopticon/
-git commit -m "chore: initialize Panopticon"
-git push
-```
+Commit and push everything the process created — the bootstrap script's own final prompt gives the exact
+command, since which paths that covers depends on the skills location you chose.
 
 ## 5. What runs afterwards
 

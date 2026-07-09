@@ -14,17 +14,16 @@ or equivalently by downloading and running it. The script SHALL read the instanc
 set and stdin is a terminal. Using only Python stdlib and the GitHub API (no additional dependencies), the
 script SHALL:
 
-1. Download only skills whose directory name begins with `panopticon-` from the instance repo's
-   `.agents/skills/` directory and write them to the child repo's `.agents/skills/`, creating the
-   directory if absent. Skills at other name prefixes (org-internal skills, tooling skills, etc.) SHALL
-   NOT be written to the child repo.
-2. Download the three caller workflow files from the instance repo and write them to the child repo's
+1. Determine the child repo's skills location (see "Skills location selection") — this SHALL happen
+   before any skill files are downloaded.
+2. Download only skills whose directory name begins with `panopticon-` from the instance repo's
+   `.agents/skills/` directory and write them to the chosen skills location in the child repo, creating
+   the directory if absent. Skills at other name prefixes (org-internal skills, tooling skills, etc.)
+   SHALL NOT be written to the child repo.
+3. Download the three caller workflow files from the instance repo and write them to the child repo's
    `.github/workflows/`, creating the directory if absent.
-3. Verify org-level CI prerequisites (secrets and variables) and report any missing items — report-only,
+4. Verify org-level CI prerequisites (secrets and variables) and report any missing items — report-only,
    never blocking.
-4. Ask which tools listed in `docs/agentskills-support.md` the repo needs to support, and reconcile skill
-   locations for any selected tool that does not natively read `.agents/skills/` (see "IDE compatibility
-   selection during bootstrap" and "Reconciling IDEs that don't read `.agents/skills/`").
 5. Output the exact prompts the user shall give their AI agent to complete the AI-dependent initialization
    steps (see "Agent prompts output").
 
@@ -48,7 +47,8 @@ a 404 and the script SHALL exit with a clear error).
 #### Scenario: Only panopticon-prefixed skills are installed
 
 - **GIVEN** the instance repo's `.agents/skills/` contains both `panopticon-doc-generation/` and
-  `openspec-apply-change/` (an org-internal skill)
+  `openspec-apply-change/` (an org-internal skill), and the chosen skills location is `.agents/skills/`
+  (the default)
 - **WHEN** the bootstrap script runs
 - **THEN** `.agents/skills/panopticon-doc-generation/` is written to the child repo and
   `.agents/skills/openspec-apply-change/` is not
@@ -56,7 +56,8 @@ a 404 and the script SHALL exit with a clear error).
 #### Scenario: First run in an uninitialised repo
 
 - **WHEN** the bootstrap script runs in a child repo with `PANOPTICON_INSTANCE=acme/panopticon-instance`
-  set (or entered at the prompt)
+  set (or entered at the prompt), and the skills location prompt is accepted at its `.agents/skills/`
+  default
 - **THEN** the child repo's `.agents/skills/` contains the instance skills, `.github/workflows/` contains
   the three Panopticon caller workflows, and the terminal prints the agent prompts — without creating
   `panopticon/config.json`
@@ -90,8 +91,8 @@ a 404 and the script SHALL exit with a clear error).
 
 ### Requirement: Agent prompts output
 
-After completing all deterministic steps, the bootstrap script SHALL print the exact prompts the user
-should provide to their AI agent to complete initialization, in order:
+The bootstrap script SHALL print the exact prompts the user should follow, in order, after completing
+all deterministic steps:
 
 1. The literal slash-command invocation for `panopticon-doc-generation` (e.g. `/panopticon-doc-generation`)
    — not a description of what the skill does.
@@ -100,25 +101,40 @@ should provide to their AI agent to complete initialization, in order:
 3. The verbatim shell command to run the finalization step (no user substitution required — the instance
    slug SHALL be interpolated by the bootstrap script before printing).
 
-Each prompt SHALL be the literal text the user pastes into their agent — never a description of what to
-ask. A description alongside is acceptable; it SHALL NOT replace the literal invocation.
+Each prompt SHALL be the literal text the user pastes into their agent or shell — never a description of
+what to ask. A description alongside is acceptable; it SHALL NOT replace the literal invocation.
+
+No prompt text or accompanying prose SHALL assert a single hardcoded skill location (e.g. state or imply
+that skills are only ever at `.agents/skills/`) as if it always applies, since the skills location
+selection step lets the user pick a different directory. Prompts SHALL refer to invoking skills by their
+slash command (which works regardless of which directory the user's agent reads them from) rather than
+by claiming a specific path.
 
 The bootstrap script output is the **sole source of truth** for these prompts. Static documentation
 (setup guides, READMEs) describing Phase 2 initialization SHALL NOT enumerate the individual prompts —
 it SHALL instruct the user to run the bootstrap script and follow its output. Duplicating prompts in
-static docs creates drift whenever the prompts change.
+static docs creates drift whenever the prompts change. The same rule about not hardcoding a single skill
+location applies to static documentation: any doc, setup guide, or README passage that mentions where
+skills live SHALL be written so it stays accurate no matter which location the reader chose.
 
 #### Scenario: Prompts are printed after all deterministic work
 
-- **WHEN** the bootstrap script has successfully installed skills and workflows
+- **WHEN** the bootstrap script has successfully installed skills at the chosen location and wired
+  workflows
 - **THEN** it prints numbered prompts, each containing the literal slash command or shell command to
   paste, and exits with code 0
 
-#### Scenario: Prompt 1 contains the slash command, not a description
+#### Scenario: Doc-generation prompt contains the slash command, not a description
 
-- **WHEN** the bootstrap script prints Prompt 1
+- **WHEN** the bootstrap script prints the doc-generation prompt
 - **THEN** the output contains the text `/panopticon-doc-generation` as a standalone pasteable line, not
   only prose such as "use the panopticon-doc-generation skill"
+
+#### Scenario: Prompt prose does not hardcode a single skill location
+
+- **WHEN** the bootstrap script prints its numbered prompts
+- **THEN** no prompt or its accompanying description asserts that skills are only ever at
+  `.agents/skills/`; prompts reference the slash command instead
 
 #### Scenario: Setup guide does not enumerate prompts
 
@@ -149,89 +165,88 @@ change.
 - **WHEN** a child repo runs the bootstrap script against that instance
 - **THEN** the caller workflows it writes reference `v1` exactly as configured
 
-### Requirement: IDE compatibility selection during bootstrap
+### Requirement: Skills location selection
 
-The bootstrap script SHALL ask the user which tools listed in `docs/agentskills-support.md` the repo
-needs to support, in addition to the default `.agents/skills/` layout. This SHALL be an interactive
-prompt when stdin is a terminal, and SHALL accept a non-interactive override via the `PANOPTICON_IDES`
-environment variable (a comma-separated list of tool names from `docs/agentskills-support.md`) so piped
-or CI installs can skip the prompt. When no selection is made — the interactive prompt is left blank, or
-`PANOPTICON_IDES` is unset and stdin is not a terminal — the bootstrap script SHALL proceed with
-`.agents/skills/` only, without blocking initialization, since that layout alone already covers a
-majority of the listed tools.
+The bootstrap script SHALL determine a single skills location for the child repo — the one project-level
+directory (e.g. `.agents/skills/`, `.claude/skills/`) that installed skills are written to — before
+downloading any skill files, and SHALL prompt for it itself rather than deferring to a separate script or
+a later manual step.
 
-#### Scenario: Interactive selection
+The default location SHALL be `.agents/skills/`. Before prompting, the script SHALL print, for each tool
+listed in `docs/agentskills-support.md`, which of the candidate locations that tool reads skills from, so
+the user can see which single location covers the tools they care about. The user then chooses one of the
+candidate locations (the union of every location any listed tool reads):
 
-- **WHEN** the bootstrap script runs with stdin as a terminal
-- **THEN** it prompts the user to choose which tools from `docs/agentskills-support.md` the repo needs to
-  support, before printing the agent prompts
+- **Preferred**: an arrow-key selection menu (up/down to move, enter to confirm), defaulting to
+  `.agents/skills/` pre-selected.
+- **Fallback**: a plain typed prompt (enter a number or path) when arrow-key selection isn't available in
+  the current terminal.
 
-#### Scenario: Non-interactive override via environment variable
+Piped `curl | python3` execution SHALL NOT be treated as non-interactive by default: since stdin is
+consumed by the piped script content rather than connected to a terminal, the script SHALL open `/dev/tty`
+directly to read the prompt response (and print the menu to it), so the installer itself completes the
+whole installation — no separate script or second manual step. A `PANOPTICON_SKILLS_LOCATION` environment
+variable overrides the prompt entirely for non-interactive/CI use. When neither `/dev/tty` nor a terminal
+stdin nor the environment variable is available (true non-interactive execution, e.g. CI with no
+controlling terminal), the script SHALL proceed with the `.agents/skills/` default silently, without
+blocking.
 
-- **GIVEN** `PANOPTICON_IDES=claude-code,vscode` is set
+Re-running the script SHALL be idempotent: if one of the candidate locations already contains installed
+Panopticon skills from a prior run, the script SHALL reuse that location without re-prompting, unless
+`PANOPTICON_SKILLS_LOCATION` is set to something else.
+
+#### Scenario: Compatibility table printed before prompting
+
+- **WHEN** the bootstrap script is about to prompt for a skills location
+- **THEN** it first prints each tool from `docs/agentskills-support.md` alongside the location(s) it reads
+  skills from
+
+#### Scenario: Default location used with no interactive input available
+
+- **GIVEN** `PANOPTICON_SKILLS_LOCATION` is unset, stdin is not a terminal, and `/dev/tty` cannot be
+  opened
 - **WHEN** the bootstrap script runs
-- **THEN** it uses that selection without prompting, identical to entering it interactively
+- **THEN** it proceeds with `.agents/skills/` without prompting and without failing
 
-#### Scenario: No selection in non-interactive mode defaults safely
+#### Scenario: Piped execution still prompts via /dev/tty
 
-- **GIVEN** `PANOPTICON_IDES` is unset and stdin is not a terminal
+- **GIVEN** the user runs `curl -fsSL .../install.py | python3` from an interactive terminal, so stdin is
+  a pipe but `/dev/tty` refers to that terminal
+- **WHEN** the bootstrap script reaches the skills location step
+- **THEN** it opens `/dev/tty` and prompts there, letting the user choose a location in the same run —
+  no second script or manual step is required
+
+#### Scenario: Arrow-key selection
+
+- **GIVEN** an interactive terminal (direct run or piped with `/dev/tty` available) that supports raw
+  input mode
+- **WHEN** the user presses the down arrow once and then enter
+- **THEN** the second candidate location in the printed list is chosen
+
+#### Scenario: Typed fallback when arrow-key mode is unavailable
+
+- **GIVEN** a terminal that does not support raw input mode
+- **WHEN** the skills location prompt runs
+- **THEN** the user can type a number or path to select a location instead of using arrow keys
+
+#### Scenario: Non-default location chosen
+
+- **GIVEN** the user selects `.claude/skills/` at the prompt
+- **WHEN** the bootstrap script downloads skills
+- **THEN** skills are written to `.claude/skills/` and `.agents/skills/` is never created
+
+#### Scenario: Environment variable override
+
+- **GIVEN** `PANOPTICON_SKILLS_LOCATION=.cursor/skills` is set
 - **WHEN** the bootstrap script runs
-- **THEN** it proceeds using `.agents/skills/` only, without prompting and without failing
+- **THEN** it writes skills to `.cursor/skills/` without prompting, identical to selecting it
+  interactively
 
-### Requirement: Reconciling IDEs that don't read `.agents/skills/`
+#### Scenario: Re-run reuses the previously chosen location
 
-The bootstrap script SHALL ask the user to choose exactly one reconciliation strategy before proceeding
-when the user's selection includes one or more tools that `docs/agentskills-support.md` marks as not
-natively reading `.agents/skills/` at the project/workspace level (currently only Claude Code; the doc's
-global/user-profile-level column is not relevant here since the bootstrap script only ever writes to the
-child repo, never to a home-directory location):
-
-1. **Duplicate** — copy the installed skill files into each such tool's own project-level skill
-   directory (e.g. `.claude/skills/` for Claude Code), in addition to `.agents/skills/`.
-2. **Single IDE** — narrow support to exactly one of the selected tools that don't read
-   `.agents/skills/`; the bootstrap script asks which one, then applies the Duplicate strategy for that
-   tool only. The other non-`.agents/skills/` tools from the selection receive no local skill files.
-3. **Symlink** — create a symlink from each such tool's project-level skill directory to
-   `.agents/skills/`, so the two locations never drift out of sync.
-
-This choice SHALL also accept a non-interactive override via the `PANOPTICON_IDE_RECONCILE` environment
-variable (`duplicate`, `single:<tool>`, or `symlink`). If symlink creation fails (e.g. the filesystem or
-OS does not support it), the bootstrap script SHALL report the failure clearly and SHALL NOT silently
-fall back to a different strategy.
-
-#### Scenario: Selection includes only .agents/skills/-compatible tools
-
-- **GIVEN** the user's selection contains only tools that `docs/agentskills-support.md` marks as reading
-  `.agents/skills/` natively
-- **WHEN** the bootstrap script runs
-- **THEN** it does not ask about a reconciliation strategy, since none is needed
-
-#### Scenario: Duplicate strategy
-
-- **GIVEN** the user selects Claude Code and chooses the Duplicate strategy
-- **WHEN** the bootstrap script runs
-- **THEN** the installed skills exist both under `.agents/skills/` and under `.claude/skills/` as
-  independent copies
-
-#### Scenario: Single IDE strategy
-
-- **GIVEN** the user's selection includes two tools that `docs/agentskills-support.md` marks as not
-  reading `.agents/skills/`, and the user chooses the Single IDE strategy, picking the first one
-- **WHEN** the bootstrap script runs
-- **THEN** skills are duplicated into that tool's project-level skill directory only; the other selected
-  non-`.agents/skills/` tool receives no local skill directory
-
-#### Scenario: Symlink strategy
-
-- **GIVEN** the user selects Claude Code and chooses the Symlink strategy
-- **WHEN** the bootstrap script runs
-- **THEN** `.claude/skills/` is created as a symlink to `.agents/skills/`
-
-#### Scenario: Symlink creation fails
-
-- **GIVEN** the user chooses the Symlink strategy on a filesystem or OS that does not support symlinks
-- **WHEN** the bootstrap script attempts to create the symlink
-- **THEN** it reports the failure clearly and does not silently substitute another strategy
+- **GIVEN** a repo was previously bootstrapped with `.claude/skills/` as the chosen location
+- **WHEN** the bootstrap script runs again without `PANOPTICON_SKILLS_LOCATION` set
+- **THEN** it reuses `.claude/skills/` without re-prompting, and skills there are refreshed in place
 
 ## MODIFIED Requirements
 
@@ -397,16 +412,8 @@ artifacts in place without creating duplicates.
 #### Scenario: Re-run bootstrap on initialized repo
 
 - **WHEN** the bootstrap script runs again on a repo that already has Panopticon skills and workflows
-- **THEN** skills and workflows are refreshed in place and no duplicates are created
-
-#### Scenario: Re-run with existing IDE reconciliation artifacts
-
-- **GIVEN** a repo was previously bootstrapped with the Duplicate strategy for Claude Code, so
-  `.claude/skills/` already exists
-- **WHEN** the bootstrap script runs again without `PANOPTICON_IDES` or `PANOPTICON_IDE_RECONCILE` set
-- **THEN** the duplicated `.claude/skills/` files are refreshed in place to match `.agents/skills/`,
-  without re-prompting for a tool selection or reconciliation strategy and without creating additional
-  copies
+- **THEN** skills (at the previously chosen location) and workflows are refreshed in place and no
+  duplicates are created
 
 #### Scenario: Re-run finalization on initialized repo
 

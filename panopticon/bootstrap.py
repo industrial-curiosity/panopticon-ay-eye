@@ -11,10 +11,11 @@ or::
 
     PANOPTICON_INSTANCE=acme/panopticon-instance python3 install.py
 
-The installer runs a sequence of deterministic steps — download skills, wire workflows, check CI
-prerequisites, reconcile IDE/tool skill locations — then prints the exact agent prompts that
-complete initialization. ``panopticon/config.json`` is never written here; it is the last artifact
-created by the finalization step after the agent has finished.
+The installer determines a skills location (prompting for it — even when piped via curl, by
+reading from /dev/tty — before downloading anything), then runs the remaining deterministic
+steps: download skills to that location, wire workflows, check CI prerequisites, print the exact
+agent prompts that complete initialization. ``panopticon/config.json`` is never written here; it
+is the last artifact created by the finalization step after the agent has finished.
 """
 
 import base64
@@ -170,9 +171,12 @@ def fetch_org_config(owner, repo, ref, token=None, urlopen=urllib.request.urlope
 
 # ── Skills download ───────────────────────────────────────────────────────────
 
-def download_skills(owner, repo, ref, tree, token=None, child_root=".",
+def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_location=None,
                     urlopen=urllib.request.urlopen):
-    """Download panopticon-* skills from the instance tree to the child repo; returns count."""
+    """Download panopticon-* skills from the instance tree to `dest_location` in the child repo
+    (defaults to `.agents/skills`); returns count. The instance repo always stores skills under
+    `.agents/skills/` (SKILLS_PREFIX) — only the child-repo destination varies."""
+    dest_location = dest_location if dest_location is not None else DEFAULT_SKILLS_LOCATION
     blobs = [
         item for item in tree
         if item["type"] == "blob"
@@ -184,7 +188,8 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".",
     count = 0
     for item in blobs:
         path = item["path"]
-        local = Path(child_root) / path
+        relative = path[len(SKILLS_PREFIX):]
+        local = Path(child_root) / dest_location / relative
         local.parent.mkdir(parents=True, exist_ok=True)
         content = _fetch_file_bytes(owner, repo, path, ref, token, urlopen)
         local.write_bytes(content)
@@ -245,186 +250,191 @@ def check_prerequisites(org, token=None, urlopen=urllib.request.urlopen):
     _check("variables", "variables", ORG_VARS, "variable")
     return report
 
-# ── IDE / tool compatibility ────────────────────────────────────────────────────
-# Project/workspace-level tool support — mirrors the table in docs/agentskills-support.md, which is
-# the source of truth for which tools read .agents/skills/ natively; keep this constant in sync with
-# that doc. Maps tool id -> (display name, reads .agents/skills/ natively, own skill dir or None).
-SUPPORTED_TOOLS = {
-    "vscode": ("VS Code (GitHub Copilot)", True, None),
-    "visual-studio": ("Visual Studio 2026", True, None),
-    "cursor": ("Cursor", True, None),
-    "jetbrains": ("JetBrains IDEs (AI Assistant)", True, None),
-    "claude-code": ("Claude Code", False, ".claude/skills"),
-    "google-antigravity": ("Google Antigravity", True, None),
-    "openai-codex": ("OpenAI Codex", True, None),
-    "opencode": ("opencode", True, None),
-    "pi": ("Pi", True, None),
+# ── Skills location selection ───────────────────────────────────────────────────
+# The bootstrap script prompts for the skills location itself — even when piped via
+# `curl | python3` — by reading from /dev/tty directly, since piped stdin is consumed by the
+# script content rather than connected to a terminal. No separate script or manual step.
+DEFAULT_SKILLS_LOCATION = ".agents/skills"
+
+# Project/workspace-level tool support — mirrors the table in docs/agentskills-support.md, which
+# is the source of truth; keep this constant in sync with that doc. Maps tool id -> (display
+# name, tuple of locations it reads skills from).
+TOOL_LOCATIONS = {
+    "vscode": ("VS Code (GitHub Copilot)", (".agents/skills", ".github/skills", ".claude/skills")),
+    "visual-studio": ("Visual Studio 2026", (".agents/skills", ".github/skills", ".claude/skills")),
+    "cursor": ("Cursor", (".agents/skills", ".cursor/skills")),
+    "jetbrains": ("JetBrains IDEs (AI Assistant)", (".agents/skills", ".claude/skills", ".codex/skills")),
+    "claude-code": ("Claude Code", (".claude/skills",)),
+    "google-antigravity": ("Google Antigravity", (".agents/skills",)),
+    "openai-codex": ("OpenAI Codex", (".agents/skills",)),
+    "opencode": ("opencode", (".agents/skills", ".opencode/skills", ".claude/skills")),
+    "pi": ("Pi", (".agents/skills", ".pi/skills")),
 }
 
 
-def outlier_tools(selected):
-    """Return the subset of `selected` tool ids that don't read .agents/skills/ natively."""
-    return [t for t in selected if t in SUPPORTED_TOOLS and not SUPPORTED_TOOLS[t][1]]
+def candidate_locations():
+    """Return the ordered, de-duplicated union of every location any TOOL_LOCATIONS tool reads,
+    with the default (.agents/skills) always first."""
+    locations = [DEFAULT_SKILLS_LOCATION]
+    for _, tool_locations in TOOL_LOCATIONS.values():
+        for loc in tool_locations:
+            if loc not in locations:
+                locations.append(loc)
+    return locations
 
 
-def select_ides(env=None, prompt_fn=None, child_root="."):
-    """Return the tool ids the repo needs to support, beyond the .agents/skills/ default.
-
-    `PANOPTICON_IDES` (comma-separated) always wins. Otherwise, tools already reconciled by a
-    prior bootstrap run are detected from their on-disk skill directory so re-runs don't
-    re-prompt. Failing both, prompts interactively; a blank answer or non-interactive stdin
-    defaults to no extra tools (``.agents/skills/`` only — never blocks).
-    """
-    env = env if env is not None else os.environ
-    raw = env.get("PANOPTICON_IDES", "").strip()
-    if raw:
-        return [t.strip() for t in raw.split(",") if t.strip()]
-
-    already_reconciled = [
-        tid for tid, (_, compatible, tool_dir) in SUPPORTED_TOOLS.items()
-        if not compatible and (Path(child_root) / tool_dir).exists()
-    ]
-    if already_reconciled:
-        return already_reconciled
-
-    if prompt_fn is None:
-        if not sys.stdin.isatty():
-            return []
-        prompt_fn = input
-
-    listing = "\n".join(f"    {tid} — {name}" for tid, (name, _, _) in SUPPORTED_TOOLS.items())
-    answer = prompt_fn(
-        "Which AI tools/IDEs does this repo need to support (see docs/agentskills-support.md)?\n"
-        f"{listing}\n"
-        "  Enter comma-separated ids, or leave blank for .agents/skills/ only: "
-    ).strip()
-    return [t.strip() for t in answer.split(",") if t.strip()]
-
-
-def select_reconcile_strategy(outliers, env=None, prompt_fn=None):
-    """Return (strategy, single_tool_id_or_None) for reconciling `outliers` with .agents/skills/.
-
-    `PANOPTICON_IDE_RECONCILE` (``duplicate``, ``symlink``, or ``single:<tool>``) always wins.
-    Non-interactive stdin with no override defaults to ``duplicate`` for every outlier, since
-    that's the only strategy that never needs picking a single tool.
-    """
-    env = env if env is not None else os.environ
-    raw = env.get("PANOPTICON_IDE_RECONCILE", "").strip()
-    if raw:
-        if raw.startswith("single:"):
-            return "single", raw.split(":", 1)[1]
-        return raw, None
-
-    if prompt_fn is None:
-        if not sys.stdin.isatty():
-            return "duplicate", None
-        prompt_fn = input
-
-    names = ", ".join(f"{t} ({SUPPORTED_TOOLS[t][0]})" for t in outliers)
-    answer = prompt_fn(
-        f"These selected tools don't read .agents/skills/ natively: {names}\n"
-        "  Choose how to reconcile — duplicate / single / symlink: "
-    ).strip().lower()
-    if answer == "single":
-        if len(outliers) == 1:
-            return "single", outliers[0]
-        chosen = prompt_fn(f"  Which one? ({', '.join(outliers)}): ").strip()
-        return "single", chosen
-    if answer == "symlink":
-        return "symlink", None
-    return "duplicate", None
-
-
-def duplicate_skill_dir(tool_dir, child_root="."):
-    """Copy .agents/skills/ into `tool_dir` as an independent copy, replacing any prior contents."""
-    src = Path(child_root) / SKILLS_PREFIX
-    dest = Path(child_root) / tool_dir
-    if dest.is_symlink():
-        dest.unlink()
-    elif dest.exists():
-        shutil.rmtree(dest)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if src.is_dir():
-        shutil.copytree(src, dest)
-    else:
-        dest.mkdir(parents=True, exist_ok=True)
-
-
-def symlink_skill_dir(tool_dir, child_root="."):
-    """Symlink `tool_dir` to .agents/skills/ (relative target). Returns True on success."""
-    src = Path(child_root) / SKILLS_PREFIX
-    dest = Path(child_root) / tool_dir
-    if dest.is_symlink():
-        dest.unlink()
-    elif dest.exists():
-        shutil.rmtree(dest) if dest.is_dir() else dest.unlink()
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        dest.symlink_to(os.path.relpath(src, start=dest.parent), target_is_directory=True)
-        return True
-    except OSError:
-        return False
-
-
-def _refresh_reconciled_tools(outliers, child_root):
-    """Refresh any outlier whose directory already exists from a prior run; returns
-    (status_lines, outliers_still_needing_a_strategy)."""
-    lines = []
-    unreconciled = []
-    for tid in outliers:
-        _, _, tool_dir = SUPPORTED_TOOLS[tid]
-        dest = Path(child_root) / tool_dir
-        if dest.is_symlink():
-            lines.append(f"  {tool_dir} is already a symlink to .agents/skills/ — nothing to refresh")
-        elif dest.is_dir():
-            duplicate_skill_dir(tool_dir, child_root)
-            lines.append(f"  refreshed duplicated skills in {tool_dir}")
-        else:
-            unreconciled.append(tid)
-    return lines, unreconciled
-
-
-def _apply_reconcile_strategy(outliers, strategy, single_tool, child_root):
-    """Apply `strategy` to the given outliers (or just `single_tool`); returns status lines."""
-    lines = []
-    targets = [single_tool] if strategy == "single" else outliers
-    for tid in targets:
-        if tid not in SUPPORTED_TOOLS:
-            lines.append(f"  error: unknown tool id {tid!r} for single-IDE reconciliation")
-            continue
-        _, _, tool_dir = SUPPORTED_TOOLS[tid]
-        if strategy == "symlink":
-            if symlink_skill_dir(tool_dir, child_root):
-                lines.append(f"  symlinked {tool_dir} -> .agents/skills/")
-            else:
-                lines.append(f"  error: could not create symlink at {tool_dir} "
-                              "(unsupported on this filesystem/OS) — no fallback applied")
-        else:
-            duplicate_skill_dir(tool_dir, child_root)
-            lines.append(f"  duplicated skills into {tool_dir}")
-
-    if strategy == "single":
-        for tid in (t for t in outliers if t != single_tool):
-            name = SUPPORTED_TOOLS.get(tid, (tid,))[0]
-            lines.append(f"  skipped {name} — Single IDE strategy selected {single_tool}")
-
+def compatibility_table_lines():
+    """Printable lines listing each tool and the location(s) it reads skills from."""
+    lines = ["  Which tools read skills from which location (docs/agentskills-support.md):"]
+    for name, tool_locations in TOOL_LOCATIONS.values():
+        lines.append(f"    {name}: {', '.join(tool_locations)}")
     return lines
 
 
-def reconcile_ides(selected, env=None, prompt_fn=None, child_root="."):
-    """Apply the reconciliation strategy for any selected tool that doesn't read .agents/skills/
-    natively; returns printable status lines. Report-only for already-reconciled tools — refreshes
-    them in place without re-prompting."""
-    outliers = outlier_tools(selected)
-    if not outliers:
-        return []
+def _detect_existing_location(child_root="."):
+    """Return the candidate location that already contains installed panopticon-* skills from a
+    prior run, or None if none do."""
+    for loc in candidate_locations():
+        d = Path(child_root) / loc
+        if d.is_dir() and any(p.name.startswith("panopticon-") for p in d.iterdir()):
+            return loc
+    return None
 
-    lines, unreconciled = _refresh_reconciled_tools(outliers, child_root)
-    if not unreconciled:
-        return lines
 
-    strategy, single_tool = select_reconcile_strategy(unreconciled, env, prompt_fn)
-    return lines + _apply_reconcile_strategy(unreconciled, strategy, single_tool, child_root)
+def _resolve_typed_answer(answer, locations):
+    """Interpret a typed prompt answer: blank -> default, a number -> that list index, anything
+    else -> treated as a literal path."""
+    answer = answer.strip()
+    if not answer:
+        return locations[0]
+    if answer.isdigit():
+        index = int(answer) - 1
+        if 0 <= index < len(locations):
+            return locations[index]
+        return locations[0]
+    return answer.strip("/")
+
+
+def _apply_key(selected, count, key):
+    """Pure state transition for the arrow-key menu: given the currently selected index and a
+    raw key read from the terminal (a single byte, or the 3-byte ESC sequence for an arrow key),
+    return (new_selected, done)."""
+    if key in (b"\r", b"\n"):
+        return selected, True
+    if key == b"\x1b[A":
+        return (selected - 1) % count, False
+    if key == b"\x1b[B":
+        return (selected + 1) % count, False
+    return selected, False
+
+
+def _write_menu(fd, locations, selected, first_draw=False):
+    lines = []
+    if not first_draw:
+        lines.append(f"\x1b[{len(locations) + 1}A".encode())
+    lines.append(b"\x1b[2K\rUse up/down arrows and enter to choose a skills location:\r\n")
+    for i, loc in enumerate(locations):
+        marker = b"> " if i == selected else b"  "
+        lines.append(b"\x1b[2K" + marker + loc.encode() + b"\r\n")
+    os.write(fd, b"".join(lines))
+
+
+def _arrow_key_menu(locations, default_index=0, tty_path="/dev/tty"):
+    """Render an arrow-key selection menu on `tty_path` using raw terminal mode. Returns the
+    chosen index, or None if raw terminal interaction isn't available (caller falls back to a
+    typed prompt) — e.g. no `termios`/`tty` module (non-POSIX), or `tty_path` can't be opened."""
+    try:
+        import termios
+        import tty as tty_module
+    except ImportError:
+        return None
+    try:
+        fd = os.open(tty_path, os.O_RDWR)
+    except OSError:
+        return None
+
+    try:
+        old_settings = termios.tcgetattr(fd)
+    except termios.error:
+        os.close(fd)
+        return None
+
+    selected = default_index
+    try:
+        tty_module.setraw(fd)
+        _write_menu(fd, locations, selected, first_draw=True)
+        while True:
+            key = os.read(fd, 1)
+            if key == b"\x1b":
+                key += os.read(fd, 2)
+            selected, done = _apply_key(selected, len(locations), key)
+            _write_menu(fd, locations, selected)
+            if done:
+                break
+    finally:
+        # TCSANOW, not TCSADRAIN: draining waits for the pty's other end to consume pending
+        # output, which can hang if nothing is reading it (observed in tests using a pty pair
+        # with no reader on the master side). Restoring settings doesn't need to wait for that.
+        termios.tcsetattr(fd, termios.TCSANOW, old_settings)
+        os.close(fd)
+    return selected
+
+
+def _tty_typed_prompt(prompt_text, tty_path="/dev/tty"):
+    """Write `prompt_text` and read one line from `tty_path`. Returns the typed string, or None
+    if the tty can't be opened."""
+    try:
+        tty_read = open(tty_path, "r")
+        tty_write = open(tty_path, "w")
+    except OSError:
+        return None
+    try:
+        tty_write.write(prompt_text)
+        tty_write.flush()
+        line = tty_read.readline()
+    finally:
+        tty_read.close()
+        tty_write.close()
+    return line.rstrip("\n")
+
+
+def select_skills_location(env=None, prompt_fn=None, child_root="."):
+    """Return the skills location to install to. Never blocks.
+
+    Precedence: `PANOPTICON_SKILLS_LOCATION` env var, a location already populated by a prior run
+    (idempotent re-run), an interactive prompt (arrow-key menu on /dev/tty, falling back to a
+    typed prompt there, falling back to plain `input()` if stdin is itself a terminal), then the
+    `.agents/skills` default when no interactive input is available at all.
+    """
+    env = env if env is not None else os.environ
+    override = env.get("PANOPTICON_SKILLS_LOCATION", "").strip()
+    if override:
+        return override.strip("/")
+
+    existing = _detect_existing_location(child_root)
+    if existing:
+        return existing
+
+    locations = candidate_locations()
+    for line in compatibility_table_lines():
+        print(line)
+    prompt_text = f"  Choose a skills location [1-{len(locations)}] or path (default {locations[0]}): "
+
+    if prompt_fn is not None:
+        return _resolve_typed_answer(prompt_fn(prompt_text), locations)
+
+    index = _arrow_key_menu(locations, default_index=0)
+    if index is not None:
+        return locations[index]
+
+    typed = _tty_typed_prompt(prompt_text)
+    if typed is not None:
+        return _resolve_typed_answer(typed, locations)
+
+    if sys.stdin.isatty():
+        return _resolve_typed_answer(input(prompt_text), locations)
+
+    return locations[0]
 
 
 # ── Agent prompts ─────────────────────────────────────────────────────────────
@@ -437,8 +447,8 @@ def agent_prompts(instance):
 ║        Panopticon — complete initialization with your agent     ║
 ╚══════════════════════════════════════════════════════════════════╝
 
-Give these prompts to your AI agent (Claude Code, Cursor, or any
-harness that loads skills from .agents/skills/):
+Give these prompts to your AI agent (Claude Code, Cursor, or
+whichever tool reads skills from where you just installed them):
 
 ━━━ Prompt 1 — Generate documentation ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -454,7 +464,7 @@ harness that loads skills from .agents/skills/):
 
 ━━━ Prompt 3 — Finalize ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Once prompts 1 and 2 are complete, run the finalization step:
+  Once prompts 1-2 are complete, run the finalization step:
 
     python3 -m panopticon.init_repo --instance {instance}
 
@@ -464,7 +474,7 @@ harness that loads skills from .agents/skills/):
 
 Then commit and push:
 
-  git add .github/workflows/ .agents/skills/ docs/ panopticon/
+  git add -A
   git commit -m "chore: initialize Panopticon"
   git push
 """
@@ -497,12 +507,19 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
     ref = org_config.get("workflow_ref", default_branch)
     print(f"  workflow_ref: {ref}")
 
+    # Determine the skills location before downloading anything — prompts even when piped, by
+    # reading from /dev/tty (see select_skills_location).
+    print()
+    location = select_skills_location(env, prompt_fn, child_root)
+    print(f"  skills location: {location}")
+
     # Download skills.
     print(f"\nDownloading skills from {instance}...")
     try:
         tree = _fetch_tree(owner, repo, default_branch, token, urlopen)
-        n_skills = download_skills(owner, repo, default_branch, tree, token, child_root, urlopen)
-        print(f"  {n_skills} skill file(s) installed → .agents/skills/")
+        n_skills = download_skills(owner, repo, default_branch, tree, token, child_root,
+                                   location, urlopen)
+        print(f"  {n_skills} skill file(s) installed → {location}/")
     except RuntimeError as exc:
         print(f"  error: {exc}")
         return 1
@@ -527,16 +544,6 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
         )
     else:
         print("  All org-level secrets and variables are configured.")
-
-    # Ask which tools/IDEs the repo needs to support, and reconcile any that don't read
-    # .agents/skills/ natively (report-only for already-reconciled tools; never blocks).
-    print("\nChecking IDE/tool compatibility (see docs/agentskills-support.md)...")
-    selected = select_ides(env, prompt_fn, child_root)
-    if selected:
-        for line in reconcile_ides(selected, env, prompt_fn, child_root):
-            print(line)
-    else:
-        print("  .agents/skills/ only — no additional tool directories requested.")
 
     print(agent_prompts(instance))
     return 0

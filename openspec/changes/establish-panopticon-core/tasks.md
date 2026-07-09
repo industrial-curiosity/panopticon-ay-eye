@@ -52,10 +52,16 @@
 - [x] 4.9 Unit tests for the bootstrap installer: skill download, workflow wiring, idempotent re-run, env var
       vs prompt fallback, missing-prerequisite reporting; includes test that non-`panopticon-` skills are
       excluded and test that agent prompts contain literal slash commands (`/panopticon-doc-generation` etc.)
-- [ ] 4.10 Unit tests for the install.py self-bootstrapping path: `_load_from_github` downloads
-      `panopticon/__init__.py` and `panopticon/bootstrap.py`, installs fake modules into `sys.modules`, and
-      the top-level `except ModuleNotFoundError` block exits clearly when `PANOPTICON_INSTANCE` is unset
-      and stdin is not a tty
+- [x] 4.10 Unit tests for the install.py self-bootstrapping path: `tests/test_install_self_bootstrap.py`
+      runs `install.py` in real, isolated subprocesses (copied into an empty temp dir with no sibling
+      `panopticon/` package, so the import genuinely fails there — mutating `sys.modules` in-process
+      isn't safe alongside the rest of the suite). Covers: the top-level `except ModuleNotFoundError`
+      block exits clearly naming `PANOPTICON_INSTANCE` and the export-and-pipe command when unset and
+      non-interactive (including with piped stdin that carries real bytes); `_load_from_github` fetches
+      `panopticon/__init__.py`/`panopticon/bootstrap.py` from a stubbed GitHub API, installs them into
+      `sys.modules`, and the retry import succeeds end-to-end (verified by actually running the
+      installed fake `main()`, proving relative imports resolve); an HTTP error during fetch exits with
+      a clear message naming the failing path.
 - [x] 4.11 Fix the bootstrap installer's workflow_ref default: `bootstrap.py::main` now falls back to the
       instance repo's default branch (`default_branch`, already resolved for skill/tree fetching) instead
       of a hardcoded `DEFAULT_WORKFLOW_REF = "v1"` tag when `panopticon.config.json` omits `workflow_ref`
@@ -81,19 +87,31 @@
       `docs/` default; record the location in `panopticon/config.json`
 - [ ] 4.5 Test initialization end-to-end against a sandbox child repo (blocked locally: needs a sandbox GitHub
       org/repo; unit coverage in `tests/test_init_repo.py` exercises the full local flow against a temp repo)
-- [x] 4.12 Implement IDE compatibility selection and reconciliation in the bootstrap script:
-      `select_ides()` prompts (or reads `PANOPTICON_IDES`) for which `SUPPORTED_TOOLS` entries
-      (mirroring `docs/agentskills-support.md`'s project-level table) the repo needs; `outlier_tools()`
-      finds the subset that doesn't read `.agents/skills/` natively (currently only Claude Code —
-      Google Antigravity is project-level compatible, only its global path diverges, irrelevant here);
-      `select_reconcile_strategy()` prompts (or reads `PANOPTICON_IDE_RECONCILE`) for Duplicate /
-      Single IDE / Symlink; `reconcile_ides()` applies it via `duplicate_skill_dir()` /
-      `symlink_skill_dir()` after skills are downloaded to `.agents/skills/`, wired into `main()`.
-      Idempotent re-runs (`_refresh_reconciled_tools`) detect existing duplicated/symlinked
-      directories and refresh them without re-prompting. Symlink failures are reported, never
-      silently substituted. Covered by `tests/test_install.py` (`TestOutlierTools`, `TestSelectIdes`,
-      `TestSelectReconcileStrategy`, `TestDuplicateAndSymlinkSkillDir`, `TestReconcileIdes`,
-      `TestMainIdeReconciliation`).
+- [x] 4.12 Third implementation, per explicit user request rejecting the two-script design. Removed
+      `panopticon/configure_ides.py` and `tests/test_configure_ides.py` entirely. `bootstrap.py` now
+      does it all inline: `TOOL_LOCATIONS` (per-tool location table mirroring
+      `docs/agentskills-support.md`), `candidate_locations()`, `compatibility_table_lines()` (printed
+      before prompting), `_detect_existing_location()` (idempotent re-run — reuses a previously chosen
+      location without re-prompting), `_resolve_typed_answer()`, `_apply_key()` (pure arrow-key state
+      transition), `_arrow_key_menu()` (raw `termios`/`tty` mode reading `/dev/tty`, so piped
+      `curl | python3` can still prompt since stdin is only consumed by the script content, not
+      `/dev/tty`), `_tty_typed_prompt()` (fallback when raw mode isn't available),
+      `select_skills_location()` (orchestrates: env override → existing-location reuse → arrow-key menu
+      → typed `/dev/tty` prompt → plain `input()` if stdin is itself a tty → silent
+      `.agents/skills` default). `download_skills()` takes a `dest_location` parameter — skills are
+      downloaded only after `select_skills_location()` runs, never unconditionally to
+      `.agents/skills/`. `agent_prompts()` back to 3 prompts, no configuration-script step.
+
+      Found and fixed a real hang: `_arrow_key_menu`'s cleanup used `termios.tcsetattr(fd,
+      termios.TCSADRAIN, ...)`, which blocks draining pending output if nothing reads the pty's other
+      end — reproduced with a real pty pair, fixed by switching to `TCSANOW`. Verified via a pty-pair
+      unit test (`TestArrowKeyMenu`) and a full end-to-end `main()` smoke test through a real pty
+      (arrow-key selection → skills written only to the chosen location). `tests/test_install.py`
+      rewritten: `TestCandidateLocations`, `TestDetectExistingLocation`, `TestResolveTypedAnswer`,
+      `TestApplyKey`, `TestArrowKeyMenu`, `TestSelectSkillsLocation`, `TestMainSkillsLocationFlow`. All
+      170 tests pass. `docs/testing.md` updated; `docs/setup-guide.md`/`docs/agentskills-support.md`
+      already matched (written during the correction-sweep session) — verified no stale references
+      remain.
 
 ## 5. Instance repo structure and config
 

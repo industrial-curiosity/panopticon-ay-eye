@@ -2,7 +2,11 @@
 
 import base64
 import json
+import os
+import pty
 import tempfile
+import threading
+import time
 import unittest
 from io import BytesIO
 from pathlib import Path
@@ -10,22 +14,23 @@ from unittest.mock import patch
 
 from panopticon.bootstrap import (
     CALLER_WORKFLOWS,
+    DEFAULT_SKILLS_LOCATION,
     ORG_SECRETS,
     ORG_VARS,
-    SUPPORTED_TOOLS,
+    TOOL_LOCATIONS,
+    _apply_key,
+    _arrow_key_menu,
+    _detect_existing_location,
+    _resolve_typed_answer,
     agent_prompts,
     caller_workflow_text,
+    candidate_locations,
     check_prerequisites,
     download_skills,
-    duplicate_skill_dir,
     manual_verification_steps,
-    outlier_tools,
-    reconcile_ides,
     resolve_instance,
     resolve_token,
-    select_ides,
-    select_reconcile_strategy,
-    symlink_skill_dir,
+    select_skills_location,
     wire_workflows,
 )
 from panopticon.bootstrap import main as bootstrap_main
@@ -195,6 +200,17 @@ class TestDownloadSkills(unittest.TestCase):
                                     urlopen=_make_urlopen([]))
         self.assertEqual(count, 0)
 
+    def test_writes_to_chosen_destination_location(self):
+        paths = [".agents/skills/panopticon-my-skill/SKILL.md"]
+        tree, urlopen = self._make_tree_and_urlopen(paths)
+        with tempfile.TemporaryDirectory() as tmp:
+            download_skills("acme", "instance", "main", tree, child_root=tmp,
+                            dest_location=".claude/skills", urlopen=urlopen)
+            at_chosen = (Path(tmp) / ".claude" / "skills" / "panopticon-my-skill" / "SKILL.md").exists()
+            at_default = (Path(tmp) / ".agents" / "skills").exists()
+        self.assertTrue(at_chosen)
+        self.assertFalse(at_default)
+
 
 # ── Prerequisite check ────────────────────────────────────────────────────────
 
@@ -277,7 +293,11 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
     def test_no_org_config_wires_workflows_to_default_branch(self):
         with tempfile.TemporaryDirectory() as tmp:
             code = bootstrap_main(
-                env={"PANOPTICON_INSTANCE": "acme/instance", "GH_TOKEN": "tok"},
+                env={
+                    "PANOPTICON_INSTANCE": "acme/instance",
+                    "GH_TOKEN": "tok",
+                    "PANOPTICON_SKILLS_LOCATION": ".agents/skills",
+                },
                 child_root=tmp,
                 urlopen=self._router(org_config_content=None),
             )
@@ -288,7 +308,11 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
     def test_org_config_workflow_ref_is_respected(self):
         with tempfile.TemporaryDirectory() as tmp:
             code = bootstrap_main(
-                env={"PANOPTICON_INSTANCE": "acme/instance", "GH_TOKEN": "tok"},
+                env={
+                    "PANOPTICON_INSTANCE": "acme/instance",
+                    "GH_TOKEN": "tok",
+                    "PANOPTICON_SKILLS_LOCATION": ".agents/skills",
+                },
                 child_root=tmp,
                 urlopen=self._router(org_config_content=json.dumps({"workflow_ref": "v2"}).encode()),
             )
@@ -297,199 +321,171 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
         self.assertIn("uses: acme/instance/.github/workflows/panopticon-pr.yml@v2", text)
 
 
-# ── IDE / tool compatibility ────────────────────────────────────────────────────
+# ── Skills location selection ───────────────────────────────────────────────────
 
-class TestOutlierTools(unittest.TestCase):
-    def test_filters_to_non_compatible(self):
-        self.assertEqual(outlier_tools(["vscode", "claude-code", "cursor"]), ["claude-code"])
+class TestCandidateLocations(unittest.TestCase):
+    def test_default_is_first(self):
+        self.assertEqual(candidate_locations()[0], DEFAULT_SKILLS_LOCATION)
 
-    def test_unknown_tool_ignored(self):
-        self.assertEqual(outlier_tools(["not-a-real-tool"]), [])
+    def test_deduplicated_across_tools(self):
+        locations = candidate_locations()
+        self.assertEqual(len(locations), len(set(locations)))
+
+    def test_includes_claude_specific_location(self):
+        self.assertIn(".claude/skills", candidate_locations())
+
+    def test_matches_union_of_tool_locations(self):
+        expected = {loc for _, locs in TOOL_LOCATIONS.values() for loc in locs}
+        self.assertEqual(set(candidate_locations()), expected)
 
 
-class TestSelectIdes(unittest.TestCase):
-    def test_env_var_wins(self):
-        result = select_ides(env={"PANOPTICON_IDES": "vscode, claude-code"})
-        self.assertEqual(result, ["vscode", "claude-code"])
-
-    def test_prompt_fallback(self):
+class TestDetectExistingLocation(unittest.TestCase):
+    def test_returns_none_when_nothing_installed(self):
         with tempfile.TemporaryDirectory() as tmp:
-            result = select_ides(env={}, prompt_fn=lambda _: "cursor,claude-code", child_root=tmp)
-        self.assertEqual(result, ["cursor", "claude-code"])
+            result = _detect_existing_location(tmp)
+        self.assertIsNone(result)
 
-    def test_blank_prompt_answer_means_no_extra_tools(self):
+    def test_detects_populated_non_default_location(self):
         with tempfile.TemporaryDirectory() as tmp:
-            result = select_ides(env={}, prompt_fn=lambda _: "", child_root=tmp)
-        self.assertEqual(result, [])
+            (Path(tmp) / ".claude" / "skills" / "panopticon-foo").mkdir(parents=True)
+            result = _detect_existing_location(tmp)
+        self.assertEqual(result, ".claude/skills")
 
-    def test_non_interactive_defaults_to_empty(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with patch("sys.stdin.isatty", return_value=False):
-                result = select_ides(env={}, child_root=tmp)
-        self.assertEqual(result, [])
-
-    def test_detects_already_reconciled_tool_without_prompting(self):
-        def no_prompt(_):
-            raise AssertionError("should not prompt when artifacts already exist")
-
+    def test_ignores_empty_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / ".claude" / "skills").mkdir(parents=True)
-            result = select_ides(env={}, prompt_fn=no_prompt, child_root=tmp)
-        self.assertEqual(result, ["claude-code"])
+            result = _detect_existing_location(tmp)
+        self.assertIsNone(result)
 
 
-class TestSelectReconcileStrategy(unittest.TestCase):
-    def test_env_var_duplicate(self):
-        result = select_reconcile_strategy(["claude-code"], env={"PANOPTICON_IDE_RECONCILE": "duplicate"})
-        self.assertEqual(result, ("duplicate", None))
+class TestResolveTypedAnswer(unittest.TestCase):
+    def setUp(self):
+        self.locations = [".agents/skills", ".claude/skills", ".cursor/skills"]
 
-    def test_env_var_symlink(self):
-        result = select_reconcile_strategy(["claude-code"], env={"PANOPTICON_IDE_RECONCILE": "symlink"})
-        self.assertEqual(result, ("symlink", None))
+    def test_blank_answer_is_default(self):
+        self.assertEqual(_resolve_typed_answer("", self.locations), ".agents/skills")
 
-    def test_env_var_single(self):
-        result = select_reconcile_strategy(
-            ["claude-code", "x"], env={"PANOPTICON_IDE_RECONCILE": "single:claude-code"}
-        )
-        self.assertEqual(result, ("single", "claude-code"))
+    def test_number_selects_by_index(self):
+        self.assertEqual(_resolve_typed_answer("2", self.locations), ".claude/skills")
 
-    def test_non_interactive_defaults_to_duplicate(self):
-        with patch("sys.stdin.isatty", return_value=False):
-            result = select_reconcile_strategy(["claude-code"], env={})
-        self.assertEqual(result, ("duplicate", None))
+    def test_out_of_range_number_falls_back_to_default(self):
+        self.assertEqual(_resolve_typed_answer("99", self.locations), ".agents/skills")
 
-    def test_prompt_single_with_one_outlier_skips_which_one_question(self):
-        prompts = []
+    def test_literal_path_is_used_verbatim(self):
+        self.assertEqual(_resolve_typed_answer(".opencode/skills", self.locations), ".opencode/skills")
 
-        def fake_prompt(msg):
-            prompts.append(msg)
-            return "single"
-
-        result = select_reconcile_strategy(["claude-code"], env={}, prompt_fn=fake_prompt)
-        self.assertEqual(result, ("single", "claude-code"))
-        self.assertEqual(len(prompts), 1)
+    def test_trailing_slash_is_stripped(self):
+        self.assertEqual(_resolve_typed_answer(".opencode/skills/", self.locations), ".opencode/skills")
 
 
-class TestDuplicateAndSymlinkSkillDir(unittest.TestCase):
-    def test_duplicate_copies_files(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            skill = Path(tmp) / ".agents" / "skills" / "panopticon-foo" / "SKILL.md"
-            skill.parent.mkdir(parents=True)
-            skill.write_text("hello")
-            duplicate_skill_dir(".claude/skills", tmp)
-            copied = Path(tmp) / ".claude" / "skills" / "panopticon-foo" / "SKILL.md"
-            exists = copied.exists()
-            content = copied.read_text() if exists else None
-        self.assertTrue(exists)
-        self.assertEqual(content, "hello")
+class TestApplyKey(unittest.TestCase):
+    def test_enter_confirms(self):
+        self.assertEqual(_apply_key(0, 3, b"\r"), (0, True))
+        self.assertEqual(_apply_key(1, 3, b"\n"), (1, True))
 
-    def test_duplicate_replaces_existing_symlink(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / ".agents" / "skills").mkdir(parents=True)
-            (Path(tmp) / ".claude").mkdir()
-            (Path(tmp) / ".claude" / "skills").symlink_to(Path(tmp) / ".agents" / "skills")
-            duplicate_skill_dir(".claude/skills", tmp)
-            dest = Path(tmp) / ".claude" / "skills"
-            is_symlink, is_dir = dest.is_symlink(), dest.is_dir()
-        self.assertFalse(is_symlink)
-        self.assertTrue(is_dir)
+    def test_down_arrow_advances(self):
+        self.assertEqual(_apply_key(0, 3, b"\x1b[B"), (1, False))
 
-    def test_symlink_creates_link_to_agents_skills(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / ".agents" / "skills").mkdir(parents=True)
-            ok = symlink_skill_dir(".claude/skills", tmp)
-            is_symlink = (Path(tmp) / ".claude" / "skills").is_symlink()
-        self.assertTrue(ok)
-        self.assertTrue(is_symlink)
+    def test_down_arrow_wraps(self):
+        self.assertEqual(_apply_key(2, 3, b"\x1b[B"), (0, False))
 
-    def test_symlink_failure_is_reported_not_raised(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / ".agents" / "skills").mkdir(parents=True)
-            with patch("pathlib.Path.symlink_to", side_effect=OSError("no symlinks here")):
-                ok = symlink_skill_dir(".claude/skills", tmp)
-        self.assertFalse(ok)
+    def test_up_arrow_retreats(self):
+        self.assertEqual(_apply_key(1, 3, b"\x1b[A"), (0, False))
+
+    def test_up_arrow_wraps(self):
+        self.assertEqual(_apply_key(0, 3, b"\x1b[A"), (2, False))
+
+    def test_unknown_key_is_ignored(self):
+        self.assertEqual(_apply_key(1, 3, b"q"), (1, False))
 
 
-class TestReconcileIdes(unittest.TestCase):
-    def test_no_outliers_returns_empty(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            lines = reconcile_ides(["vscode", "cursor"], env={}, child_root=tmp)
-        self.assertEqual(lines, [])
+class TestArrowKeyMenu(unittest.TestCase):
+    """Exercises the real raw-terminal-mode menu against a pseudo-terminal pair — not a mock."""
 
-    def test_duplicate_strategy_end_to_end(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / ".agents" / "skills" / "panopticon-foo").mkdir(parents=True)
-            lines = reconcile_ides(
-                ["claude-code"], env={"PANOPTICON_IDE_RECONCILE": "duplicate"}, child_root=tmp
+    def test_down_then_enter_selects_second_option(self):
+        master_fd, slave_fd = pty.openpty()
+        slave_path = os.ttyname(slave_fd)
+        os.close(slave_fd)
+
+        def feeder():
+            time.sleep(0.05)
+            os.write(master_fd, b"\x1b[B\r")
+
+        thread = threading.Thread(target=feeder)
+        thread.start()
+        try:
+            result = _arrow_key_menu(
+                [".agents/skills", ".claude/skills", ".cursor/skills"],
+                default_index=0,
+                tty_path=slave_path,
             )
-            is_dir = (Path(tmp) / ".claude" / "skills" / "panopticon-foo").is_dir()
-        self.assertTrue(is_dir)
-        self.assertIn("duplicated skills into .claude/skills", "\n".join(lines))
+        finally:
+            thread.join()
+            os.close(master_fd)
+        self.assertEqual(result, 1)
 
-    def test_symlink_strategy_end_to_end(self):
+    def test_unavailable_tty_returns_none(self):
         with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / ".agents" / "skills").mkdir(parents=True)
-            lines = reconcile_ides(
-                ["claude-code"], env={"PANOPTICON_IDE_RECONCILE": "symlink"}, child_root=tmp
-            )
-            is_symlink = (Path(tmp) / ".claude" / "skills").is_symlink()
-        self.assertTrue(is_symlink)
+            missing_path = str(Path(tmp) / "no-such-tty")
+            result = _arrow_key_menu([".agents/skills"], tty_path=missing_path)
+        self.assertIsNone(result)
 
-    def test_single_strategy_skips_other_outliers(self):
+
+class TestSelectSkillsLocation(unittest.TestCase):
+    def test_env_override_wins(self):
         with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / ".agents" / "skills").mkdir(parents=True)
-            with patch.dict(SUPPORTED_TOOLS, {"fake-tool": ("Fake Tool", False, ".faketool/skills")}):
-                lines = reconcile_ides(
-                    ["claude-code", "fake-tool"],
-                    env={"PANOPTICON_IDE_RECONCILE": "single:claude-code"},
-                    child_root=tmp,
-                )
-                claude_exists = (Path(tmp) / ".claude" / "skills").exists()
-                fake_exists = (Path(tmp) / ".faketool" / "skills").exists()
-        self.assertTrue(claude_exists)
-        self.assertFalse(fake_exists)
-        self.assertIn("skipped Fake Tool", "\n".join(lines))
+            result = select_skills_location(env={"PANOPTICON_SKILLS_LOCATION": ".claude/skills"},
+                                            child_root=tmp)
+        self.assertEqual(result, ".claude/skills")
 
-    def test_rerun_refreshes_existing_duplicate_without_reprompting(self):
+    def test_env_override_strips_trailing_slash(self):
         with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / ".agents" / "skills" / "panopticon-foo").mkdir(parents=True)
-            (Path(tmp) / ".agents" / "skills" / "panopticon-foo" / "SKILL.md").write_text("v1")
-            duplicate_skill_dir(".claude/skills", tmp)
-            # Simulate .agents/skills/ content changing between runs.
-            (Path(tmp) / ".agents" / "skills" / "panopticon-foo" / "SKILL.md").write_text("v2")
+            result = select_skills_location(env={"PANOPTICON_SKILLS_LOCATION": ".claude/skills/"},
+                                            child_root=tmp)
+        self.assertEqual(result, ".claude/skills")
 
-            def no_prompt(_):
-                raise AssertionError("must not prompt on a re-run with existing artifacts")
+    def test_reuses_existing_location_without_prompting(self):
+        def no_prompt(_):
+            raise AssertionError("must not prompt when a location is already populated")
 
-            lines = reconcile_ides(["claude-code"], env={}, prompt_fn=no_prompt, child_root=tmp)
-            refreshed = (Path(tmp) / ".claude" / "skills" / "panopticon-foo" / "SKILL.md").read_text()
-        self.assertEqual(refreshed, "v2")
-        self.assertIn("refreshed duplicated skills", "\n".join(lines))
-
-    def test_rerun_leaves_existing_symlink_untouched(self):
         with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / ".agents" / "skills").mkdir(parents=True)
-            symlink_skill_dir(".claude/skills", tmp)
+            (Path(tmp) / ".cursor" / "skills" / "panopticon-foo").mkdir(parents=True)
+            result = select_skills_location(env={}, prompt_fn=no_prompt, child_root=tmp)
+        self.assertEqual(result, ".cursor/skills")
 
-            def no_prompt(_):
-                raise AssertionError("must not prompt on a re-run with an existing symlink")
+    def test_prompt_fn_injection_used_for_typed_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = select_skills_location(env={}, prompt_fn=lambda _: "2", child_root=tmp)
+        self.assertEqual(result, candidate_locations()[1])
 
-            lines = reconcile_ides(["claude-code"], env={}, prompt_fn=no_prompt, child_root=tmp)
-            is_symlink = (Path(tmp) / ".claude" / "skills").is_symlink()
-        self.assertIn("already a symlink", "\n".join(lines))
-        self.assertTrue(is_symlink)
+    def test_prompt_fn_blank_answer_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = select_skills_location(env={}, prompt_fn=lambda _: "", child_root=tmp)
+        self.assertEqual(result, DEFAULT_SKILLS_LOCATION)
+
+    def test_no_interactive_input_defaults_without_blocking(self):
+        # No prompt_fn, no env override, no existing location: falls through arrow-key menu and
+        # typed-tty-prompt (both fail without a real terminal) to the plain default.
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("sys.stdin.isatty", return_value=False):
+                result = select_skills_location(env={}, child_root=tmp)
+        self.assertEqual(result, DEFAULT_SKILLS_LOCATION)
 
 
-class TestMainIdeReconciliation(unittest.TestCase):
+class TestMainSkillsLocationFlow(unittest.TestCase):
     def _router(self):
         from urllib.error import HTTPError
+
+        skill_path = ".agents/skills/panopticon-foo/SKILL.md"
 
         def urlopen(request, timeout=30):
             url = request.full_url
             if "contents/panopticon.config.json" in url:
                 raise HTTPError(url, 404, "Not Found", {}, BytesIO(b"{}"))
             if "git/trees" in url:
-                return BytesIO(json.dumps({"tree": []}).encode())
+                return BytesIO(json.dumps({"tree": [_tree_entry(skill_path)]}).encode())
+            if "contents/" + skill_path in url:
+                return BytesIO(json.dumps(_file_response(b"# panopticon-foo")).encode())
             if "actions/secrets" in url:
                 return BytesIO(json.dumps({"secrets": [{"name": n} for n in ORG_SECRETS]}).encode())
             if "actions/variables" in url:
@@ -498,23 +494,24 @@ class TestMainIdeReconciliation(unittest.TestCase):
 
         return urlopen
 
-    def test_env_selection_and_reconcile_flow_through_main(self):
+    def test_location_chosen_before_any_download(self):
         with tempfile.TemporaryDirectory() as tmp:
             code = bootstrap_main(
                 env={
                     "PANOPTICON_INSTANCE": "acme/instance",
                     "GH_TOKEN": "tok",
-                    "PANOPTICON_IDES": "claude-code",
-                    "PANOPTICON_IDE_RECONCILE": "symlink",
+                    "PANOPTICON_SKILLS_LOCATION": ".claude/skills",
                 },
                 child_root=tmp,
                 urlopen=self._router(),
             )
-            is_symlink = (Path(tmp) / ".claude" / "skills").is_symlink()
+            at_chosen = (Path(tmp) / ".claude" / "skills" / "panopticon-foo" / "SKILL.md").exists()
+            agents_dir_exists = (Path(tmp) / ".agents").exists()
         self.assertEqual(code, 0)
-        self.assertTrue(is_symlink)
+        self.assertTrue(at_chosen)
+        self.assertFalse(agents_dir_exists)
 
-    def test_no_ide_selection_creates_no_extra_dirs(self):
+    def test_default_location_used_without_override(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch("sys.stdin.isatty", return_value=False):
                 code = bootstrap_main(
@@ -522,9 +519,11 @@ class TestMainIdeReconciliation(unittest.TestCase):
                     child_root=tmp,
                     urlopen=self._router(),
                 )
-            claude_exists = (Path(tmp) / ".claude").exists()
+            agents_skills_exists = (
+                Path(tmp) / ".agents" / "skills" / "panopticon-foo" / "SKILL.md"
+            ).exists()
         self.assertEqual(code, 0)
-        self.assertFalse(claude_exists)
+        self.assertTrue(agents_skills_exists)
 
 
 # ── Agent prompts ─────────────────────────────────────────────────────────────
@@ -555,6 +554,24 @@ class TestAgentPrompts(unittest.TestCase):
         self.assertIn("Prompt 1", text)
         self.assertIn("Prompt 2", text)
         self.assertIn("Prompt 3", text)
+
+    def test_prompt_1_is_doc_generation(self):
+        text = agent_prompts("acme/instance")
+        prompt1_idx = text.index("Prompt 1")
+        prompt2_idx = text.index("Prompt 2")
+        prompt1_body = text[prompt1_idx:prompt2_idx]
+        self.assertIn("/panopticon-doc-generation", prompt1_body)
+
+    def test_does_not_hardcode_agents_skills_as_sole_location(self):
+        text = agent_prompts("acme/instance")
+        self.assertNotIn("loads skills from .agents/skills/", text)
+
+    def test_git_add_stages_everything_not_just_agents_skills(self):
+        # The skills location is chosen at install time and can differ from .agents/skills/, so a
+        # hardcoded `git add .agents/skills/` would silently skip whatever was actually created.
+        text = agent_prompts("acme/instance")
+        self.assertIn("git add -A", text)
+        self.assertNotIn("git add .github/workflows/ .agents/skills/", text)
 
 
 if __name__ == "__main__":

@@ -51,14 +51,17 @@ Two claims in the earlier version of this doc didn't hold up against current off
 
 ## What this means for this repo
 
-Panopticon child repos ship skills to `.agents/skills/` (per the `repo-initialization` spec) so
-they're discoverable by the agnostic-standard tools above without extra setup. **Claude Code is
-the one tool in this table that won't pick them up natively** — the bootstrap script's IDE
-compatibility step (`docs/setup-guide.md`, Phase 1) handles this automatically: select `claude-code`
-when prompted (or set `PANOPTICON_IDES=claude-code`) and choose the Duplicate or Symlink strategy.
-The symlink option is functionally the same workaround as manually running
-`ln -s .agents/skills .claude/skills` — either way, Claude Code needs a session restart afterward
-since it only watches directories that existed at session start.
+Panopticon's bootstrap script asks where to install skills before downloading anything, defaulting to
+`.agents/skills/` (per the `repo-initialization` spec) so they're discoverable by the agnostic-standard
+tools above without extra setup. **Claude Code is the one tool in this table that won't pick them up from
+`.agents/skills/`.**
+
+If Claude Code is the only tool you need, select `.claude/skills` at the prompt (`docs/setup-guide.md`,
+Phase 1). None of this table's "also discovers" locations cover both Claude Code and an
+`.agents/skills/`-native tool at once, so supporting both means either running the installer twice at two
+different locations or manually symlinking one to the other afterward
+(`ln -s .agents/skills .claude/skills`) — Claude Code needs a session restart afterward since it only
+watches directories that existed at session start.
 
 ## Sources
 
