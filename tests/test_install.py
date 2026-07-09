@@ -16,6 +16,7 @@ from panopticon.bootstrap import (
     caller_workflow_text,
     check_prerequisites,
     download_skills,
+    manual_verification_steps,
     resolve_instance,
     resolve_token,
     wire_workflows,
@@ -224,6 +225,23 @@ class TestCheckPrerequisites(unittest.TestCase):
         report = check_prerequisites("acme", token="tok", urlopen=urlopen)
         self.assertTrue(len(report) > 0)
         self.assertIn("could not verify", "\n".join(report))
+
+    def test_no_token_returns_manual_steps_without_calling_api(self):
+        def urlopen(request, timeout=30):
+            raise AssertionError("should not call the API when no token is available")
+        report = check_prerequisites("acme", token=None, urlopen=urlopen)
+        text = "\n".join(report)
+        for name in (*ORG_SECRETS, *ORG_VARS):
+            self.assertIn(name, text)
+        self.assertIn("gh secret list --org acme", text)
+        self.assertIn("gh variable list --org acme", text)
+        self.assertIn("github.com/organizations/acme/settings/secrets/actions", text)
+
+    def test_no_token_manual_steps_not_framed_as_error(self):
+        report = manual_verification_steps("acme")
+        text = "\n".join(report)
+        self.assertNotIn("error", text.lower())
+        self.assertNotIn("fail", text.lower())
 
 
 # ── Agent prompts ─────────────────────────────────────────────────────────────

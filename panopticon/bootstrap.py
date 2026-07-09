@@ -194,8 +194,37 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".",
 
 # ── Prerequisite check ────────────────────────────────────────────────────────
 
+def manual_verification_steps(org):
+    """Printable steps for verifying org secrets/variables by hand when no token is available.
+
+    The org secrets/variables API requires an admin-scoped token; without one there is no way
+    to query it automatically, so this is not a failure — it's the fallback path.
+    """
+    settings_url = f"https://github.com/organizations/{org}/settings/secrets/actions"
+    return [
+        "  no GitHub auth token found (GH_TOKEN / GITHUB_TOKEN / gh auth) — org secrets and "
+        "variables can't be checked automatically. Verify manually that these are configured:",
+        f"    secrets:   {', '.join(ORG_SECRETS)}",
+        f"    variables: {', '.join(ORG_VARS)}",
+        "",
+        "  Web UI:",
+        f"    {settings_url}",
+        "    (secrets and variables are separate tabs on that page)",
+        "",
+        "  Or locally via the gh CLI (run `gh auth login` first if not already authenticated):",
+        f"    gh secret list --org {org}",
+        f"    gh variable list --org {org}",
+    ]
+
+
 def check_prerequisites(org, token=None, urlopen=urllib.request.urlopen):
-    """Report-only check of org secrets and variables via the GitHub API. Never blocks."""
+    """Report-only check of org secrets and variables via the GitHub API. Never blocks.
+
+    Without a token there is nothing to query — see ``manual_verification_steps``.
+    """
+    if not token:
+        return manual_verification_steps(org)
+
     report = []
     settings_url = f"https://github.com/organizations/{org}/settings/secrets/actions"
 
@@ -303,7 +332,10 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
     # Check prerequisites (report-only, never blocks).
     print("\nChecking org CI prerequisites (report-only)...")
     issues = check_prerequisites(owner, token, urlopen)
-    if issues:
+    if not token:
+        for issue in issues:
+            print(issue)
+    elif issues:
         for issue in issues:
             print(issue)
         print(

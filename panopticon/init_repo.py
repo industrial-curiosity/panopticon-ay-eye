@@ -74,47 +74,49 @@ def _gh_api_names(runner, url, jq_expr):
     return set(result.stdout.split())
 
 
+def _manual_verification_message(org, reason):
+    """Concrete web-UI + gh-CLI steps for verifying org secrets/variables by hand.
+
+    Used whenever automated verification isn't possible (``gh`` missing, unauthenticated, or
+    lacking org-admin permissions) — never framed as an error, since the items may well be
+    configured correctly.
+    """
+    settings_url = f"https://github.com/organizations/{org}/settings/secrets/actions"
+    return (
+        f"{reason} Verify manually that these are configured:\n"
+        f"    secrets:   {', '.join(ORG_SECRETS)}\n"
+        f"    variables: {', '.join(ORG_VARS)}\n"
+        f"  Web UI: {settings_url} (secrets and variables are separate tabs)\n"
+        f"  Or locally via the gh CLI (run `gh auth login` first if not already authenticated):\n"
+        f"    gh secret list --org {org}\n"
+        f"    gh variable list --org {org}"
+    )
+
+
+def _check_gh_api_kind(org, runner, endpoint, collection_key, items, kind):
+    """Check one kind (secrets or variables) via `gh api`; returns a list of report lines."""
+    settings_url = f"https://github.com/organizations/{org}/settings/secrets/actions"
+    existing = _gh_api_names(runner, f"orgs/{org}/actions/{endpoint}", f".{collection_key}[].name")
+    if existing is None:
+        return [_manual_verification_message(
+            org, f"could not query org {kind}s via `gh api` (not authenticated, or lacking "
+            "org-admin permissions)."
+        )]
+    return [
+        f"missing org-level {kind} {name}: create it at {settings_url} and grant access to all "
+        "repositories Panopticon should cover. See docs/setup-guide.md. Workflow wiring is not "
+        "complete until it exists."
+        for name in items if name not in existing
+    ]
+
+
 def verify_org_secrets(org, runner=subprocess.run):
     """Report-only org secret/variable verification via the gh CLI. Never blocks local init."""
-    report = []
-    settings_url = f"https://github.com/organizations/{org}/settings/secrets/actions"
     if shutil.which("gh") is None:
-        report.append(
-            "could not verify org secrets/variables: the 'gh' CLI is not installed. Verify "
-            f"manually that org-level secrets {', '.join(ORG_SECRETS)} and org-level variables "
-            f"{', '.join(ORG_VARS)} exist (GitHub → org Settings → Secrets and variables → Actions)."
-        )
-        return report
+        return [_manual_verification_message(org, "the 'gh' CLI is not installed.")]
 
-    existing_secrets = _gh_api_names(runner, f"orgs/{org}/actions/secrets", ".secrets[].name")
-    if existing_secrets is None:
-        report.append(
-            "could not verify org secrets (gh api failed); verify manually or re-run with "
-            "credentials that can read org secrets."
-        )
-    else:
-        for secret in ORG_SECRETS:
-            if secret not in existing_secrets:
-                report.append(
-                    f"missing org-level secret {secret}: create it at {settings_url} and "
-                    "grant access to all repositories Panopticon should cover. See "
-                    "docs/setup-guide.md. Workflow wiring is not complete until it exists."
-                )
-
-    existing_vars = _gh_api_names(runner, f"orgs/{org}/actions/variables", ".variables[].name")
-    if existing_vars is None:
-        report.append(
-            "could not verify org variables (gh api failed); verify manually or re-run with "
-            "credentials that can read org variables."
-        )
-    else:
-        for var in ORG_VARS:
-            if var not in existing_vars:
-                report.append(
-                    f"missing org-level variable {var}: create it at {settings_url} and "
-                    "grant access to all repositories Panopticon should cover. See "
-                    "docs/setup-guide.md. Workflow wiring is not complete until it exists."
-                )
+    report = _check_gh_api_kind(org, runner, "secrets", "secrets", ORG_SECRETS, "secret")
+    report += _check_gh_api_kind(org, runner, "variables", "variables", ORG_VARS, "variable")
 
     if not report:
         report.append(

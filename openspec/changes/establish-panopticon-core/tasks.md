@@ -59,7 +59,13 @@
 - [x] 4.2 Implement org-level secret and variable verification with actionable setup instructions (secrets
       `PANOPTICON_LLM_API_KEY`/`PANOPTICON_INSTANCE_TOKEN` and variables `PANOPTICON_LLM_ENDPOINT`/
       `PANOPTICON_LLM_MODEL` checked separately via the gh API; child repos need no per-repo configuration;
-      missing items must not block local init steps)
+      missing items must not block local init steps). Token-aware: `check_prerequisites` (bootstrap.py)
+      now returns `manual_verification_steps(org)` immediately when no token is resolved, instead of
+      hitting the API and surfacing a generic failure — prints the web UI path and the equivalent
+      `gh secret list --org` / `gh variable list --org` commands, naming all four required items, with no
+      error framing (`main()` no longer applies "missing items" language to that path). `init_repo.py`'s
+      `verify_org_secrets` got the same treatment for the `gh`-installed-but-unauthenticated case via
+      `_manual_verification_message()`/`_check_gh_api_kind()`.
 - [x] 4.6 Add test for missing org-level variable scenario: verify that `verify_org_secrets` reports a clear
       message with setup instructions when a variable such as `PANOPTICON_LLM_ENDPOINT` is absent (mirrors
       existing `test_missing_secret_reported_with_instructions`)

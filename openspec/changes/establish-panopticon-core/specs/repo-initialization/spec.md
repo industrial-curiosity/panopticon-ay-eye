@@ -178,22 +178,58 @@ step SHALL be idempotent: re-running it updates the config in place.
 The init tooling SHALL verify that the org-level **secrets** `PANOPTICON_LLM_API_KEY` and
 `PANOPTICON_INSTANCE_TOKEN`, and the org-level **variables** `PANOPTICON_LLM_ENDPOINT` and
 `PANOPTICON_LLM_MODEL`, are all configured and available to the child repo — they are consumed only by the
-shared CI workflows — and SHALL report clear setup instructions for any that are missing rather than failing
-opaquely, distinguishing whether each missing item is a secret or a variable. Child repos MUST NOT require
-per-repo secret or variable configuration: the caller workflows a child repo receives are trivial references
-to the shared workflows. Missing secrets or variables SHALL NOT block any initialization step.
+shared CI workflows. Child repos MUST NOT require per-repo secret or variable configuration: the caller
+workflows a child repo receives are trivial references to the shared workflows. Missing secrets or
+variables SHALL NOT block any initialization step.
+
+Verifying org-level secrets and variables requires a GitHub auth token with permission to read org-level
+Actions secrets/variables (an admin-scoped token). The presence or absence of such a token determines how
+the check behaves:
+
+- **Token available** (resolved via `GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`): the tooling SHALL query
+  the org's secrets and variables directly via the GitHub API and generate the report automatically,
+  listing exactly which required secrets and variables are missing and how to configure each, distinguishing
+  whether each missing item is a secret or a variable.
+- **No token available**: this SHALL NOT be reported or treated as an error or failure of initialization.
+  Instead the tooling SHALL print the manual steps the user can take to perform the verification themselves,
+  covering both:
+  1. the GitHub web UI path — the org's Settings → Secrets and variables → Actions page (secrets and
+     variables have separate tabs) — where the required names can be checked directly, and
+  2. the equivalent local `gh` CLI commands (`gh secret list --org <org>` and `gh variable list --org <org>`,
+     run after `gh auth login` if not already authenticated) that list the same information.
+
+  The printed steps SHALL name all four required items (`PANOPTICON_LLM_API_KEY`, `PANOPTICON_INSTANCE_TOKEN`,
+  `PANOPTICON_LLM_ENDPOINT`, `PANOPTICON_LLM_MODEL`) so the user knows what to look for, since the tooling
+  cannot determine on its own which are already configured.
 
 #### Scenario: Missing instance token
 
+- **GIVEN** a GitHub auth token is available
 - **WHEN** initialization runs for a repo whose org has not configured `PANOPTICON_INSTANCE_TOKEN`
 - **THEN** it reports which org-level secret is missing and how to configure it before workflow wiring is
   considered complete
 
 #### Scenario: Missing endpoint variable
 
+- **GIVEN** a GitHub auth token is available
 - **WHEN** initialization runs for a repo whose org has not configured the `PANOPTICON_LLM_ENDPOINT` variable
 - **THEN** it reports which org-level variable is missing and how to configure it before workflow wiring is
   considered complete
+
+#### Scenario: Auth token available — automated report generated
+
+- **GIVEN** a GitHub auth token is resolved from `GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`
+- **WHEN** the org-level prerequisite check runs
+- **THEN** it queries the org secrets and variables APIs directly and reports exactly which required items
+  are missing — the report contains no mention of a missing or absent token
+
+#### Scenario: No auth token available — manual verification steps printed
+
+- **GIVEN** no GitHub auth token can be resolved from `GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`
+- **WHEN** the org-level prerequisite check runs
+- **THEN** it prints, without reporting an error or failure, the web UI navigation path and the equivalent
+  `gh secret list --org` / `gh variable list --org` commands, and lists all four required secret/variable
+  names so the user can verify each one manually
 
 ### Requirement: Documentation location adoption
 

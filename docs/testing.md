@@ -29,7 +29,8 @@ python3 -m unittest tests.test_merge -v
 | `tests/test_drift.py` | Doc-drift verdict parsing, loud failures on malformed verdicts, PR-comment report formatting |
 | `tests/test_extraction.py` | Parser-candidate folding into a local index, LLM fallback tagging (`extracted_by: llm`), parser-gap recommendations, CI changed-file scoping |
 | `tests/test_index.py` | Index schema validation, deterministic save/load round-trips |
-| `tests/test_init_repo.py` | Init validation gate (config written only when docs/index pass), caller-workflow wiring, docs-location adoption, idempotent re-init, report-only secret verification (gh CLI stubbed; no network) |
+| `tests/test_init_repo.py` | Init validation gate (config written only when docs/index pass), caller-workflow wiring, docs-location adoption, idempotent re-init, report-only secret verification (gh CLI stubbed; no network) — including manual verification steps printed when `gh` is missing or unauthenticated |
+| `tests/test_install.py` | Bootstrap installer (`install.py`): skill download filtering, caller-workflow wiring, `PANOPTICON_INSTANCE` env/prompt resolution, token resolution (`GH_TOKEN`/`GITHUB_TOKEN`/`gh auth token`), org CI prerequisite reporting including the token-less manual-verification-steps path, agent prompt text (all network calls stubbed) |
 | `tests/test_merge.py` | Shard replace, compiled-index rebuild reproducibility, conflict detection, simulation/merge parity, the `python3 -m panopticon.merge` CLI used by CI (exit code 2 = new conflicts) |
 | `tests/test_llm.py` | CI agent runtime: request shape, retries, fail-loudly degradation paths, skill loading (uses an in-process stub `/chat/completions` server; no network) |
 | `tests/test_naming.py` | Name normalization rules, `panopticon-` hint parsing, CI name-resolution failures |

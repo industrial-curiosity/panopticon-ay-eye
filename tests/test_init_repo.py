@@ -165,7 +165,20 @@ class TestSecretVerification(unittest.TestCase):
 
     def test_gh_failure_is_report_only(self):
         report = verify_org_secrets("acme", runner=self.gh_stub(returncode=1, stderr="HTTP 403"))
-        self.assertIn("could not verify", report[0])
+        text = "\n".join(report)
+        for name in ("PANOPTICON_LLM_API_KEY", "PANOPTICON_INSTANCE_TOKEN",
+                     "PANOPTICON_LLM_ENDPOINT", "PANOPTICON_LLM_MODEL"):
+            self.assertIn(name, text)
+        self.assertIn("gh secret list --org acme", text)
+        self.assertIn("gh variable list --org acme", text)
+        self.assertIn("settings/secrets/actions", text)
+
+    def test_gh_not_installed_reports_manual_steps(self):
+        with unittest.mock.patch("shutil.which", return_value=None):
+            report = verify_org_secrets("acme", runner=self.gh_stub())
+        text = "\n".join(report)
+        self.assertIn("gh secret list --org acme", text)
+        self.assertIn("settings/secrets/actions", text)
 
     def test_missing_secrets_never_block_finalization(self):
         from unittest import mock
