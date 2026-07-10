@@ -335,6 +335,13 @@ Modules used only by the reusable GitHub Actions workflows that check out the in
 `parsers/` package) SHALL NOT be written to the child repo — they have no role in local Phase 2/3 work
 and bootstrap.py's own comment already documents this CI-only split.
 
+Because the vendored subset and the instance repo's full package share the same `panopticon` package
+name, any CI workflow step that checks out both the child repo (as its working directory) and the
+instance repo (added to `PYTHONPATH`) in the same job SHALL guarantee that CI-only modules resolve from
+the instance repo, not from the child repo's vendored subset. The workflow MUST NOT rely on `PYTHONPATH`
+ordering alone to win this resolution, since `python3 -m`/`-c` prepend the current working directory to
+`sys.path` ahead of `PYTHONPATH` entries.
+
 #### Scenario: Local tooling is usable immediately after bootstrap
 
 - **GIVEN** a freshly bootstrapped child repo that has never had the `panopticon` package locally before
@@ -355,6 +362,15 @@ and bootstrap.py's own comment already documents this CI-only split.
 - **WHEN** the bootstrap script runs again on a repo that already has the vendored `panopticon/` modules
 - **THEN** each of the five files is overwritten in place with the instance repo's current content, and
   no duplicate files are created
+
+#### Scenario: CI resolves instance-only modules despite child vendoring
+
+- **GIVEN** a child repo whose vendored `panopticon/` directory contains only the local-tooling subset,
+  checked out alongside the instance repo in the same CI job with `PYTHONPATH` pointing at the instance
+  repo
+- **WHEN** a workflow step runs `python3 -m panopticon.drift` (or any other CI-only module)
+- **THEN** the instance repo's copy of the module runs, and the command MUST NOT fail with "No module
+  named panopticon.<module>" due to the child repo's partial subset shadowing it
 
 ### Requirement: Orchestrating init skill
 

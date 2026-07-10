@@ -24,6 +24,10 @@ jobs:
     env:
       PANOPTICON_INSTANCE_DIR: .panopticon-instance
       MAX_PUSH_ATTEMPTS: "5"
+      # See panopticon-pr.yml for why: the child repo's vendored panopticon/ subset shares a
+      # package name with the instance repo's full copy on PYTHONPATH, and cwd is prepended
+      # to sys.path ahead of PYTHONPATH for `-m`/`-c` unless this is set.
+      PYTHONSAFEPATH: "1"
     steps:
       - name: Check out merged default branch
         uses: actions/checkout@v4

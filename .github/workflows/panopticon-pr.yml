@@ -23,6 +23,12 @@ jobs:
       pull-requests: write
     env:
       PANOPTICON_INSTANCE_DIR: .panopticon-instance
+      # The child repo's own panopticon/ (vendored local-tooling subset — see
+      # bootstrap.py's LOCAL_TOOLING_MODULES) shares its package name with the instance repo's
+      # full copy on PYTHONPATH below. Without this, `python3 -m`/`-c` prepend the checkout's cwd
+      # to sys.path ahead of PYTHONPATH, so imports resolve the child's partial copy first and
+      # instance-only modules (drift, currency, merge) fail with "No module named panopticon.X".
+      PYTHONSAFEPATH: "1"
     steps:
       - name: Check out PR branch
         uses: actions/checkout@v4

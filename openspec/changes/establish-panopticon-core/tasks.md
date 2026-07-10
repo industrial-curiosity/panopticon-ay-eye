@@ -181,6 +181,25 @@
 - [x] 6.5 Wire gating configuration into check outcomes (per-check defaults, org overrides in both directions)
 - [ ] 6.6 Test the PR workflow in a sandbox org (conflict PR, clean PR, uninitialized repo) (blocked locally:
       needs a sandbox GitHub org; the Python CLIs the workflow invokes are unit-tested)
+- [x] 6.7 Fixed a real bug found during the first live sandbox PR (task 6.6): the doc-drift check failed
+      with "No module named panopticon.drift" and a missing report file. Root cause: `panopticon-pr.yml`'s
+      checks run `python3 -m panopticon.<mod>`/`-c "from panopticon.<mod> import ..."` with the child repo
+      as the working directory and `PYTHONPATH` pointing at the checked-out instance repo — but `python3
+      -m`/`-c` prepend the current directory to `sys.path` *ahead of* `PYTHONPATH`, so the child repo's
+      vendored local-tooling subset (task 4.13's `LOCAL_TOOLING_MODULES` — no `drift.py`/`currency.py`/
+      `merge.py`) silently shadowed the instance repo's full copy for every CI-only module. Reproduced
+      locally (`python3 -m panopticon.drift` against a stand-in child+instance directory pair raised the
+      identical error), then fixed by setting `PYTHONSAFEPATH: "1"` at job level in `panopticon-pr.yml`
+      (disables the cwd-prepend; verified `ubuntu-latest` ships Python 3.12.3, above the 3.11 minimum for
+      this flag). The same latent shadowing existed in the gating-config and empty-index-check steps too,
+      just harmlessly, because `config.py`/`index.py` happen to exist in both copies — those are now
+      guaranteed to resolve from the instance repo as well. Added the same `PYTHONSAFEPATH: "1"` to
+      `panopticon-merge.yml` (see 7.6) since it shares the identical child+instance+`PYTHONPATH` pattern,
+      even though its one `python3 -m panopticon.merge` call wasn't hit by this bug (it already `cd`s into
+      the instance dir first, aligning cwd with `PYTHONPATH`). Spec updated:
+      `repo-initialization/spec.md`'s "Local tooling package vendored into child repo" requirement now
+      states this resolution guarantee explicitly, with a new scenario. No unit test covers this (it's a
+      CI-YAML-only fix); all 191 existing unit tests still pass unaffected.
 
 ## 7. Master sync workflows (master-sync)
 
@@ -191,6 +210,10 @@
 - [x] 7.4 Write the PR-close workflow deleting the matching `{repo}/{branch}` instance branch
 - [ ] 7.5 Test merge sync in the sandbox org (clean merge, conflicting merge, concurrent merges) (blocked
       locally: needs a sandbox GitHub org; merge/retry logic is unit-tested via the merge CLI)
+- [x] 7.6 Added `PYTHONSAFEPATH: "1"` at job level in `panopticon-merge.yml`, matching the fix in 6.7 —
+      same child+instance-repo+`PYTHONPATH` pattern as `panopticon-pr.yml`, hardened defensively even
+      though this workflow's one `python3 -m panopticon.merge` call already `cd`s into the instance dir
+      before running, so it wasn't actually hit by the shadowing bug.
 
 ## 8. Documentation
 
