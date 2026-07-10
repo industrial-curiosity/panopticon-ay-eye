@@ -1,6 +1,7 @@
 """Bootstrap installer: skill download, workflow wiring, env/prompt resolution, idempotency."""
 
 import base64
+import contextlib
 import json
 import os
 import pty
@@ -8,7 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -99,6 +100,14 @@ class TestWireWorkflows(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             wire_workflows("acme/instance", "v1", tmp)
             self.assertTrue((Path(tmp) / ".github" / "workflows").is_dir())
+
+    def test_prints_per_file_progress(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                wire_workflows("acme/instance", "v1", tmp)
+        for i, name in enumerate(CALLER_WORKFLOWS, start=1):
+            self.assertIn(f"[{i}/{len(CALLER_WORKFLOWS)}] {name}", out.getvalue())
 
 
 # ── Instance slug resolution ──────────────────────────────────────────────────
@@ -213,6 +222,19 @@ class TestDownloadSkills(unittest.TestCase):
         self.assertTrue(at_chosen)
         self.assertFalse(at_default)
 
+    def test_prints_per_file_progress(self):
+        paths = [
+            ".agents/skills/panopticon-a/SKILL.md",
+            ".agents/skills/panopticon-b/SKILL.md",
+        ]
+        tree, urlopen = self._make_tree_and_urlopen(paths)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                download_skills("acme", "instance", "main", tree, child_root=tmp, urlopen=urlopen)
+        self.assertIn("[1/2] panopticon-a/SKILL.md", out.getvalue())
+        self.assertIn("[2/2] panopticon-b/SKILL.md", out.getvalue())
+
 
 # ── Local tooling vendoring ──────────────────────────────────────────────────────
 
@@ -259,6 +281,16 @@ class TestDownloadLocalTooling(unittest.TestCase):
                                    urlopen=self._make_urlopen())
             content = (Path(tmp) / "panopticon" / "docs.py").read_text()
         self.assertEqual(content, "# docs.py")
+
+    def test_prints_per_file_progress(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                download_local_tooling("acme", "instance", "main", child_root=tmp,
+                                       urlopen=self._make_urlopen())
+        total = len(LOCAL_TOOLING_MODULES)
+        for i, name in enumerate(LOCAL_TOOLING_MODULES, start=1):
+            self.assertIn(f"[{i}/{total}] {name}", out.getvalue())
 
 
 # ── Prerequisite check ────────────────────────────────────────────────────────

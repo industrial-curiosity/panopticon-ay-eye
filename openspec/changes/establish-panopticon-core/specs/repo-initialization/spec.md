@@ -91,6 +91,36 @@ a 404 and the script SHALL exit with a clear error).
 - **WHEN** the bootstrap script is run again on a repo whose skills and workflows are already installed
 - **THEN** all files are updated in place and nothing is duplicated
 
+### Requirement: Download progress reporting
+
+While downloading skills, vendoring local-tooling modules, and writing caller workflows, the bootstrap
+script SHALL print one progress line per file as it completes, showing the file's position and the total
+count for that step (e.g. `  [3/7] panopticon-doc-generation/SKILL.md`), before that step's existing
+summary line. This SHALL apply to each of the three download steps independently. A user watching the
+terminal SHALL be able to see how many files remain in the step currently running and confirm the script
+is making progress rather than stalled, even when individual network fetches are slow.
+
+#### Scenario: Skills download reports per-file progress
+
+- **GIVEN** the instance repo has 5 `panopticon-*` skill files to download
+- **WHEN** the bootstrap script downloads them
+- **THEN** it prints a `[1/5]` through `[5/5]` progress line, one per file, before the "skill file(s)
+  installed" summary line
+
+#### Scenario: Local tooling vendoring reports per-file progress
+
+- **GIVEN** the local-tooling subset has 5 modules to vendor
+- **WHEN** the bootstrap script downloads them
+- **THEN** it prints a `[1/5]` through `[5/5]` progress line, one per module, before the "module(s)
+  installed" summary line
+
+#### Scenario: Workflow wiring reports per-file progress
+
+- **GIVEN** there are 3 caller workflow files to write
+- **WHEN** the bootstrap script wires them
+- **THEN** it prints a `[1/3]` through `[3/3]` progress line, one per workflow, before the "workflow(s)
+  written" summary line
+
 ### Requirement: Agent prompts output
 
 The bootstrap script SHALL print exactly one prompt after completing all deterministic steps: the
@@ -159,6 +189,35 @@ change.
 - **GIVEN** the instance repo's `panopticon.config.json` sets `workflow_ref` to `v1`
 - **WHEN** a child repo runs the bootstrap script against that instance
 - **THEN** the caller workflows it writes reference `v1` exactly as configured
+
+### Requirement: Recorded workflow_ref matches the wired caller workflows
+
+The finalization step SHALL derive the `workflow_ref` value it writes to `panopticon/config.json` from
+the ref actually present in the child repo's already-wired caller workflow
+(`.github/workflows/panopticon-pr.yml`'s `uses: owner/repo/.github/workflows/...@ref` line) rather than
+from a hardcoded or independently-defaulted value. This SHALL hold regardless of whether that ref is the
+instance repo's default branch (the common case — see "Default workflow ref requires no manual instance
+setup") or an org-configured pinned tag/branch, so the recorded value can never silently diverge from what
+the wired workflows actually reference. Neither the finalization step's own default nor any fallback
+constant it uses internally SHALL be a hardcoded ref (e.g. `v1`) unrelated to what was actually wired — a
+hardcoded fallback used when derivation is genuinely impossible (e.g. the caller workflow file is missing)
+MAY fall back to the child repo's checked-out branch, but SHALL NOT silently imply a git tag exists.
+
+#### Scenario: Recorded workflow_ref reflects the default-branch fallback
+
+- **GIVEN** the bootstrap script wired `.github/workflows/panopticon-pr.yml` with
+  `uses: acme/panopticon-instance/.github/workflows/panopticon-pr.yml@main` (the instance repo's default
+  branch, because the org has not configured `workflow_ref`)
+- **WHEN** the finalization step runs and writes `panopticon/config.json`
+- **THEN** the `workflow_ref` field is `main`, not `v1` or any other hardcoded value
+
+#### Scenario: Recorded workflow_ref reflects an org-pinned ref
+
+- **GIVEN** the bootstrap script wired `.github/workflows/panopticon-pr.yml` with
+  `uses: acme/panopticon-instance/.github/workflows/panopticon-pr.yml@v2` (the org's configured
+  `workflow_ref`)
+- **WHEN** the finalization step runs and writes `panopticon/config.json`
+- **THEN** the `workflow_ref` field is `v2`, matching the ref the workflows were actually wired to
 
 ### Requirement: Skills location selection
 

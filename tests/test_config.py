@@ -23,7 +23,15 @@ class TestOrgConfig(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config = load_org_config(tmp)
         self.assertEqual(config["gating"], DEFAULT_GATING)
-        self.assertEqual(config["workflow_ref"], "v1")
+        # No network access here, so there's no way to know the instance's default branch —
+        # None signals "not pinned locally" rather than guessing a tag that may not exist.
+        self.assertIsNone(config["workflow_ref"])
+
+    def test_workflow_ref_is_read_through_when_configured(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, {"workflow_ref": "v2"})
+            config = load_org_config(tmp)
+        self.assertEqual(config["workflow_ref"], "v2")
 
     def test_default_gating_policy(self):
         self.assertEqual(DEFAULT_GATING["init"], "blocking")

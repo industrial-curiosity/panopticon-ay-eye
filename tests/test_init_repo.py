@@ -1,5 +1,6 @@
 """Finalization step: validation gate, docs-location adoption, idempotent re-init."""
 
+import subprocess
 import unittest
 import tempfile
 from pathlib import Path
@@ -8,12 +9,27 @@ from panopticon.config import load_repo_config
 from panopticon.index import save_index
 from panopticon.init_repo import (
     detect_docs_location,
+    discover_workflow_ref,
     initialize,
     verify_org_secrets,
+    _fallback_workflow_ref,
 )
 
 from .helpers import load_fixture
 from .test_docs import make_docs_tree
+
+
+def write_caller_workflow(root, ref, instance="acme/panopticon-instance"):
+    workflows_dir = Path(root) / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True, exist_ok=True)
+    (workflows_dir / "panopticon-pr.yml").write_text(
+        "name: Panopticon PR checks\n"
+        "on:\n  pull_request:\n"
+        "jobs:\n"
+        "  panopticon:\n"
+        f"    uses: {instance}/.github/workflows/panopticon-pr.yml@{ref}\n"
+        "    secrets: inherit\n"
+    )
 
 
 def make_valid_child(root, repo="svc-a", docs="docs"):
@@ -103,6 +119,75 @@ class TestIdempotentRefinalization(unittest.TestCase):
             config = load_repo_config(tmp)
         self.assertEqual(config["workflow_ref"], "v2")
         self.assertIn("idempotent re-init", "\n".join(messages))
+
+
+class TestDiscoverWorkflowRef(unittest.TestCase):
+    def test_parses_ref_from_caller_workflow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_caller_workflow(tmp, ref="main")
+            self.assertEqual(discover_workflow_ref(tmp), "main")
+
+    def test_parses_pinned_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_caller_workflow(tmp, ref="v2")
+            self.assertEqual(discover_workflow_ref(tmp), "v2")
+
+    def test_missing_file_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(discover_workflow_ref(tmp))
+
+    def test_unparseable_file_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workflows_dir = Path(tmp) / ".github" / "workflows"
+            workflows_dir.mkdir(parents=True)
+            (workflows_dir / "panopticon-pr.yml").write_text("name: not a caller workflow\n")
+            self.assertIsNone(discover_workflow_ref(tmp))
+
+
+class TestFallbackWorkflowRef(unittest.TestCase):
+    def test_uses_child_repo_checked_out_branch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["git", "init", "-q", "-b", "feature-x", tmp], check=True)
+            subprocess.run(["git", "-C", tmp, "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "-C", tmp, "config", "user.name", "Test"], check=True)
+            (Path(tmp) / "README.md").write_text("x\n")
+            subprocess.run(["git", "-C", tmp, "add", "README.md"], check=True)
+            subprocess.run(["git", "-C", tmp, "commit", "-q", "-m", "init"], check=True)
+            self.assertEqual(_fallback_workflow_ref(tmp), "feature-x")
+
+    def test_falls_back_to_main_when_not_a_git_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(_fallback_workflow_ref(tmp), "main")
+
+
+class TestWorkflowRefDefaultsToDiscovery(unittest.TestCase):
+    def test_no_explicit_ref_derives_from_wired_workflow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            make_valid_child(tmp)
+            write_caller_workflow(tmp, ref="main")
+            code, _ = run_init(tmp, workflow_ref=None)
+            self.assertEqual(code, 0)
+            config = load_repo_config(tmp)
+        self.assertEqual(config["workflow_ref"], "main")
+
+    def test_no_explicit_ref_derives_pinned_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            make_valid_child(tmp)
+            write_caller_workflow(tmp, ref="v2")
+            code, _ = run_init(tmp, workflow_ref=None)
+            self.assertEqual(code, 0)
+            config = load_repo_config(tmp)
+        self.assertEqual(config["workflow_ref"], "v2")
+
+    def test_no_wired_workflow_falls_back_without_hardcoded_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            make_valid_child(tmp)
+            code, _ = run_init(tmp, workflow_ref=None)
+            self.assertEqual(code, 0)
+            config = load_repo_config(tmp)
+        # Not a git repo (no .github/workflows/panopticon-pr.yml, no git init) — falls back to
+        # "main" rather than silently implying a pinned tag like "v1" exists.
+        self.assertEqual(config["workflow_ref"], "main")
 
 
 class TestSecretVerification(unittest.TestCase):

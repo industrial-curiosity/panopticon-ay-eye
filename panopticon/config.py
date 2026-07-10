@@ -12,6 +12,9 @@ Gating modes are per check type; the defaults above implement the settled gating
 (init/doc-drift fail, interface conflicts advisory) and orgs may adjust each in both directions.
 Workflows must read these modes rather than hardcoding outcomes. ``workflow_ref`` is the git ref
 (tag or branch) at which init wires child caller workflows to the instance's reusable workflows.
+When omitted, callers resolve the effective ref themselves (e.g. the instance repo's default
+branch, fetched live) — this module has no network access and so has no way to know that ref
+locally; it reports ``None`` rather than guessing a value like a tag that may not exist.
 
 **Repo config** — ``panopticon/config.json`` in a child repo: doubles as the initialization flag
 and records repo-level settings:
@@ -36,7 +39,6 @@ REPO_CONFIG_PATH = Path("panopticon") / "config.json"
 CHECK_TYPES = ("init", "doc-drift", "interface-conflict")
 GATING_MODES = ("blocking", "advisory")
 DEFAULT_GATING = {"init": "blocking", "doc-drift": "blocking", "interface-conflict": "advisory"}
-DEFAULT_WORKFLOW_REF = "v1"
 
 
 class ConfigError(Exception):
@@ -69,7 +71,7 @@ def load_org_config(instance_root="."):
     return {
         "schema_version": doc.get("schema_version", SCHEMA_VERSION),
         "gating": gating,
-        "workflow_ref": doc.get("workflow_ref", DEFAULT_WORKFLOW_REF),
+        "workflow_ref": doc.get("workflow_ref"),
     }
 
 

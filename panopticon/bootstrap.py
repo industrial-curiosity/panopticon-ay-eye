@@ -73,10 +73,12 @@ def wire_workflows(instance, ref, child_root=".", default_branch=DEFAULT_BRANCH)
     workflows_dir = Path(child_root) / ".github" / "workflows"
     workflows_dir.mkdir(parents=True, exist_ok=True)
     written = []
-    for name in CALLER_WORKFLOWS:
+    total = len(CALLER_WORKFLOWS)
+    for i, name in enumerate(CALLER_WORKFLOWS, start=1):
         path = workflows_dir / name
         path.write_text(caller_workflow_text(name, instance, ref, default_branch), encoding="utf-8")
         written.append(path)
+        print(f"  [{i}/{total}] {name}")
     return written
 
 # ── GitHub API helpers ────────────────────────────────────────────────────────
@@ -185,6 +187,7 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
     if not blobs:
         print("  warning: no panopticon-* skills found under .agents/skills/ in the instance repo")
         return 0
+    total = len(blobs)
     count = 0
     for item in blobs:
         path = item["path"]
@@ -194,6 +197,7 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
         content = _fetch_file_bytes(owner, repo, path, ref, token, urlopen)
         local.write_bytes(content)
         count += 1
+        print(f"  [{count}/{total}] {relative}")
     return count
 
 # ── Local tooling vendoring ─────────────────────────────────────────────────────
@@ -213,10 +217,12 @@ def download_local_tooling(owner, repo, ref, token=None, child_root=".",
     bootstrap with no instance-repo clone or PYTHONPATH setup. Idempotent: overwrites in place."""
     dest_dir = Path(child_root) / "panopticon"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    for name in LOCAL_TOOLING_MODULES:
+    total = len(LOCAL_TOOLING_MODULES)
+    for i, name in enumerate(LOCAL_TOOLING_MODULES, start=1):
         content = _fetch_file_bytes(owner, repo, f"panopticon/{name}", ref, token, urlopen)
         (dest_dir / name).write_bytes(content)
-    return len(LOCAL_TOOLING_MODULES)
+        print(f"  [{i}/{total}] {name}")
+    return total
 
 # ── Prerequisite check ────────────────────────────────────────────────────────
 

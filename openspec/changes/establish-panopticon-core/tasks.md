@@ -90,6 +90,22 @@
       `docs/` default; record the location in `panopticon/config.json`
 - [ ] 4.5 Test initialization end-to-end against a sandbox child repo (blocked locally: needs a sandbox GitHub
       org/repo; unit coverage in `tests/test_init_repo.py` exercises the full local flow against a temp repo)
+- [x] 4.15 Added per-file download progress reporting to the bootstrap installer: `download_skills`,
+      `download_local_tooling`, and `wire_workflows` in `panopticon/bootstrap.py` each print a
+      `  [n/total] <name>` line per file/module/workflow as it completes, before their existing summary
+      line. Covered by `tests/test_install.py`'s `test_prints_per_file_progress` on all three functions
+      (via `contextlib.redirect_stdout`).
+- [x] 4.16 Fixed the finalization step's `workflow_ref` derivation. Removed the stale
+      `DEFAULT_WORKFLOW_REF = "v1"` constant from `panopticon/config.py` entirely — `load_org_config()`'s
+      `workflow_ref` key now defaults to `None` (this module has no network access, so it can't know the
+      instance's true default branch). `panopticon/init_repo.py` gained `discover_workflow_ref(child_root)`
+      (parses the ref from `.github/workflows/panopticon-pr.yml`'s `uses:...@ref` line) and
+      `_fallback_workflow_ref(child_root)` (falls back to the child repo's checked-out git branch, or the
+      literal `"main"` if that fails — never a hardcoded tag). `initialize()`'s and `main()`'s
+      `workflow_ref`/`--workflow-ref` default changed from the removed constant to `None`, meaning
+      "derive it" via those two functions; an explicit value can still override. Covered by
+      `tests/test_init_repo.py`'s `TestDiscoverWorkflowRef`, `TestFallbackWorkflowRef`, and
+      `TestWorkflowRefDefaultsToDiscovery`; `tests/test_config.py` updated for the new `None` default.
 - [x] 4.12 Third implementation, per explicit user request rejecting the two-script design. Removed
       `panopticon/configure_ides.py` and `tests/test_configure_ides.py` entirely. `bootstrap.py` now
       does it all inline: `TOOL_LOCATIONS` (per-tool location table mirroring

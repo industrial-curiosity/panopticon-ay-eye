@@ -19,12 +19,13 @@ Division of labor (repo-initialization spec):
 """
 
 import argparse
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-from .config import DEFAULT_WORKFLOW_REF, load_repo_config, save_repo_config
+from .config import load_repo_config, save_repo_config
 from .docs import validate_docs
 from .index import KIND_LOCAL, IndexValidationError, load_index
 
@@ -32,6 +33,42 @@ ORG_SECRETS = ("PANOPTICON_LLM_API_KEY", "PANOPTICON_INSTANCE_TOKEN")
 ORG_VARS = ("PANOPTICON_LLM_ENDPOINT", "PANOPTICON_LLM_MODEL")
 
 _EXISTING_DOC_DIRS = ("docs", "doc", "documentation")
+
+CALLER_WORKFLOW_FOR_REF = Path(".github") / "workflows" / "panopticon-pr.yml"
+_USES_REF_RE = re.compile(r"^\s*uses:\s*\S+/\.github/workflows/\S+@(\S+)\s*$", re.MULTILINE)
+
+FALLBACK_WORKFLOW_REF = "main"
+
+
+def discover_workflow_ref(child_root):
+    """Parse the ref bootstrap.py actually wired into the caller workflow's `uses:` line.
+
+    Returns None when the file is missing or unparseable — the ref bootstrap.py used (default
+    branch or an org-pinned tag/branch) is baked into that line, so re-deriving it here is the
+    only way to keep the recorded workflow_ref from silently diverging from what was wired.
+    """
+    try:
+        text = (Path(child_root) / CALLER_WORKFLOW_FOR_REF).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    match = _USES_REF_RE.search(text)
+    return match.group(1) if match else None
+
+
+def _fallback_workflow_ref(child_root, runner=subprocess.run):
+    """Last-resort ref when the caller workflow can't be read/parsed: the child repo's own
+    checked-out branch — never a hardcoded tag, which would silently imply one exists."""
+    try:
+        result = runner(
+            ["git", "-C", str(child_root), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return FALLBACK_WORKFLOW_REF
+    branch = result.stdout.strip()
+    if result.returncode == 0 and branch and branch != "HEAD":
+        return branch
+    return FALLBACK_WORKFLOW_REF
 
 
 def detect_docs_location(child_root, configured=None, requested=None, prompt=input):
@@ -126,14 +163,20 @@ def verify_org_secrets(org, runner=subprocess.run):
     return report
 
 
-def initialize(child_root, repo_name, instance, docs_location=None, workflow_ref=DEFAULT_WORKFLOW_REF,
+def initialize(child_root, repo_name, instance, docs_location=None, workflow_ref=None,
                skip_secret_check=False, prompt=input):
     """Finalization pass: validate agent output and write panopticon/config.json.
+
+    `workflow_ref` defaults to None, meaning "derive it" — read from the ref bootstrap.py already
+    wired into the caller workflow's `uses:@ref` line, falling back to the child repo's checked-out
+    branch only if that file is missing or unparseable. Pass an explicit value to override.
 
     Returns (exit_code, messages). Idempotent — safe to re-run.
     """
     messages = []
     child_root = Path(child_root)
+    if workflow_ref is None:
+        workflow_ref = discover_workflow_ref(child_root) or _fallback_workflow_ref(child_root)
     existing = load_repo_config(child_root)
     if existing:
         messages.append("repo already initialized — updating in place (idempotent re-init)")
@@ -178,8 +221,9 @@ def main(argv=None):
     parser.add_argument("--child", default=".", help="path to the child repo (default: current directory)")
     parser.add_argument("--repo-name", help="child repo name (default: directory name)")
     parser.add_argument("--instance", required=True, help="instance repo as owner/name")
-    parser.add_argument("--workflow-ref", default=DEFAULT_WORKFLOW_REF,
-                        help=f"ref recorded in panopticon/config.json (default: {DEFAULT_WORKFLOW_REF})")
+    parser.add_argument("--workflow-ref", default=None,
+                        help="ref recorded in panopticon/config.json (default: auto-detected from "
+                             "the wired caller workflow's uses:@ref line)")
     parser.add_argument("--docs-location", help="documentation location (skips adoption/prompt)")
     parser.add_argument("--skip-secret-check", action="store_true")
     args = parser.parse_args(argv)
