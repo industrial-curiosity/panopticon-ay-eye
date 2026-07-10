@@ -20,6 +20,7 @@ from panopticon.bootstrap import (
     ORG_SECRETS,
     ORG_VARS,
     TOOL_LOCATIONS,
+    _api_get,
     _apply_key,
     _arrow_key_menu,
     _detect_existing_location,
@@ -347,6 +348,76 @@ class TestCheckPrerequisites(unittest.TestCase):
         text = "\n".join(report)
         self.assertNotIn("error", text.lower())
         self.assertNotIn("fail", text.lower())
+
+
+# ── _api_get retry behavior ─────────────────────────────────────────────────────
+
+class TestApiGetRetry(unittest.TestCase):
+    def _recording_sleep(self):
+        calls = []
+        return calls, calls.append
+
+    def test_transient_error_retried_and_succeeds(self):
+        from urllib.error import HTTPError
+
+        attempts = []
+
+        def urlopen(request, timeout=30):
+            attempts.append(1)
+            if len(attempts) < 2:
+                raise HTTPError(request.full_url, 502, "Bad Gateway", {}, BytesIO(b"<html>Unicorn!</html>"))
+            return BytesIO(json.dumps({"ok": True}).encode())
+
+        calls, sleep = self._recording_sleep()
+        result = _api_get("https://api.github.com/repos/acme/instance", urlopen=urlopen, sleep=sleep)
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(calls, [1])  # one backoff between attempt 1 and 2
+
+    def test_retries_exhausted_raises_with_status_and_body(self):
+        from urllib.error import HTTPError
+
+        def urlopen(request, timeout=30):
+            raise HTTPError(request.full_url, 503, "Service Unavailable", {}, BytesIO(b"down"))
+
+        calls, sleep = self._recording_sleep()
+        with self.assertRaises(RuntimeError) as ctx:
+            _api_get("https://api.github.com/repos/acme/instance", urlopen=urlopen, max_attempts=3, sleep=sleep)
+        self.assertIn("503", str(ctx.exception))
+        self.assertIn("down", str(ctx.exception))
+        self.assertEqual(calls, [1, 2])  # backoff after attempts 1 and 2, none after the last
+
+    def test_non_transient_error_fails_without_retrying(self):
+        from urllib.error import HTTPError
+
+        attempts = []
+
+        def urlopen(request, timeout=30):
+            attempts.append(1)
+            raise HTTPError(request.full_url, 404, "Not Found", {}, BytesIO(b"missing"))
+
+        calls, sleep = self._recording_sleep()
+        with self.assertRaises(RuntimeError) as ctx:
+            _api_get("https://api.github.com/repos/acme/instance", urlopen=urlopen, sleep=sleep)
+        self.assertIn("404", str(ctx.exception))
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(calls, [])
+
+    def test_connection_error_retried(self):
+        from urllib.error import URLError
+
+        attempts = []
+
+        def urlopen(request, timeout=30):
+            attempts.append(1)
+            if len(attempts) < 2:
+                raise URLError("connection reset")
+            return BytesIO(json.dumps({"ok": True}).encode())
+
+        calls, sleep = self._recording_sleep()
+        result = _api_get("https://api.github.com/repos/acme/instance", urlopen=urlopen, sleep=sleep)
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(calls, [1])
 
 
 # ── workflow_ref default resolution (main) ─────────────────────────────────────

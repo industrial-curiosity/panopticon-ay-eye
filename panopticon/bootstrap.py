@@ -24,6 +24,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -90,15 +91,29 @@ def _api_headers(token=None):
     return headers
 
 
-def _api_get(url, token=None, urlopen=urllib.request.urlopen):
+# Transient failures worth retrying: rate limiting and gateway/server errors. 401/403/404 are
+# deliberately excluded — retrying an unauthenticated or missing-resource request can't succeed.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+def _api_get(url, token=None, urlopen=urllib.request.urlopen, max_attempts=3, sleep=time.sleep):
     req = urllib.request.Request(url, headers=_api_headers(token))
-    try:
-        with urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as exc:
-        with exc:
-            body = exc.read().decode("utf-8", "replace")[:400]
-        raise RuntimeError(f"GitHub API {exc.code} for {url}: {body}")
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            with exc:
+                body = exc.read().decode("utf-8", "replace")[:400]
+            last_error = f"GitHub API {exc.code} for {url}: {body}"
+            if exc.code not in _RETRYABLE_STATUS:
+                raise RuntimeError(last_error)
+        except urllib.error.URLError as exc:
+            last_error = f"GitHub API request failed for {url}: {exc.reason}"
+        if attempt < max_attempts:
+            sleep(2 ** (attempt - 1))
+    raise RuntimeError(last_error)
 
 
 def _fetch_tree(owner, repo, ref, token=None, urlopen=urllib.request.urlopen):

@@ -121,6 +121,42 @@ is making progress rather than stalled, even when individual network fetches are
 - **THEN** it prints a `[1/3]` through `[3/3]` progress line, one per workflow, before the "workflow(s)
   written" summary line
 
+### Requirement: GitHub API request resilience
+
+The bootstrap script's GitHub API calls (`_api_get`, used by skill downloads, local-tooling vendoring,
+workflow wiring, org config fetch, and the org-prerequisites check) SHALL retry transient failures — `429`
+and `5xx` responses, and connection-level errors — with exponential backoff before giving up, mirroring
+the retry pattern already used by the LLM HTTP client (`panopticon/llm.py`'s `HTTPClient`: up to 3
+attempts, backing off `2 ** (attempt - 1)` seconds between attempts). Non-transient errors (`401`, `403`,
+`404`) SHALL fail immediately without retrying, since retrying an unauthenticated or missing-resource
+request cannot change the outcome. Once retries are exhausted, the script SHALL fail with the same error
+detail already shown today (status code and response body), so failures are never silent.
+
+This matters because a full bootstrap run makes many (20+) sequential GitHub API calls — one per skill
+file, one per vendored module, one per workflow file — often unauthenticated (see "Bootstrap installer
+script"'s token-discovery fallback), which makes transient rate-limit and gateway errors from that
+request volume a real, recurring failure mode rather than a rare fluke.
+
+#### Scenario: Transient error is retried and succeeds
+
+- **GIVEN** a GitHub API call returns a `502` on its first attempt and succeeds on its second
+- **WHEN** the bootstrap script makes that call
+- **THEN** the script retries after a backoff delay and completes the download without surfacing an
+  error to the user
+
+#### Scenario: Retries exhausted
+
+- **GIVEN** a GitHub API call returns `503` on all 3 attempts
+- **WHEN** the bootstrap script makes that call
+- **THEN** it fails with the same status-code-and-body error message format used today, only after
+  exhausting its retry budget — not on the first failure
+
+#### Scenario: Non-transient error fails immediately
+
+- **GIVEN** a GitHub API call returns `404` (e.g. the instance repo is private and no token was found)
+- **WHEN** the bootstrap script makes that call
+- **THEN** it fails immediately with no retry attempts, since a `404` cannot be resolved by retrying
+
 ### Requirement: Agent prompts output
 
 The bootstrap script SHALL print exactly one prompt after completing all deterministic steps: the

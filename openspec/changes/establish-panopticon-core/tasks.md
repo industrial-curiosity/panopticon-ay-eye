@@ -112,6 +112,20 @@
       matching the setup guide's own example JSON. Added a regression test,
       `tests/test_config.py::test_template_root_config_ships_no_pinned_workflow_ref`, asserting the
       shipped root config has no `workflow_ref` key, so this fossil can't silently reappear.
+- [x] 4.18 Added retry-with-backoff to `bootstrap.py`'s `_api_get` (previously: any `HTTPError` — transient
+      or not — immediately raised and aborted the whole installer). Found via a real GitHub API `502`
+      mid-install. Contributing factors identified during triage, not just "GitHub flakiness":
+      `resolve_token()` silently falls back to unauthenticated requests when no `GH_TOKEN`/`GITHUB_TOKEN`/
+      `gh auth` is available, and a full run fires 20+ sequential requests (`download_skills`,
+      `download_local_tooling`, `wire_workflows`) with no pacing — both of which make transient
+      rate-limit/gateway errors more likely. `_api_get` now retries `429`/`5xx` HTTP statuses and
+      `urllib.error.URLError` connection failures up to 3 attempts with `2 ** (attempt - 1)`s backoff
+      (mirroring `panopticon/llm.py`'s `LLMClient.chat()` pattern), via new optional `max_attempts`/`sleep`
+      kwargs — purely additive, no existing caller changed. Non-transient errors (`401`/`403`/`404`) still
+      fail on the first attempt, unchanged. 4 new tests in `tests/test_install.py::TestApiGetRetry`
+      (transient-retried-and-succeeds, retries-exhausted-then-raises, non-transient-fails-immediately,
+      connection-error-retried) using an injected fake `sleep`. All 195 tests pass. `docs/testing.md`
+      updated. Spec'd in `repo-initialization/spec.md`'s "GitHub API request resilience" requirement.
 - [x] 4.12 Third implementation, per explicit user request rejecting the two-script design. Removed
       `panopticon/configure_ides.py` and `tests/test_configure_ides.py` entirely. `bootstrap.py` now
       does it all inline: `TOOL_LOCATIONS` (per-tool location table mirroring
