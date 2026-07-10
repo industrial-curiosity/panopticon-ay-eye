@@ -117,7 +117,13 @@ jobs:
           mkdir -p /tmp/panopticon-reports
 
       # Doc drift and index currency both fail loudly on operational errors (missing skill,
-      # unreachable endpoint, malformed verdict). A stale verdict is recorded and gated at the end.
+      # unreachable endpoint, malformed verdict) — but never by exiting the step, since an earlier
+      # check's operational failure must not prevent later, independent checks from running and
+      # reporting their own results (pr-evaluation spec: "Checks run independently regardless of
+      # earlier failures; gating decides at the end"). The failure is instead recorded via
+      # `error`, shows up as its own section in the combined report (each check writes a
+      # could-not-run section to its own --report-file on this path), and gating fails the
+      # workflow on it at the end, same as a stale verdict is recorded and gated at the end.
       - name: Doc-drift check
         id: drift
         if: steps.init.outputs.initialized == 'true'
@@ -137,11 +143,14 @@ jobs:
             --actions-file /tmp/panopticon-reports/drift-actions.json
           status=$?
           set -e
-          if [ "$status" -gt 1 ]; then
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
             echo "::error::Panopticon doc-drift check could not run (exit $status); see the step log"
-            exit "$status"
+            echo "error=true" >> "$GITHUB_OUTPUT"
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "error=false" >> "$GITHUB_OUTPUT"
+            echo "stale=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           fi
-          echo "stale=$([ "$status" -eq 1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: Index-currency check
         id: currency
@@ -163,11 +172,14 @@ jobs:
             --actions-file /tmp/panopticon-reports/currency-actions.json
           status=$?
           set -e
-          if [ "$status" -gt 1 ]; then
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
             echo "::error::Panopticon index-currency check could not run (exit $status); see the step log"
-            exit "$status"
+            echo "error=true" >> "$GITHUB_OUTPUT"
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "error=false" >> "$GITHUB_OUTPUT"
+            echo "stale=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           fi
-          echo "stale=$([ "$status" -eq 1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       # Same merge code path as the real merge, in dry-run mode, against the compiled index
       # fetched from the instance repo's default branch (design D4).
@@ -192,9 +204,12 @@ jobs:
           set -e
           if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
             echo "::error::Panopticon pre-merge simulation could not run (exit $status); see the step log"
-            exit "$status"
+            echo "error=true" >> "$GITHUB_OUTPUT"
+            echo "conflicts=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "error=false" >> "$GITHUB_OUTPUT"
+            echo "conflicts=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           fi
-          echo "conflicts=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       # Builds the one combined report (TL;DR, then each check's detail, then the same TL;DR
       # repeated — pr-evaluation spec's "Combined report leads with a de-duplicated action list";
@@ -206,6 +221,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          DRIFT_ERROR: ${{ steps.drift.outputs.error }}
+          CURRENCY_ERROR: ${{ steps.currency.outputs.error }}
+          SIMULATE_ERROR: ${{ steps.simulate.outputs.error }}
         run: |
           import os
           import subprocess
@@ -224,7 +242,10 @@ jobs:
                       sections.append(handle.read().strip())
               actions.extend(load_actions(os.path.join(reports_dir, f"{check}-actions.json")))
 
-          body = build_combined_report(sections, actions)
+          has_operational_failure = "true" in (
+              os.environ.get("DRIFT_ERROR"), os.environ.get("CURRENCY_ERROR"), os.environ.get("SIMULATE_ERROR"),
+          )
+          body = build_combined_report(sections, actions, has_operational_failure=has_operational_failure)
 
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write(body)
@@ -292,15 +313,23 @@ jobs:
           failed=""
           warn() { echo "::warning::$1"; }
           fail() { failed="$failed$1\n"; echo "::error::$1"; }
-          if [ "${{ steps.drift.outputs.stale }}" = "true" ]; then
+          # An operational failure is never advisory — a check that could not run has told the
+          # developer nothing they can act on, regardless of that check's own gating configuration.
+          if [ "${{ steps.drift.outputs.error }}" = "true" ]; then
+            fail "Panopticon doc-drift check could not run (see PR comment for the error)"
+          elif [ "${{ steps.drift.outputs.stale }}" = "true" ]; then
             message="Panopticon doc-drift check found stale docs (see PR comment for what to update)"
             [ "$GATE_DOC_DRIFT" = "blocking" ] && fail "$message" || warn "$message (advisory by org configuration)"
           fi
-          if [ "${{ steps.currency.outputs.stale }}" = "true" ]; then
+          if [ "${{ steps.currency.outputs.error }}" = "true" ]; then
+            fail "Panopticon index-currency check could not run (see PR comment for the error)"
+          elif [ "${{ steps.currency.outputs.stale }}" = "true" ]; then
             # A stale index always fails: simulation over a stale index predicts the wrong merge.
             fail "Panopticon index-currency check found a stale local index (see PR comment)"
           fi
-          if [ "${{ steps.simulate.outputs.conflicts }}" = "true" ]; then
+          if [ "${{ steps.simulate.outputs.error }}" = "true" ]; then
+            fail "Panopticon pre-merge simulation could not run (see PR comment for the error)"
+          elif [ "${{ steps.simulate.outputs.conflicts }}" = "true" ]; then
             message="Panopticon pre-merge simulation predicts interface conflicts (see PR comment)"
             [ "$GATE_CONFLICT" = "blocking" ] && fail "$message" || warn "$message (advisory by org configuration)"
           fi

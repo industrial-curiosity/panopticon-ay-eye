@@ -26,6 +26,7 @@ from pathlib import Path
 
 from . import SCHEMA_VERSION
 from .index import (
+    IndexValidationError,
     KIND_COMPILED,
     KIND_LOCAL,
     KIND_SHARD,
@@ -36,6 +37,7 @@ from .index import (
     sorted_doc,
     validate_index,
 )
+from .report import format_operational_failure
 
 COMPILED_BASENAME = "index.json"
 INTERFACES_DIR = "interfaces"
@@ -371,13 +373,26 @@ def main(argv=None):
     sub.choices["merge"].add_argument("--instance-root", required=True, help="instance repo checkout")
     args = parser.parse_args(argv)
 
-    local_doc = load_index(args.local, kind=KIND_LOCAL, repo=args.repo)
-    if args.command == "simulate":
-        compiled = load_index(args.compiled, kind=KIND_COMPILED)
-        report = simulate_merge(local_doc, compiled, args.repo)
-        return _write_report(report, args, simulated=True)
-    report = merge_into_instance(args.instance_root, args.repo, local_doc)
-    return _write_report(report, args, simulated=False)
+    # Same exit-code contract as drift.py/currency.py (pr-evaluation spec: "Checks run
+    # independently regardless of earlier failures; gating decides at the end"): an operational
+    # failure here must not go unreported, and 0/2 are both already spoken for (clean/conflicts),
+    # so any exception here already lands outside those two codes without needing reassignment —
+    # this just makes sure it doesn't crash bare with no diagnostic and no report-file written.
+    try:
+        local_doc = load_index(args.local, kind=KIND_LOCAL, repo=args.repo)
+        if args.command == "simulate":
+            compiled = load_index(args.compiled, kind=KIND_COMPILED)
+            report = simulate_merge(local_doc, compiled, args.repo)
+        else:
+            report = merge_into_instance(args.instance_root, args.repo, local_doc)
+    except IndexValidationError as exc:
+        label = "pre-merge simulation" if args.command == "simulate" else "merge"
+        print(f"::error::Panopticon {label} could not run: {exc}")
+        if args.report_file:
+            Path(args.report_file).write_text(format_operational_failure(label, str(exc)) + "\n",
+                                               encoding="utf-8")
+        return 1
+    return _write_report(report, args, simulated=(args.command == "simulate"))
 
 
 if __name__ == "__main__":

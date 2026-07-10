@@ -135,6 +135,30 @@ writing it once to both `$GITHUB_STEP_SUMMARY` and the PR comment. This is requi
 lead-with-TL;DR structure needs to know every check's findings before writing the first line, which is
 incompatible with each step progressively appending its own section as it completes.
 
+### D11: LLM-backed checks never use exit code 1 for a business verdict
+
+Found via a real, previously-silent bug: `drift.py`/`currency.py` used `1` to mean "stale" and relied on the
+calling workflow's `if [ "$status" -gt 1 ]` to catch operational failures — but neither module ever caught
+its own operational exceptions (`LLMResponseError`, `MissingRequirementError`, `LLMRequestError`), so any of
+them crashed with Python's default uncaught-exception exit code, which is also `1`. The workflow could not
+tell a crash apart from a genuine stale verdict, silently misreported the crash as "stale docs," and (once
+D10 removed the per-step `cat >> $GITHUB_STEP_SUMMARY` that used to fail loudly on a missing report file)
+produced a self-contradictory combined report claiming both "all checks passed" and "found stale docs."
+`merge.py` never had this bug — it already used `0`/`2`/anything-else, leaving `1` free for a crash to land
+on without colliding with either business outcome. `drift.py` and `currency.py` now follow the same
+`0`/`2`/anything-else convention.
+
+The exit-code fix alone isn't the full picture: the workflow's own top-of-file comment always intended
+"checks run and report even when an earlier check found problems," but the doc-drift/index-currency steps'
+first implementation of the exit-code fix used `exit "$status"` on an operational failure, which halts the
+whole job (GitHub Actions skips every later step by default) — silently regressing that intent for
+operational failures specifically, even though it was already correctly honored for business verdicts
+(recorded via `$GITHUB_OUTPUT`, no early exit). The corrected design: an operational failure is recorded the
+same way a business verdict is, without exiting the step — later, independent checks still run — and the
+combined report (D10) shows the failed check's own honest status rather than silently omitting it or
+implying the PR passed. Gating fails the workflow on any operational failure, never treating it as
+advisory.
+
 ## Risks / Trade-offs
 
 - [LLM extraction produces false interface entries] → Advisory-default gating; conflict entries instead of

@@ -42,6 +42,17 @@
       `test_stale_report_gives_interface_doc_specific_remediation` to `tests/test_drift.py`; the pre-existing
       `test_stale_report_names_docs_and_remediation` still passes unchanged. `docs/testing.md` updated. All
       197 tests pass.
+- [x] 3.9 Fixed: a real sandbox PR crashed `drift.py` mid-check (LLM response failed to parse) and the
+      failure was silently misreported as "stale docs" with an empty report. `drift.py`'s `main()` now
+      wraps the check-invoking logic in `try/except (MissingRequirementError, LLMRequestError,
+      LLMResponseError)`, printing `::error::Panopticon doc-drift check could not run: {exc}` and returning
+      `1` on any of them; the business-verdict return changed from `1 if stale else 0` to `2 if stale else
+      0` (`0`=clean, `2`=stale, anything else=operational failure — matches `merge.py`'s existing `0`/`2`/
+      anything-else convention, which never had this collision). New `tests/test_drift.py::TestMainExitCodes`
+      (clean→0, stale→2, operational failure→neither) — `main()`'s exit-code behavior had zero test coverage
+      before, which is exactly how this shipped undetected. `docs/testing.md` updated. Spec'd in
+      `pr-evaluation/spec.md`'s "CI checks distinguish operational failure from a business verdict by exit
+      code" requirement; root-caused in `design.md`'s D11.
 - [x] 3.6 Write the interface naming/matching skill (LLM judgment layered over hints and normalization rules;
       persists judgments as `panopticon-interface` hint comments; local agents judge and write hints, CI fails
       on unresolvable names with an instruction to add a hint)
@@ -248,6 +259,22 @@
       Verified directly: drift+currency actions together now render as exactly 2 TL;DR lines.
       `docs/testing.md` corrected (still referenced the old two-kind names). Spec'd in
       `pr-evaluation/spec.md`'s "Combined report leads with a de-duplicated action list" requirement.
+- [x] 6.9 Fixed "checks run independently regardless of earlier failures." All three check steps
+      (Doc-drift, Index-currency, Pre-merge simulation) in `panopticon-pr.yml` no longer `exit "$status"`
+      on an operational failure — each records `error=true`/`false` via `$GITHUB_OUTPUT` instead, so the
+      step succeeds and later, independent checks still run. `drift.py`/`currency.py`/`merge.py`'s `main()`
+      (the last one newly gained a try/except around `IndexValidationError`, since pre-merge simulation is
+      named in the same requirement) now write a `panopticon.report.format_operational_failure(...)`
+      section to `--report-file` on an operational failure, so it flows through "Post combined report"'s
+      existing sections-collection path with no special-casing. "Apply gating" fails the workflow on any
+      check's `error` output, never advisory. Caught via a real end-to-end run of the actual aggregation
+      script (not just unit tests) that even with the failure section wired in, the TL;DR itself still said
+      "all Panopticon checks passed" — fixed by adding a `has_operational_failure` parameter to
+      `render_tldr()`/`build_combined_report()` that leads the TL;DR with a `FAILURE_NOTICE` whenever any
+      check failed operationally, regardless of what other checks found. New/updated tests across
+      `tests/test_report.py`, `tests/test_drift.py`, `tests/test_currency.py`, `tests/test_merge.py` (230
+      tests total). `docs/testing.md` updated. Spec'd in `pr-evaluation/spec.md`'s "Checks run independently
+      regardless of earlier failures; gating decides at the end" requirement.
 
 ## 7. Master sync workflows (master-sync)
 

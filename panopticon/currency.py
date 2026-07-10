@@ -20,7 +20,8 @@ import sys
 from pathlib import Path
 
 from .index import KIND_LOCAL, dumps_index, load_index
-from .llm import LLMClient, LLMResponseError
+from .llm import LLMClient, LLMRequestError, LLMResponseError, MissingRequirementError
+from .report import format_operational_failure
 from .skills import load_skill
 
 CURRENCY_SKILL = "panopticon-index-currency"
@@ -95,17 +96,30 @@ def main(argv=None):
     parser.add_argument("--actions-file", help="write the structured TL;DR actions JSON here")
     args = parser.parse_args(argv)
 
-    client = LLMClient.from_env()
-    diff_text = Path(args.diff_file).read_text(encoding="utf-8", errors="replace")
-    index_doc = load_index(args.index, kind=KIND_LOCAL, repo=args.repo)
-    verdict = check_currency(diff_text, index_doc, client, skill_root=args.skill_root)
+    # Exit-code contract (pr-evaluation spec: "CI checks distinguish operational failure from a
+    # business verdict by exit code"): 0=current, 2=stale, anything else=operational failure. Never
+    # 1 for a verdict — that's the code an uncaught exception would produce anyway, so a genuine
+    # crash must never be mistaken for "the index is stale."
+    try:
+        client = LLMClient.from_env()
+        diff_text = Path(args.diff_file).read_text(encoding="utf-8", errors="replace")
+        index_doc = load_index(args.index, kind=KIND_LOCAL, repo=args.repo)
+        verdict = check_currency(diff_text, index_doc, client, skill_root=args.skill_root)
+    except (MissingRequirementError, LLMRequestError, LLMResponseError) as exc:
+        print(f"::error::Panopticon index-currency check could not run: {exc}")
+        # Written to --report-file so the combined report shows this failure (pr-evaluation spec:
+        # "Checks run independently...") instead of silently omitting the check that crashed.
+        if args.report_file:
+            Path(args.report_file).write_text(format_operational_failure("index-currency", str(exc)) + "\n",
+                                               encoding="utf-8")
+        return 1
     report = format_report(verdict)
     print(report)
     if args.report_file:
         Path(args.report_file).write_text(report + "\n", encoding="utf-8")
     if args.actions_file:
         Path(args.actions_file).write_text(json.dumps(collect_actions(verdict)), encoding="utf-8")
-    return 1 if not verdict["current"] else 0
+    return 2 if not verdict["current"] else 0
 
 
 if __name__ == "__main__":

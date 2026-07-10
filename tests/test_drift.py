@@ -1,10 +1,12 @@
 """Doc-drift check: verdict parsing, loud failures, report formatting."""
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from panopticon.drift import check_drift, collect_actions, collect_docs, format_report
+from panopticon.drift import check_drift, collect_actions, collect_docs, format_report, main
 from panopticon.llm import LLMResponseError
 
 from .test_extraction import FakeClient
@@ -111,8 +113,6 @@ class TestCollectActions(unittest.TestCase):
 
 class TestCollectDocs(unittest.TestCase):
     def test_collects_markdown_relative_to_docs_parent(self):
-        import tempfile
-
         with tempfile.TemporaryDirectory() as tmp:
             docs = Path(tmp) / "docs"
             (docs / "components").mkdir(parents=True)
@@ -120,6 +120,56 @@ class TestCollectDocs(unittest.TestCase):
             (docs / "components" / "api.md").write_text("# api")
             collected = collect_docs(docs)
         self.assertEqual(sorted(collected), ["docs/architecture.md", "docs/components/api.md"])
+
+
+class TestMainExitCodes(unittest.TestCase):
+    """Exit-code contract (pr-evaluation spec: "CI checks distinguish operational failure from a
+    business verdict by exit code"): 0=clean, 2=stale, anything else=operational failure — 1 must
+    never mean "stale", since that's the code an uncaught exception would produce anyway."""
+
+    def _run_main(self, tmp, check_drift_result, report_file=None):
+        diff_file = tmp / "diff.txt"
+        diff_file.write_text("+ change")
+        docs_root = tmp / "docs"
+        docs_root.mkdir()
+        effect = check_drift_result if callable(check_drift_result) else lambda *a, **k: check_drift_result
+        argv = ["--diff-file", str(diff_file), "--docs-root", str(docs_root)]
+        if report_file:
+            argv += ["--report-file", str(report_file)]
+        with patch("panopticon.drift.LLMClient.from_env", return_value=None), \
+             patch("panopticon.drift.check_drift", side_effect=effect):
+            return main(argv)
+
+    def test_clean_verdict_exits_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code = self._run_main(Path(tmp), {"stale": False, "reasons": [], "summary": "ok"})
+        self.assertEqual(code, 0)
+
+    def test_stale_verdict_exits_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code = self._run_main(Path(tmp), STALE_VERDICT)
+        self.assertEqual(code, 2)
+
+    def test_operational_failure_exits_neither_zero_nor_two(self):
+        def raise_response_error(*args, **kwargs):
+            raise LLMResponseError("endpoint returned garbage")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            code = self._run_main(Path(tmp), raise_response_error)
+        self.assertNotIn(code, (0, 2))
+
+    def test_operational_failure_writes_failure_section_to_report_file(self):
+        def raise_response_error(*args, **kwargs):
+            raise LLMResponseError("endpoint returned garbage")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            report_file = tmp_path / "drift.md"
+            self._run_main(tmp_path, raise_response_error, report_file=report_file)
+            text = report_file.read_text()
+        self.assertIn("could not run", text)
+        self.assertIn("endpoint returned garbage", text)
+        self.assertNotIn("stale", text.lower())
 
 
 if __name__ == "__main__":

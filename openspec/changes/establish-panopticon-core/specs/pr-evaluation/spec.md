@@ -106,3 +106,69 @@ scrolls to the bottom. When every check passes, the TL;DR SHALL say so plainly i
 - **WHEN** the combined report is generated
 - **THEN** the TL;DR states plainly that everything passed, with no action items, at both the top and bottom
   of the report
+
+### Requirement: CI checks distinguish operational failure from a business verdict by exit code
+
+Every LLM-backed PR-evaluation check (doc-drift, index-currency) SHALL use a fixed exit-code contract: `0`
+means the check ran successfully and found no issue; `2` means the check ran successfully and found an
+actionable issue (stale docs, a stale index); any other exit code — including whatever an uncaught exception
+produces by default in the check's language runtime — SHALL be treated by the calling workflow as an
+operational failure: the check did not complete and its outcome is unknown, never a verdict. `1` SHALL NOT
+be used to mean either outcome, since it collides with the exit code most language runtimes (including
+Python) already use by default for any uncaught exception, making a genuine crash indistinguishable from a
+deliberate "stale" result. This mirrors the pre-merge-simulation check's existing exit-code convention
+(`0`/`2`/anything-else), which does not have this collision.
+
+Every code path that can produce an operational failure — a malformed LLM response, a missing or
+unreachable endpoint, or any other exception raised while producing the verdict — SHALL be caught explicitly
+and turned into a non-`0`/non-`2` exit paired with a clear `::error::`-annotated message naming what
+happened, rather than left to crash with an unhandled exception whose exit code the calling workflow cannot
+distinguish from a real verdict.
+
+#### Scenario: Malformed LLM response is an operational failure, not a stale verdict
+
+- **GIVEN** the LLM endpoint returns a response that fails to parse as the expected verdict JSON
+- **WHEN** the doc-drift or index-currency check runs
+- **THEN** the check exits with a code that is neither `0` nor `2`, the workflow fails loudly with an
+  `::error::` message identifying the parse failure, and no report or TL;DR action is generated implying a
+  real "stale" finding
+
+#### Scenario: Genuine stale verdict still exits with the reserved code
+
+- **GIVEN** the LLM endpoint returns a well-formed verdict indicating stale docs or a stale index
+- **WHEN** the check runs
+- **THEN** it exits `2`, the workflow proceeds to the combined report, and gating applies normally
+
+### Requirement: Checks run independently regardless of earlier failures; gating decides at the end
+
+Doc-drift, index-currency, and pre-merge simulation SHALL each attempt to run regardless of whether an
+earlier check found a business verdict (clean or stale) or suffered an operational failure — no check's
+outcome, including a crash, SHALL prevent a later, independent check from running and reporting its own
+result. The combined report SHALL reflect every check's own actual outcome: a check that could not
+complete SHALL have its own section stating so clearly (naming the check and the operational failure),
+distinct from a check that ran and passed — the combined report MUST NOT silently omit a check whose step
+ran, and MUST NOT let one check's operational failure make the report imply that other checks, or the
+whole PR, passed. Gating (the final step) SHALL fail the workflow when any check had an operational
+failure, in addition to its existing rules for blocking business verdicts — an operational failure is
+never merely advisory, since a check that could not run has told the developer nothing they can act on.
+
+#### Scenario: One check's operational failure does not block a later, independent check from running
+
+- **GIVEN** the doc-drift check suffers an operational failure (e.g. a malformed LLM response)
+- **WHEN** the PR workflow continues
+- **THEN** the index-currency check and pre-merge simulation still run and report their own real outcomes
+
+#### Scenario: Combined report shows the failed check's own status, not silence or false success
+
+- **GIVEN** doc-drift operationally failed while index-currency and simulation both passed cleanly
+- **WHEN** the combined report is built
+- **THEN** it shows doc-drift's own section stating it could not run and why, alongside index-currency's and
+  simulation's real "passed" sections — it never claims "all checks passed" while a check crashed, and never
+  omits the crashed check's status entirely
+
+#### Scenario: An operational failure always fails the workflow
+
+- **GIVEN** any one check had an operational failure, regardless of what the other checks found
+- **WHEN** gating is applied
+- **THEN** the workflow fails — an operational failure is never treated as advisory, even for checks whose
+  business verdict would otherwise be advisory-by-default

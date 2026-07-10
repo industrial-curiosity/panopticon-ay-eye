@@ -10,6 +10,7 @@ from panopticon.report import (
     PASS_MESSAGE,
     build_combined_report,
     dedupe_actions,
+    format_operational_failure,
     load_actions,
     render_tldr,
 )
@@ -74,6 +75,19 @@ class TestRenderTldr(unittest.TestCase):
         self.assertEqual(len(bullet_lines), 3)
         self.assertIn("orders-api", tldr)
 
+    def test_operational_failure_never_says_all_passed_even_with_no_actions(self):
+        # Other checks were clean (no actions), but one check crashed — must not say "all passed".
+        tldr = render_tldr([], has_operational_failure=True)
+        self.assertNotEqual(tldr, PASS_MESSAGE)
+        self.assertNotIn("all Panopticon checks passed", tldr)
+        self.assertIn("could not run", tldr)
+
+    def test_operational_failure_notice_appears_alongside_real_actions(self):
+        # One check crashed while another found a real, actionable issue — both must show.
+        tldr = render_tldr([{"kind": "resolve_conflict", "target": "orders-api"}], has_operational_failure=True)
+        self.assertIn("could not run", tldr)
+        self.assertIn("orders-api", tldr)
+
 
 class TestBuildCombinedReport(unittest.TestCase):
     def test_tldr_appears_at_both_ends_with_detail_between(self):
@@ -87,6 +101,27 @@ class TestBuildCombinedReport(unittest.TestCase):
     def test_all_passed_tldr_at_both_ends(self):
         report = build_combined_report(["## all good"], [])
         self.assertEqual(report.count(PASS_MESSAGE), 2)
+
+    def test_operational_failure_section_shows_alongside_real_check_results(self):
+        # A crashed check's own section sits next to another check's real, passing result — never
+        # silently dropped, never implying the crashed check (or the whole PR) passed too.
+        sections = [
+            format_operational_failure("doc-drift", "endpoint returned garbage"),
+            "✅ **Panopticon index-currency check:** the local index is current for this change.",
+        ]
+        report = build_combined_report(sections, [], has_operational_failure=True)
+        self.assertIn("could not run", report)
+        self.assertIn("endpoint returned garbage", report)
+        self.assertIn("index is current", report)
+        self.assertNotIn("all Panopticon checks passed", report)
+
+
+class TestFormatOperationalFailure(unittest.TestCase):
+    def test_names_the_check_and_includes_the_message(self):
+        section = format_operational_failure("doc-drift", "endpoint unreachable after 3 attempts")
+        self.assertIn("doc-drift", section)
+        self.assertIn("could not run", section)
+        self.assertIn("endpoint unreachable after 3 attempts", section)
 
 
 class TestLoadActions(unittest.TestCase):

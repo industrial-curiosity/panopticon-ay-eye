@@ -1,10 +1,13 @@
 """Index-currency check: verdict parsing, loud failures, report formatting."""
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from panopticon.currency import check_currency, collect_actions, format_report
+from panopticon.currency import check_currency, collect_actions, format_report, main
+from panopticon.index import dumps_index
 from panopticon.llm import LLMResponseError
 
 from .helpers import load_fixture
@@ -62,6 +65,58 @@ class TestCollectActions(unittest.TestCase):
             collect_actions(STALE_VERDICT),
             [{"kind": "run_doc_generation"}, {"kind": "commit_and_push"}],
         )
+
+
+class TestMainExitCodes(unittest.TestCase):
+    """Exit-code contract (pr-evaluation spec: "CI checks distinguish operational failure from a
+    business verdict by exit code"): 0=current, 2=stale, anything else=operational failure — 1 must
+    never mean "stale", since that's the code an uncaught exception would produce anyway."""
+
+    def _run_main(self, tmp, check_currency_result, report_file=None):
+        diff_file = tmp / "diff.txt"
+        diff_file.write_text("+ change")
+        index_file = tmp / "index.json"
+        index_file.write_text(dumps_index(load_fixture("local_svc_a.json")))
+        effect = (
+            check_currency_result if callable(check_currency_result)
+            else lambda *a, **k: check_currency_result
+        )
+        argv = ["--diff-file", str(diff_file), "--index", str(index_file), "--repo", "svc-a"]
+        if report_file:
+            argv += ["--report-file", str(report_file)]
+        with patch("panopticon.currency.LLMClient.from_env", return_value=None), \
+             patch("panopticon.currency.check_currency", side_effect=effect):
+            return main(argv)
+
+    def test_current_verdict_exits_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code = self._run_main(Path(tmp), {"current": True, "reasons": [], "summary": "ok"})
+        self.assertEqual(code, 0)
+
+    def test_stale_verdict_exits_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code = self._run_main(Path(tmp), STALE_VERDICT)
+        self.assertEqual(code, 2)
+
+    def test_operational_failure_exits_neither_zero_nor_two(self):
+        def raise_response_error(*args, **kwargs):
+            raise LLMResponseError("endpoint returned garbage")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            code = self._run_main(Path(tmp), raise_response_error)
+        self.assertNotIn(code, (0, 2))
+
+    def test_operational_failure_writes_failure_section_to_report_file(self):
+        def raise_response_error(*args, **kwargs):
+            raise LLMResponseError("endpoint returned garbage")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            report_file = tmp_path / "currency.md"
+            self._run_main(tmp_path, raise_response_error, report_file=report_file)
+            text = report_file.read_text()
+        self.assertIn("could not run", text)
+        self.assertIn("endpoint returned garbage", text)
 
 
 if __name__ == "__main__":

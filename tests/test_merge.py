@@ -254,6 +254,22 @@ class TestCli(unittest.TestCase):
         )
         self.assertEqual(code, 0)
 
+    def test_simulate_operational_failure_writes_failure_section_not_crash(self):
+        # Same exit-code contract as drift.py/currency.py: 0/2 are business outcomes, anything
+        # else is an operational failure, and it must not crash bare with no report written.
+        missing_local = self.tmp / "does_not_exist.json"
+        report_file = self.tmp / "report.md"
+        code = self.run_cli(
+            "simulate",
+            "--local", str(missing_local),
+            "--repo", "svc-c",
+            "--compiled", str(self.instance / "interfaces" / "index.json"),
+            "--report-file", str(report_file),
+        )
+        self.assertNotIn(code, (0, 2))
+        text = report_file.read_text()
+        self.assertIn("could not run", text)
+
     def test_merge_writes_shard_compiled_and_json_report(self):
         json_report = self.tmp / "report.json"
         code = self.run_cli(
