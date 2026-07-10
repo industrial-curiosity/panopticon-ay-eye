@@ -4,6 +4,5 @@
     "init": "blocking",
     "interface-conflict": "advisory"
   },
-  "schema_version": 1,
-  "workflow_ref": "v1"
+  "schema_version": 1
 }

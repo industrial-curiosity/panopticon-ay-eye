@@ -23,7 +23,7 @@ python3 -m unittest tests.test_merge -v
 
 | Module | Covers |
 | --- | --- |
-| `tests/test_config.py` | Org gating config defaults and overrides, child repo config round-trips; `workflow_ref` in the org config defaults to `None` (this module has no network access, so it can't know the instance's true default branch) but is read through unchanged when the org sets one |
+| `tests/test_config.py` | Org gating config defaults and overrides, child repo config round-trips; `workflow_ref` in the org config defaults to `None` (this module has no network access, so it can't know the instance's true default branch) but is read through unchanged when the org sets one; the template repo's own shipped root `panopticon.config.json` has no `workflow_ref` key (regression test — a pinned value there would silently break caller-workflow resolution for every instance created from this template, since no matching git tag exists or ever will without a release-tagging process) |
 | `tests/test_currency.py` | Index-currency verdict parsing, loud failures on malformed verdicts, report formatting |
 | `tests/test_docs.py` | Deterministic interface-doc rendering, in-place regeneration and component pruning, four-layer validation |
 | `tests/test_drift.py` | Doc-drift verdict parsing, loud failures on malformed verdicts, PR-comment report formatting |

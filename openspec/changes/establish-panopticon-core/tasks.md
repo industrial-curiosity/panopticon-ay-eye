@@ -106,6 +106,12 @@
       "derive it" via those two functions; an explicit value can still override. Covered by
       `tests/test_init_repo.py`'s `TestDiscoverWorkflowRef`, `TestFallbackWorkflowRef`, and
       `TestWorkflowRefDefaultsToDiscovery`; `tests/test_config.py` updated for the new `None` default.
+- [x] 4.17 Removed the stale `"workflow_ref": "v1"` from the template repo's root
+      `panopticon.config.json` (committed 2026-07-04, before task 4.11 introduced the
+      default-branch-fallback design). The file now contains only `gating` and `schema_version`,
+      matching the setup guide's own example JSON. Added a regression test,
+      `tests/test_config.py::test_template_root_config_ships_no_pinned_workflow_ref`, asserting the
+      shipped root config has no `workflow_ref` key, so this fossil can't silently reappear.
 - [x] 4.12 Third implementation, per explicit user request rejecting the two-script design. Removed
       `panopticon/configure_ides.py` and `tests/test_configure_ides.py` entirely. `bootstrap.py` now
       does it all inline: `TOOL_LOCATIONS` (per-tool location table mirroring

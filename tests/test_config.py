@@ -65,6 +65,15 @@ class TestOrgConfig(unittest.TestCase):
         config = load_org_config(repo_root)
         self.assertEqual(config["gating"], DEFAULT_GATING)
 
+    def test_template_root_config_ships_no_pinned_workflow_ref(self):
+        # The template repo has no release-tagging process, so a workflow_ref committed here
+        # would never correspond to a real git ref — and "Use this template" copies this file
+        # verbatim into every new instance, silently breaking caller-workflow resolution for all
+        # of them from their first bootstrap. Regression test for that exact fossil.
+        repo_root = Path(__file__).resolve().parent.parent
+        raw = json.loads((repo_root / "panopticon.config.json").read_text())
+        self.assertNotIn("workflow_ref", raw)
+
 
 class TestRepoConfig(unittest.TestCase):
     def test_uninitialized_repo_returns_none(self):

@@ -190,6 +190,25 @@ change.
 - **WHEN** a child repo runs the bootstrap script against that instance
 - **THEN** the caller workflows it writes reference `v1` exactly as configured
 
+### Requirement: Template repo ships no pinned workflow_ref
+
+The template repo's own root `panopticon.config.json` SHALL NOT set `workflow_ref`. The template repo has
+no release-tagging process (automated tag-based release versioning is out of scope — see "Default
+workflow ref requires no manual instance setup"), so a `workflow_ref` committed there could never
+correspond to a real tag. Because GitHub's "Use this template" copies the template's root files verbatim
+into every new instance repo, a pinned value committed here would silently apply to every instance from
+its very first bootstrap — not an opt-in the org owner chose, but an inherited default that breaks caller
+workflow resolution (`uses: .../<workflow>@<ref>` resolves to nothing) until someone notices and either
+removes it or creates a matching tag. This SHALL be true regardless of whether the value happens to look
+plausible (a short tag-like string is not evidence a corresponding git ref exists).
+
+#### Scenario: Template's root config has no workflow_ref key
+
+- **GIVEN** the template repo's root `panopticon.config.json`
+- **WHEN** it is read
+- **THEN** it does not contain a `workflow_ref` key, so instances created from the template inherit the
+  default-branch fallback rather than a pinned ref with no corresponding tag
+
 ### Requirement: Recorded workflow_ref matches the wired caller workflows
 
 The finalization step SHALL derive the `workflow_ref` value it writes to `panopticon/config.json` from
