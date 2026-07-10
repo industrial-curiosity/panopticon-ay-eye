@@ -78,11 +78,11 @@ def format_report(verdict):
 
 def collect_actions(verdict):
     """Structured remediation actions for the combined-report TL;DR (panopticon/report.py) — the
-    same `update_index` kind drift.py emits for a stale `interfaces.md`, so a PR that trips both
-    checks for the same underlying index gap gets one TL;DR line, not two."""
+    same `run_doc_generation` kind drift.py emits for stale docs, so a PR that trips both checks for
+    the same underlying index gap gets one TL;DR line, not two."""
     if verdict["current"]:
         return []
-    return [{"kind": "update_index"}, {"kind": "commit_and_push"}]
+    return [{"kind": "run_doc_generation"}, {"kind": "commit_and_push"}]
 
 
 def main(argv=None):

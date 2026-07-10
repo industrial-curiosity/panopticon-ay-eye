@@ -69,20 +69,30 @@ Workflows MUST read gating configuration rather than hardcoding outcomes.
 The PR workflow's combined report — the GitHub Actions step summary and the PR comment, both built from the
 same doc-drift, index-currency, and pre-merge-simulation findings — SHALL open with a "TL;DR" section listing
 the concrete actions a developer must take to resolve everything the checks found, before any per-check
-detail. The TL;DR SHALL be de-duplicated: when multiple checks point at the same underlying fix (e.g.
-doc-drift's `interfaces.md` finding and the index-currency check's missing entries both resolve by updating
-`panopticon/index.json` for the same interfaces), the TL;DR SHALL state that fix once, not once per check
-that surfaced it. The same TL;DR SHALL be repeated verbatim at the end of the report, after the per-check
-detail, so it's visible whether a reader scans from the top or scrolls to the bottom. When every check
-passes, the TL;DR SHALL say so plainly instead of listing actions.
+detail. Every doc-drift and index-currency finding SHALL collapse into a single TL;DR action — regardless of
+how many docs are stale or whether the index itself is also stale — instructing the developer to run the
+panopticon-doc-generation skill once, since that skill's own rules already keep the index current before
+regenerating every stale doc in the same pass; the TL;DR MUST NOT list a separate line per stale doc or a
+separate line for the index update. Interface conflicts from pre-merge simulation are a distinct concern —
+resolving cross-repo ownership/naming, not something a single doc-generation pass fixes — and remain their
+own action(s), never folded into the doc-generation line. The same TL;DR SHALL be repeated verbatim at the
+end of the report, after the per-check detail, so it's visible whether a reader scans from the top or
+scrolls to the bottom. When every check passes, the TL;DR SHALL say so plainly instead of listing actions.
 
-#### Scenario: Multiple checks point at the same fix
+#### Scenario: Many stale docs and a stale index collapse into one action
 
-- **GIVEN** a PR is missing index entries for interfaces its config declares, and both the doc-drift check
-  (via the rendered `interfaces.md`) and the index-currency check separately flag this
+- **GIVEN** a PR leaves five docs stale and the local index stale for the same underlying reason
 - **WHEN** the combined report is built
-- **THEN** the TL;DR lists the `panopticon/index.json` update once, not once per check, and each check's own
-  detailed section below still shows its own full finding
+- **THEN** the TL;DR contains exactly one line instructing the developer to run the panopticon-doc-generation
+  skill once — not one line per stale doc plus a separate line for the index — and each check's own detailed
+  section below still shows its own full finding
+
+#### Scenario: Interface conflicts stay a separate action
+
+- **GIVEN** a PR both leaves docs stale and introduces an interface conflict
+- **WHEN** the combined report is built
+- **THEN** the TL;DR contains one line for running panopticon-doc-generation and a separate line for resolving
+  the conflict — the two are never merged into a single instruction
 
 #### Scenario: TL;DR appears at both ends of the report
 

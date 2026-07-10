@@ -98,19 +98,12 @@ def format_report(verdict):
 
 
 def collect_actions(verdict):
-    """Structured remediation actions for the combined-report TL;DR (panopticon/report.py) — never
-    free prose, so identical fixes recommended by other checks can be de-duplicated exactly."""
+    """Structured remediation actions for the combined-report TL;DR (panopticon/report.py). Any
+    number of stale docs — including interfaces.md — collapse into one `run_doc_generation` action:
+    running that skill once already keeps the index current and regenerates every stale doc."""
     if not verdict["stale"]:
         return []
-    actions = []
-    for reason in verdict.get("reasons", []):
-        doc = reason.get("doc", "")
-        if doc.endswith(INTERFACE_DOC_SUFFIX):
-            actions.append({"kind": "update_index"})
-        else:
-            actions.append({"kind": "regenerate_doc", "target": doc})
-    actions.append({"kind": "commit_and_push"})
-    return actions
+    return [{"kind": "run_doc_generation"}, {"kind": "commit_and_push"}]
 
 
 def collect_docs(docs_root):

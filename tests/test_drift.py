@@ -86,20 +86,27 @@ class TestCollectActions(unittest.TestCase):
     def test_clean_verdict_has_no_actions(self):
         self.assertEqual(collect_actions({"stale": False, "reasons": [], "summary": "ok"}), [])
 
-    def test_stale_verdict_yields_regenerate_doc_and_commit_push(self):
-        actions = collect_actions(STALE_VERDICT)
-        self.assertIn({"kind": "regenerate_doc", "target": "docs/components/api.md"}, actions)
-        self.assertIn({"kind": "commit_and_push"}, actions)
+    def test_stale_verdict_yields_run_doc_generation_and_commit_push(self):
+        self.assertEqual(
+            collect_actions(STALE_VERDICT),
+            [{"kind": "run_doc_generation"}, {"kind": "commit_and_push"}],
+        )
 
-    def test_interfaces_doc_yields_update_index_not_regenerate_doc(self):
+    def test_many_stale_docs_including_interfaces_still_yield_one_action(self):
+        # No matter how many docs are stale, or whether interfaces.md is among them, it's one action.
         verdict = {
             "stale": True,
-            "reasons": [{"doc": "docs/interfaces.md", "why": "missing entries", "update": "add them"}],
-            "summary": "index changed",
+            "reasons": [
+                {"doc": "docs/architecture.md", "why": "x", "update": "y"},
+                {"doc": "docs/interfaces.md", "why": "missing entries", "update": "add them"},
+                {"doc": "docs/operations.md", "why": "x", "update": "y"},
+            ],
+            "summary": "several docs stale",
         }
-        actions = collect_actions(verdict)
-        self.assertIn({"kind": "update_index"}, actions)
-        self.assertNotIn({"kind": "regenerate_doc", "target": "docs/interfaces.md"}, actions)
+        self.assertEqual(
+            collect_actions(verdict),
+            [{"kind": "run_doc_generation"}, {"kind": "commit_and_push"}],
+        )
 
 
 class TestCollectDocs(unittest.TestCase):

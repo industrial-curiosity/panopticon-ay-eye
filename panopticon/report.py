@@ -4,9 +4,11 @@ with a de-duplicated action list").
 
 Each check (drift.py, currency.py, merge.py) exposes its own ``collect_actions(...)`` returning a
 list of ``{"kind": ..., "target": ...}`` dicts describing concrete remediation steps — never free
-prose. Two checks that recommend the same fix (e.g. doc-drift's stale ``interfaces.md`` and a stale
-``panopticon/index.json`` from the index-currency check) emit the same ``kind``/``target`` pair, so
-de-duplication is exact dict-key matching, not text similarity.
+prose. Doc-drift and index-currency findings both emit the same ``run_doc_generation`` kind
+(no ``target`` — it always means "run the whole skill once"), since panopticon-doc-generation's own
+rules already keep the index current before regenerating every stale doc in one pass; de-duplication
+collapses any number of these into the single line, never one line per stale doc or a separate index
+line. De-duplication itself is exact dict-key matching on ``(kind, target)``, not text similarity.
 """
 
 import json
@@ -14,16 +16,13 @@ from pathlib import Path
 
 # Fixed section order for the TL;DR, independent of which check emitted which action or the order
 # actions were collected in.
-_ACTION_ORDER = ("update_index", "regenerate_doc", "resolve_conflict", "commit_and_push")
+_ACTION_ORDER = ("run_doc_generation", "resolve_conflict", "commit_and_push")
 
 _TEMPLATES = {
-    "update_index": (
-        "Update `panopticon/index.json` (see the panopticon-interface-naming and "
-        "panopticon-interface-extraction skills), then re-render `interfaces.md`: "
-        "`python3 -m panopticon.docs render --repo-name <repo> --index panopticon/index.json "
-        "--docs-root <docs-location>`."
+    "run_doc_generation": (
+        "Run the panopticon-doc-generation skill in your agent once — it keeps `panopticon/index.json` "
+        "current and regenerates every stale doc (including re-rendering `interfaces.md`) in the same pass."
     ),
-    "regenerate_doc": "Run the panopticon-doc-generation skill in your agent to regenerate `{target}`.",
     "resolve_conflict": (
         "Resolve the `{target}` interface conflict — agree canonical naming/ownership with the "
         "other repo(s) and add a `panopticon-interface` hint if naming is ambiguous."

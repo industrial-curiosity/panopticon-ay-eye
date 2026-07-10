@@ -235,21 +235,18 @@
       `repo-initialization/spec.md`'s "Local tooling package vendored into child repo" requirement now
       states this resolution guarantee explicitly, with a new scenario. No unit test covers this (it's a
       CI-YAML-only fix); all 191 existing unit tests still pass unaffected.
-- [x] 6.8 Built the de-duplicated, TL;DR-led combined report. New `panopticon/report.py`
-      (`dedupe_actions`/`render_tldr`/`build_combined_report`/`load_actions`) de-duplicates by exact
-      `(kind, target)` dict-key matching — not text similarity. Added `collect_actions()` to
-      `drift.py`/`currency.py`/`merge.py`, each returning structured actions (`update_index`,
-      `regenerate_doc` + doc path, `resolve_conflict` + interface name, `commit_and_push`) instead of
-      prose, plus a new `--actions-file` CLI arg on all three writing that JSON alongside
-      `--report-file`. Restructured `panopticon-pr.yml`: removed the three `cat *.md >> $GITHUB_STEP_SUMMARY`
-      lines from the Doc-drift/Index-currency/Pre-merge-simulation steps (design.md D10), and rewrote "Post
-      PR comment" → "Post combined report" to read all three report+actions files and write one combined
-      body (TL;DR, detail, TL;DR repeated) to both the step summary and the PR comment. Verified against the
-      real motivating case (`panopticon-test-child-b` PR #1's 5 duplicate-pointing findings) — collapses to
-      one `panopticon/index.json` line. New `tests/test_report.py` plus `collect_actions` tests in
-      `test_drift.py`/`test_currency.py`/`test_merge.py` (215 tests total pass). Also independently ran the
-      workflow step's embedded Python script end-to-end outside the actual runner (fixture files + a stub
-      `gh`) to confirm real behavior, not just reviewed the YAML by eye. `docs/testing.md` updated. Spec'd in
+- [x] 6.8 Collapsed the TL;DR further per user feedback on a real report (6 separate bullets: 1
+      index-update line + 5 per-doc "run panopticon-doc-generation" lines). `panopticon/report.py`'s
+      `update_index` and `regenerate_doc` action kinds are now one `run_doc_generation` kind (no
+      `target` — it always means "run the whole skill once"); `_ACTION_ORDER`/`_TEMPLATES` and the
+      module docstring updated accordingly. `drift.py`'s and `currency.py`'s `collect_actions()` now
+      return exactly `[{"kind": "run_doc_generation"}, {"kind": "commit_and_push"}]` when stale,
+      regardless of how many docs are stale or which ones — no more per-doc targets.
+      `resolve_conflict`/`commit_and_push` untouched. Rewrote the broken assertions in
+      `tests/test_report.py`, `tests/test_drift.py`, `tests/test_currency.py` (217 tests total, up
+      from 215 — 2 new tests covering the exact collapse scenario and that conflicts stay separate).
+      Verified directly: drift+currency actions together now render as exactly 2 TL;DR lines.
+      `docs/testing.md` corrected (still referenced the old two-kind names). Spec'd in
       `pr-evaluation/spec.md`'s "Combined report leads with a de-duplicated action list" requirement.
 
 ## 7. Master sync workflows (master-sync)

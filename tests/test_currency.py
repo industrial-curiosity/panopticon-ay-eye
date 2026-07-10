@@ -57,10 +57,11 @@ class TestCollectActions(unittest.TestCase):
     def test_current_verdict_has_no_actions(self):
         self.assertEqual(collect_actions({"current": True, "reasons": [], "summary": "ok"}), [])
 
-    def test_stale_verdict_yields_update_index_and_commit_push(self):
-        actions = collect_actions(STALE_VERDICT)
-        self.assertIn({"kind": "update_index"}, actions)
-        self.assertIn({"kind": "commit_and_push"}, actions)
+    def test_stale_verdict_yields_run_doc_generation_and_commit_push(self):
+        self.assertEqual(
+            collect_actions(STALE_VERDICT),
+            [{"kind": "run_doc_generation"}, {"kind": "commit_and_push"}],
+        )
 
 
 if __name__ == "__main__":
