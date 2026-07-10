@@ -53,6 +53,30 @@ class TestReport(unittest.TestCase):
         self.assertIn("What to update", report)
         self.assertIn("panopticon-doc-generation", report)
 
+    def test_stale_report_states_same_branch_push_and_rerun(self):
+        report = format_report(STALE_VERDICT)
+        self.assertIn("this same PR's branch", report)
+        self.assertIn("do not open a new pr", report.lower())
+        self.assertIn("re-runs automatically", report)
+
+    def test_stale_report_gives_interface_doc_specific_remediation(self):
+        verdict = {
+            "stale": True,
+            "reasons": [
+                {
+                    "doc": "docs/interfaces.md",
+                    "why": "New Kafka topic is not reflected in the interface index.",
+                    "update": "Add the topic to panopticon/index.json.",
+                }
+            ],
+            "summary": "Interface index changed without updating interfaces.md.",
+        }
+        report = format_report(verdict)
+        self.assertIn("python3 -m panopticon.docs render", report)
+        self.assertIn("panopticon/index.json", report)
+        # interfaces.md is rendered, not agent-authored — it must not get the generic agent-skill fix line
+        self.assertNotIn("run the panopticon-doc-generation skill", report)
+
     def test_clean_report(self):
         report = format_report({"stale": False, "reasons": [], "summary": "ok"})
         self.assertIn("consistent", report)

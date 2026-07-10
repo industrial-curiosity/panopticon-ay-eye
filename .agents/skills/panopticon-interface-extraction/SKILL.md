@@ -27,6 +27,10 @@ on.
   `sqs`, `s3`, `database`, `webhook` — or the closest lowercase short token for anything else.
 - Do not invent interfaces that are not clearly evidenced in the provided files. An empty result
   is a valid result.
+- If a repo doc describes an interface with no evidence in any provided file, do not fabricate it.
+  Treat the doc as stale and leave it to panopticon-doc-generation to reconcile — unless it's
+  unclear whether the interface was simply never finished, in which case stop and ask the user
+  instead of guessing.
 
 ## Response contract (strict)
 

@@ -56,6 +56,12 @@ def _strip_code_fence(text):
     return text
 
 
+# interfaces.md is deterministically rendered from the index (see doc-generation spec's "Interface
+# docs rendered from the index"), never hand-edited or agent-authored like the other three layers — so
+# its remediation command differs from the panopticon-doc-generation skill invocation given for the rest.
+INTERFACE_DOC_SUFFIX = "interfaces.md"
+
+
 def format_report(verdict):
     """Human-readable report for the PR comment / CI summary."""
     if not verdict["stale"]:
@@ -67,12 +73,26 @@ def format_report(verdict):
         "",
     ]
     for reason in verdict.get("reasons", []):
-        lines.append(f"- **{reason.get('doc', 'docs')}** — {reason.get('why', '')}")
+        doc = reason.get("doc", "docs")
+        lines.append(f"- **{doc}** — {reason.get('why', '')}")
         if reason.get("update"):
             lines.append(f"  - What to update: {reason['update']}")
+        if doc.endswith(INTERFACE_DOC_SUFFIX):
+            lines.append(
+                "  - How to fix: this file is rendered from `panopticon/index.json`, not hand-edited — "
+                "update the index (see the panopticon-interface-naming skill for canonical names), then "
+                "run `python3 -m panopticon.docs render --repo-name <repo> "
+                "--index panopticon/index.json --docs-root <docs-location>`."
+            )
+        else:
+            lines.append(
+                "  - How to fix: run the panopticon-doc-generation skill in your agent to regenerate "
+                "this doc."
+            )
     lines += [
         "",
-        "Update the docs locally with your agent (panopticon-doc-generation skill), commit, and push.",
+        "Commit the fix and push it to this same PR's branch — do not open a new PR. This check re-runs "
+        "automatically on that push.",
     ]
     return "\n".join(line for line in lines if line is not None)
 

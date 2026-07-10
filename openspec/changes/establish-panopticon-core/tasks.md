@@ -30,11 +30,32 @@
       overview, per-component, interface, operational) — runnable in any agent harness and by the CI runtime
 - [x] 3.3 Implement deterministic interface-doc rendering from the local index
 - [x] 3.4 Implement doc regeneration in place, including removal of docs for deleted components
-- [x] 3.5 Implement the LLM doc-drift check (diff + docs in, verdict + reasons out), failing loudly with
-      remediation guidance when docs are stale
+- [x] 3.5 Rewrote `panopticon/drift.py`'s `format_report()` to satisfy the strengthened "Doc-vs-code drift
+      detection" requirement. Each stale-doc reason now gets a "How to fix" line, differentiated by doc
+      type via a new `INTERFACE_DOC_SUFFIX = "interfaces.md"` constant: `interfaces.md` gets the specific
+      `python3 -m panopticon.docs render --repo-name <repo> --index panopticon/index.json --docs-root
+      <docs-location>` command (it's deterministically rendered, never agent-authored), while the other
+      three layers get "run the panopticon-doc-generation skill in your agent." The report now ends with an
+      explicit statement that the fix must be committed and pushed to this same PR's branch — not a new PR
+      — and that the check re-runs automatically on that push. Added
+      `test_stale_report_states_same_branch_push_and_rerun` and
+      `test_stale_report_gives_interface_doc_specific_remediation` to `tests/test_drift.py`; the pre-existing
+      `test_stale_report_names_docs_and_remediation` still passes unchanged. `docs/testing.md` updated. All
+      197 tests pass.
 - [x] 3.6 Write the interface naming/matching skill (LLM judgment layered over hints and normalization rules;
       persists judgments as `panopticon-interface` hint comments; local agents judge and write hints, CI fails
       on unresolvable names with an instruction to add a hint)
+- [x] 3.7 Rewrote `panopticon-doc-generation/SKILL.md`'s rule 7 for the changed resolution mechanism: instead
+      of a visible inline note in the revised doc's own prose, it now instructs appending an entry to a
+      separate `panopticon-changelog.md` file in the docs location (created if absent), naming the doc, what
+      was found, and how it was resolved — and explicitly never staging, committing, or pushing that file,
+      leaving it for the user's own commit step. `panopticon-interface-naming/SKILL.md`,
+      `panopticon-interface-extraction/SKILL.md`, and `panopticon-init/SKILL.md`'s prior additions were
+      unaffected (none of them described the inline-note mechanism) and needed no changes.
+      `docs/setup-guide.md`'s "Commit and push" section already mentions the changelog file. No test
+      changes — skill-file instruction content has no pytest coverage anywhere in this repo. All 197 tests
+      pass (markdown-only change, unaffected). Spec'd in `doc-generation/spec.md`'s "Initialization-time
+      drift resolution" requirement.
 
 ## 4. Repo initialization (repo-initialization)
 

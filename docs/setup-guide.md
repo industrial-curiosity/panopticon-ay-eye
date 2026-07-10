@@ -150,6 +150,11 @@ initialization flag — only once validation passes.
 Commit and push everything the process created — the bootstrap script's own final prompt gives the exact
 command, since which paths that covers depends on the skills location you chose.
 
+If initialization found and fixed documentation that contradicted the current code, it records what it
+changed and why in `panopticon-changelog.md` in your docs location, instead of annotating the fix inline in
+the docs themselves. Panopticon never stages or commits this file automatically — review it and decide
+whether to keep, edit, or discard it before you commit.
+
 ## 5. What runs afterwards
 
 - **Every PR:** initialization check, doc-drift check, index-currency check, pre-merge conflict

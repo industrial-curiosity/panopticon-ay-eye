@@ -46,3 +46,15 @@ topic=order.events
 Hints never go into index files themselves. Once the hint exists, extraction resolves the name
 deterministically on every future run — locally and in CI — which is what keeps shard merges and
 pre-merge simulation reproducible.
+
+## Existing docs that contradict the code
+
+While exploring the repo you may find documentation — a README, architecture doc, or reference/
+fixture doc — describing interfaces this repo doesn't actually have (e.g. it names config or
+source files that were never committed). Never invent index entries, hint comments, or config to
+match what a doc merely describes; name only what has real evidence in source/config files (see
+panopticon-interface-extraction). When the doc is simply stale relative to the code, proceed with
+naming what's actually there and leave the doc's revision to panopticon-doc-generation (see that
+skill's drift-resolution rule). When it's unclear whether the gap is stale documentation or
+unfinished implementation — nothing in the repo tells you which — stop and ask the user before
+proceeding, rather than guessing which one it is.

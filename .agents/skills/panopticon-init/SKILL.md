@@ -61,3 +61,8 @@ For each step in order, skip it if already recorded in the checkpoint log, other
 If finalization reports unmet requirements, fix them (the underlying skills remain invocable
 individually for this), then re-run finalization — do not delete the checkpoint log until
 finalization actually succeeds.
+
+If a step stops to ask the user about a documentation/code contradiction it can't resolve on its
+own (see panopticon-doc-generation's and panopticon-interface-naming's drift-resolution rules),
+relay that question immediately and wait for the user's answer before continuing — do not pick an
+answer yourself or skip ahead to a later step.

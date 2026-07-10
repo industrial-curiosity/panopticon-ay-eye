@@ -56,3 +56,18 @@ components that no longer exist.
    ```bash
    python3 -m panopticon.docs validate --docs-root <docs-location>
    ```
+
+7. **Resolve drift against docs you find, don't just flag it.** If existing documentation — this
+   repo's own docs, or a reference/fixture doc committed elsewhere in the repo — describes code,
+   configuration, or interfaces that no longer match the repo's actual current state, revise the
+   documentation to match reality rather than leaving it stale or merely noting the mismatch in a
+   report. Do not call out the resolution inline in the revised text. Instead, append an entry to
+   `panopticon-changelog.md` in the docs location (create it if absent) naming the doc, what was
+   found, and how it was resolved, so maintainers can see Panopticon found and fixed it without
+   digging through history. This changelog file is an ordinary generated file — never stage,
+   commit, or push it yourself; leave it for the user to keep, edit, or discard at their own commit
+   step, same as every other file initialization produces. If you can't tell how to resolve the
+   mismatch from the repo alone — the documented work looks intentional but was never finished, or
+   the signals genuinely conflict — stop and ask the user rather than guessing at intent. This does
+   not apply to the CI doc-drift check (panopticon-doc-drift skill): that check only reports a
+   verdict on a PR diff and never edits docs.
