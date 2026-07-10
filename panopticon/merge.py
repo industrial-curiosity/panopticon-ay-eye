@@ -331,6 +331,17 @@ def format_report(report, simulated=True):
     return "\n".join(lines)
 
 
+def collect_actions(report):
+    """Structured remediation actions for the combined-report TL;DR (panopticon/report.py)."""
+    actions = [
+        {"kind": "resolve_conflict", "target": c["name"]}
+        for c in report["conflicts"]["new"]
+    ]
+    if actions:
+        actions.append({"kind": "commit_and_push"})
+    return actions
+
+
 def _write_report(report, args, simulated):
     import json as _json
 
@@ -340,6 +351,8 @@ def _write_report(report, args, simulated):
         Path(args.report_file).write_text(text + "\n", encoding="utf-8")
     if args.json_report:
         Path(args.json_report).write_text(_json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if args.actions_file:
+        Path(args.actions_file).write_text(_json.dumps(collect_actions(report)), encoding="utf-8")
     # exit 2 distinguishes "new conflicts" from operational errors (1); gating decides blocking
     return 2 if report["conflicts"]["new"] else 0
 
@@ -353,6 +366,7 @@ def main(argv=None):
         cmd.add_argument("--repo", required=True, help="child repo name")
         cmd.add_argument("--report-file", help="write the markdown report here")
         cmd.add_argument("--json-report", help="write the raw report JSON here")
+        cmd.add_argument("--actions-file", help="write the structured TL;DR actions JSON here")
     sub.choices["simulate"].add_argument("--compiled", required=True, help="instance compiled index")
     sub.choices["merge"].add_argument("--instance-root", required=True, help="instance repo checkout")
     args = parser.parse_args(argv)

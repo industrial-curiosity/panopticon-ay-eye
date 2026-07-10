@@ -4,7 +4,7 @@ import json
 import unittest
 from pathlib import Path
 
-from panopticon.currency import check_currency, format_report
+from panopticon.currency import check_currency, collect_actions, format_report
 from panopticon.llm import LLMResponseError
 
 from .helpers import load_fixture
@@ -51,6 +51,16 @@ class TestReport(unittest.TestCase):
     def test_current_report(self):
         report = format_report({"current": True, "reasons": [], "summary": "ok"})
         self.assertIn("current", report)
+
+
+class TestCollectActions(unittest.TestCase):
+    def test_current_verdict_has_no_actions(self):
+        self.assertEqual(collect_actions({"current": True, "reasons": [], "summary": "ok"}), [])
+
+    def test_stale_verdict_yields_update_index_and_commit_push(self):
+        actions = collect_actions(STALE_VERDICT)
+        self.assertIn({"kind": "update_index"}, actions)
+        self.assertIn({"kind": "commit_and_push"}, actions)
 
 
 if __name__ == "__main__":

@@ -97,6 +97,22 @@ def format_report(verdict):
     return "\n".join(line for line in lines if line is not None)
 
 
+def collect_actions(verdict):
+    """Structured remediation actions for the combined-report TL;DR (panopticon/report.py) — never
+    free prose, so identical fixes recommended by other checks can be de-duplicated exactly."""
+    if not verdict["stale"]:
+        return []
+    actions = []
+    for reason in verdict.get("reasons", []):
+        doc = reason.get("doc", "")
+        if doc.endswith(INTERFACE_DOC_SUFFIX):
+            actions.append({"kind": "update_index"})
+        else:
+            actions.append({"kind": "regenerate_doc", "target": doc})
+    actions.append({"kind": "commit_and_push"})
+    return actions
+
+
 def collect_docs(docs_root):
     docs_root = Path(docs_root)
     docs = {}
@@ -116,6 +132,7 @@ def main(argv=None):
     parser.add_argument("--docs-root", required=True)
     parser.add_argument("--skill-root", default=".", help="checkout containing .agents/skills")
     parser.add_argument("--report-file", help="write the markdown report here (for PR comments)")
+    parser.add_argument("--actions-file", help="write the structured TL;DR actions JSON here")
     args = parser.parse_args(argv)
 
     client = LLMClient.from_env()
@@ -125,6 +142,8 @@ def main(argv=None):
     print(report)
     if args.report_file:
         Path(args.report_file).write_text(report + "\n", encoding="utf-8")
+    if args.actions_file:
+        Path(args.actions_file).write_text(json.dumps(collect_actions(verdict)), encoding="utf-8")
     return 1 if verdict["stale"] else 0
 
 

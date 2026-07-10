@@ -76,6 +76,15 @@ def format_report(verdict):
     return "\n".join(lines)
 
 
+def collect_actions(verdict):
+    """Structured remediation actions for the combined-report TL;DR (panopticon/report.py) — the
+    same `update_index` kind drift.py emits for a stale `interfaces.md`, so a PR that trips both
+    checks for the same underlying index gap gets one TL;DR line, not two."""
+    if verdict["current"]:
+        return []
+    return [{"kind": "update_index"}, {"kind": "commit_and_push"}]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="LLM index-currency check (CI only).")
     parser.add_argument("--diff-file", required=True)
@@ -83,6 +92,7 @@ def main(argv=None):
     parser.add_argument("--repo", required=True)
     parser.add_argument("--skill-root", default=".")
     parser.add_argument("--report-file", help="write the markdown report here")
+    parser.add_argument("--actions-file", help="write the structured TL;DR actions JSON here")
     args = parser.parse_args(argv)
 
     client = LLMClient.from_env()
@@ -93,6 +103,8 @@ def main(argv=None):
     print(report)
     if args.report_file:
         Path(args.report_file).write_text(report + "\n", encoding="utf-8")
+    if args.actions_file:
+        Path(args.actions_file).write_text(json.dumps(collect_actions(verdict)), encoding="utf-8")
     return 1 if not verdict["current"] else 0
 
 

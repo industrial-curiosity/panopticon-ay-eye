@@ -7,6 +7,7 @@ from pathlib import Path
 
 from panopticon.index import KIND_COMPILED, dumps_index, empty_index, validate_index
 from panopticon.merge import (
+    collect_actions,
     compile_index,
     diff_compiled,
     merge_into_instance,
@@ -169,6 +170,21 @@ class TestDiff(unittest.TestCase):
         self.assertEqual(report["changed"], [])
 
 
+class TestCollectActions(unittest.TestCase):
+    def test_no_new_conflicts_has_no_actions(self):
+        report = diff_compiled(compile_index(base_shards()), compile_index(base_shards()), "svc-a")
+        self.assertEqual(collect_actions(report), [])
+
+    def test_new_conflict_yields_resolve_conflict_and_commit_push(self):
+        compiled = compile_index(base_shards())
+        conflicting = replace_shard(base_shards(), "svc-c", load_fixture("local_svc_c_conflict.json"))
+        after = compile_index(conflicting)
+        report = diff_compiled(compiled, after, "svc-c")
+        actions = collect_actions(report)
+        self.assertIn({"kind": "resolve_conflict", "target": "order-events"}, actions)
+        self.assertIn({"kind": "commit_and_push"}, actions)
+
+
 class TestCli(unittest.TestCase):
     """The `python3 -m panopticon.merge` CLI used by the CI workflows."""
 
@@ -211,6 +227,21 @@ class TestCli(unittest.TestCase):
         self.assertIn("pre-merge simulation", text)
         self.assertIn("ownership-dispute", text)
         self.assertIn("panopticon-interface", text)
+
+    def test_simulate_writes_actions_file(self):
+        import json
+
+        actions_file = self.tmp / "actions.json"
+        self.run_cli(
+            "simulate",
+            "--local", str(self.conflicting_local),
+            "--repo", "svc-c",
+            "--compiled", str(self.instance / "interfaces" / "index.json"),
+            "--actions-file", str(actions_file),
+        )
+        actions = json.loads(actions_file.read_text())
+        self.assertIn({"kind": "resolve_conflict", "target": "order-events"}, actions)
+        self.assertIn({"kind": "commit_and_push"}, actions)
 
     def test_simulate_clean_exit_zero(self):
         clean_local = self.tmp / "local_b.json"

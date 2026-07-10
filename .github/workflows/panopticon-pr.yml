@@ -133,7 +133,8 @@ jobs:
             --diff-file /tmp/panopticon-pr.diff \
             --docs-root "$PANOPTICON_DOCS" \
             --skill-root "$PANOPTICON_INSTANCE_DIR" \
-            --report-file /tmp/panopticon-reports/drift.md
+            --report-file /tmp/panopticon-reports/drift.md \
+            --actions-file /tmp/panopticon-reports/drift-actions.json
           status=$?
           set -e
           if [ "$status" -gt 1 ]; then
@@ -141,7 +142,6 @@ jobs:
             exit "$status"
           fi
           echo "stale=$([ "$status" -eq 1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          cat /tmp/panopticon-reports/drift.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Index-currency check
         id: currency
@@ -159,7 +159,8 @@ jobs:
             --index panopticon/index.json \
             --repo "$PANOPTICON_REPO" \
             --skill-root "$PANOPTICON_INSTANCE_DIR" \
-            --report-file /tmp/panopticon-reports/currency.md
+            --report-file /tmp/panopticon-reports/currency.md \
+            --actions-file /tmp/panopticon-reports/currency-actions.json
           status=$?
           set -e
           if [ "$status" -gt 1 ]; then
@@ -167,7 +168,6 @@ jobs:
             exit "$status"
           fi
           echo "stale=$([ "$status" -eq 1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          cat /tmp/panopticon-reports/currency.md >> "$GITHUB_STEP_SUMMARY"
 
       # Same merge code path as the real merge, in dry-run mode, against the compiled index
       # fetched from the instance repo's default branch (design D4).
@@ -186,7 +186,8 @@ jobs:
             --local panopticon/index.json \
             --repo "$PANOPTICON_REPO" \
             --compiled "$PANOPTICON_INSTANCE_DIR/interfaces/index.json" \
-            --report-file /tmp/panopticon-reports/simulation.md
+            --report-file /tmp/panopticon-reports/simulation.md \
+            --actions-file /tmp/panopticon-reports/simulation-actions.json
           status=$?
           set -e
           if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
@@ -194,36 +195,64 @@ jobs:
             exit "$status"
           fi
           echo "conflicts=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          cat /tmp/panopticon-reports/simulation.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Post PR comment
+      # Builds the one combined report (TL;DR, then each check's detail, then the same TL;DR
+      # repeated — pr-evaluation spec's "Combined report leads with a de-duplicated action list";
+      # see design.md D10 for why no earlier step writes to $GITHUB_STEP_SUMMARY directly) and
+      # posts it to both the step summary and the PR comment.
+      - name: Post combined report
         if: steps.init.outputs.initialized == 'true' && always() && steps.simulate.outcome != 'skipped'
-        shell: bash
+        shell: python
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          set -euo pipefail
-          marker='<!-- panopticon-report -->'
-          body_file=/tmp/panopticon-comment.md
-          {
-            echo "$marker"
-            echo "## Panopticon report"
-            echo ""
-            for report in drift currency simulation; do
-              if [ -f "/tmp/panopticon-reports/$report.md" ]; then
-                cat "/tmp/panopticon-reports/$report.md"
-                echo ""
-              fi
-            done
-          } > "$body_file"
-          existing=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-            --paginate --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id" 2>/dev/null || true)
-          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
-            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -F body=@"$body_file" > /dev/null
-          else
-            gh api -X POST "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-              -F body=@"$body_file" > /dev/null
-          fi
+          import os
+          import subprocess
+          import sys
+
+          sys.path.insert(0, os.path.join(os.environ["GITHUB_WORKSPACE"], os.environ["PANOPTICON_INSTANCE_DIR"]))
+          from panopticon.report import build_combined_report, load_actions
+
+          reports_dir = "/tmp/panopticon-reports"
+          sections = []
+          actions = []
+          for check in ("drift", "currency", "simulation"):
+              report_path = os.path.join(reports_dir, f"{check}.md")
+              if os.path.exists(report_path):
+                  with open(report_path, encoding="utf-8") as handle:
+                      sections.append(handle.read().strip())
+              actions.extend(load_actions(os.path.join(reports_dir, f"{check}-actions.json")))
+
+          body = build_combined_report(sections, actions)
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write(body)
+
+          marker = "<!-- panopticon-report -->"
+          body_file = "/tmp/panopticon-comment.md"
+          with open(body_file, "w", encoding="utf-8") as handle:
+              handle.write(f"{marker}\n## Panopticon report\n\n{body}")
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          pr_number = os.environ["PR_NUMBER"]
+          existing = subprocess.run(
+              [
+                  "gh", "api", f"repos/{repo}/issues/{pr_number}/comments", "--paginate",
+                  "--jq", f'[.[] | select(.body | startswith("{marker}"))][0].id',
+              ],
+              capture_output=True, text=True,
+          ).stdout.strip()
+          if existing and existing != "null":
+              subprocess.run(
+                  ["gh", "api", "-X", "PATCH", f"repos/{repo}/issues/comments/{existing}", "-F", f"body=@{body_file}"],
+                  check=True, stdout=subprocess.DEVNULL,
+              )
+          else:
+              subprocess.run(
+                  ["gh", "api", "-X", "POST", f"repos/{repo}/issues/{pr_number}/comments", "-F", f"body=@{body_file}"],
+                  check=True, stdout=subprocess.DEVNULL,
+              )
 
       # In-flight branch state, visible org-wide: docs + index pushed (same merge code path) to
       # {repo}/{branch} in the instance repo. Never touches the instance default branch; the

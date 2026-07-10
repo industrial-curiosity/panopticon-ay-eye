@@ -4,7 +4,7 @@ import json
 import unittest
 from pathlib import Path
 
-from panopticon.drift import check_drift, collect_docs, format_report
+from panopticon.drift import check_drift, collect_actions, collect_docs, format_report
 from panopticon.llm import LLMResponseError
 
 from .test_extraction import FakeClient
@@ -80,6 +80,26 @@ class TestReport(unittest.TestCase):
     def test_clean_report(self):
         report = format_report({"stale": False, "reasons": [], "summary": "ok"})
         self.assertIn("consistent", report)
+
+
+class TestCollectActions(unittest.TestCase):
+    def test_clean_verdict_has_no_actions(self):
+        self.assertEqual(collect_actions({"stale": False, "reasons": [], "summary": "ok"}), [])
+
+    def test_stale_verdict_yields_regenerate_doc_and_commit_push(self):
+        actions = collect_actions(STALE_VERDICT)
+        self.assertIn({"kind": "regenerate_doc", "target": "docs/components/api.md"}, actions)
+        self.assertIn({"kind": "commit_and_push"}, actions)
+
+    def test_interfaces_doc_yields_update_index_not_regenerate_doc(self):
+        verdict = {
+            "stale": True,
+            "reasons": [{"doc": "docs/interfaces.md", "why": "missing entries", "update": "add them"}],
+            "summary": "index changed",
+        }
+        actions = collect_actions(verdict)
+        self.assertIn({"kind": "update_index"}, actions)
+        self.assertNotIn({"kind": "regenerate_doc", "target": "docs/interfaces.md"}, actions)
 
 
 class TestCollectDocs(unittest.TestCase):

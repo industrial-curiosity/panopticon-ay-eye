@@ -125,6 +125,16 @@ Shards therefore always store canonical names, and the
 compiled-index rebuild stays a deterministic, LLM-free union of shards, preserving byte-identical
 reproducibility.
 
+### D10: Combined report is assembled once, at the end, not appended progressively
+
+The doc-drift, index-currency, and pre-merge-simulation checks each still run as independent workflow steps
+(so each is individually gated), but none of them write directly to `$GITHUB_STEP_SUMMARY` anymore. Each
+writes its findings to its own report file only; a final step reads all three files after every check has
+run and assembles the single combined report — TL;DR, then per-check detail, then the same TL;DR repeated —
+writing it once to both `$GITHUB_STEP_SUMMARY` and the PR comment. This is required because a true
+lead-with-TL;DR structure needs to know every check's findings before writing the first line, which is
+incompatible with each step progressively appending its own section as it completes.
+
 ## Risks / Trade-offs
 
 - [LLM extraction produces false interface entries] → Advisory-default gating; conflict entries instead of

@@ -235,6 +235,22 @@
       `repo-initialization/spec.md`'s "Local tooling package vendored into child repo" requirement now
       states this resolution guarantee explicitly, with a new scenario. No unit test covers this (it's a
       CI-YAML-only fix); all 191 existing unit tests still pass unaffected.
+- [x] 6.8 Built the de-duplicated, TL;DR-led combined report. New `panopticon/report.py`
+      (`dedupe_actions`/`render_tldr`/`build_combined_report`/`load_actions`) de-duplicates by exact
+      `(kind, target)` dict-key matching — not text similarity. Added `collect_actions()` to
+      `drift.py`/`currency.py`/`merge.py`, each returning structured actions (`update_index`,
+      `regenerate_doc` + doc path, `resolve_conflict` + interface name, `commit_and_push`) instead of
+      prose, plus a new `--actions-file` CLI arg on all three writing that JSON alongside
+      `--report-file`. Restructured `panopticon-pr.yml`: removed the three `cat *.md >> $GITHUB_STEP_SUMMARY`
+      lines from the Doc-drift/Index-currency/Pre-merge-simulation steps (design.md D10), and rewrote "Post
+      PR comment" → "Post combined report" to read all three report+actions files and write one combined
+      body (TL;DR, detail, TL;DR repeated) to both the step summary and the PR comment. Verified against the
+      real motivating case (`panopticon-test-child-b` PR #1's 5 duplicate-pointing findings) — collapses to
+      one `panopticon/index.json` line. New `tests/test_report.py` plus `collect_actions` tests in
+      `test_drift.py`/`test_currency.py`/`test_merge.py` (215 tests total pass). Also independently ran the
+      workflow step's embedded Python script end-to-end outside the actual runner (fixture files + a stub
+      `gh`) to confirm real behavior, not just reviewed the YAML by eye. `docs/testing.md` updated. Spec'd in
+      `pr-evaluation/spec.md`'s "Combined report leads with a de-duplicated action list" requirement.
 
 ## 7. Master sync workflows (master-sync)
 
