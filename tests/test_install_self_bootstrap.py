@@ -124,6 +124,28 @@ with patch("urllib.request.urlopen", fake_urlopen):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("FAKE_BOOTSTRAP_RAN schema=1", result.stdout)
 
+    def test_stale_namespace_package_does_not_shadow_fetched_module(self):
+        """A `panopticon/` directory already present (e.g. left behind by an earlier partial
+        run, or a previously bootstrapped repo re-running install.py) makes `panopticon`
+        importable as an implicit namespace package even with no `__init__.py` inside it.
+        `from panopticon.bootstrap import main` then fails specifically on the `.bootstrap`
+        submodule — not on `panopticon` itself — which caches that empty namespace module in
+        sys.modules before the self-bootstrap fallback ever runs. The fallback must force its
+        freshly fetched, fully populated module into sys.modules rather than leaving whatever
+        got cached first in place."""
+        with tempfile.TemporaryDirectory() as tmp:
+            script = _isolated_install_py(tmp)
+            (Path(tmp) / "panopticon").mkdir()  # empty dir: implicit namespace package
+            wrapper = Path(tmp) / "wrapper.py"
+            wrapper.write_text(self._wrapper_source(script))
+            result = _run(
+                [sys.executable, str(wrapper)],
+                tmp,
+                env={"PATH": "/usr/bin:/bin", "PANOPTICON_INSTANCE": "acme/panopticon-instance"},
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("FAKE_BOOTSTRAP_RAN schema=1", result.stdout)
+
     def test_http_error_exits_with_clear_message(self):
         with tempfile.TemporaryDirectory() as tmp:
             script = _isolated_install_py(tmp)

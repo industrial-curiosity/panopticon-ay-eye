@@ -65,7 +65,11 @@ def _load_from_github(instance):
     pkg.__path__ = []
     pkg.__package__ = "panopticon"
     exec(compile(_fetch("panopticon/__init__.py"), "panopticon/__init__.py", "exec"), pkg.__dict__)
-    sys.modules.setdefault("panopticon", pkg)
+    # Force-overwrite: a prior failed `from panopticon.bootstrap import main` can leave a stale
+    # or empty `panopticon` module cached in sys.modules (e.g. an implicit namespace package from
+    # an empty `panopticon/` directory already on disk) — that stale entry must not shadow the
+    # freshly fetched, fully populated module the rest of this function depends on.
+    sys.modules["panopticon"] = pkg
 
     mod = types.ModuleType("panopticon.bootstrap")
     mod.__package__ = "panopticon"
