@@ -35,10 +35,27 @@ gating for pull requests. Established across `openspec/changes/establish-panopti
 - Interface docs are deterministically rendered from the local index — never hand-edited or
   LLM-authored — so they can never disagree with it.
 - LLM-based doc-drift check for CI, with self-contained, actionable remediation instructions
-  (exact command/skill per stale doc) in the GitHub Actions summary and PR comment.
+  (exact command/skill per stale doc) in the GitHub Actions summary and PR comment; now also
+  judges the architecture overview's `## Architecture diagram` section for staleness the same way
+  as its prose.
 - Initialization-time drift resolution: local agent runs revise documentation that contradicts the
   current repo state, recording what was resolved in `panopticon-changelog.md` rather than
   cluttering the docs themselves; genuinely ambiguous cases prompt the user instead of guessing.
+
+**Architecture diagrams** (`architecture-diagrams`)
+- Agent-drawn `## Architecture diagram` section in every repo's architecture overview — a
+  component/data-flow diagram in the org's configured format (default Mermaid), grounded in the
+  actual code, with a back-link to the org diagram.
+- Deterministic, LLM-free org-wide diagram (`docs/architecture.md` in the instance repo): one
+  section per repo with cross-repo interfaces, a relationship diagram, and an interface table,
+  rebuilt on every merge to main directly from the compiled index so it can never disagree with
+  it. Interfaces used only within a single repo are excluded from the org diagram.
+- Diagram rendering format is configurable per instance (`panopticon.diagram.config.json`,
+  default `mermaid`); an unsupported configured format fails loudly rather than silently skipping
+  diagram generation.
+- Navigation between the org diagram and per-repo diagrams uses plain markdown links, not
+  diagram-native `click` directives, since GitHub does not reliably support Mermaid click-to-URL
+  navigation.
 
 **Repo initialization** (`repo-initialization`)
 - Stdlib-only bootstrap installer (`install.py`), runnable via `curl | python3` with no local
@@ -52,16 +69,23 @@ gating for pull requests. Established across `openspec/changes/establish-panopti
   finalization), writing `panopticon/config.json` only after validation passes.
 - Default-branch workflow-ref resolution requiring no manual tagging step on a fresh instance,
   with org-configurable pinning.
+- General protected-instance-local-config mechanism: `sync-from-template.yml` excludes registered
+  paths (starting with `panopticon.diagram.config.json`) from its merge via a `.gitattributes`
+  `merge=ours` driver, so an instance's customization always wins over what the template ships,
+  and warns (non-blocking) when the template adds or removes a field the instance hasn't picked up.
 
 **PR evaluation** (`pr-evaluation`)
-- Reusable PR workflow: initialization check, doc-drift check, index-currency check, pre-merge
-  index simulation (dry-run over the same merge code path as the real merge), and
-  `{repo}/{branch}` branch-state push to the instance repo.
-- Org-configurable gating per check type (init/doc-drift blocking, interface-conflict advisory, by
-  default), read from the instance repo's `panopticon.config.json` rather than hardcoded.
+- Reusable PR workflow: initialization check, doc-drift check, index-currency check, a
+  deterministic diagram-existence check (architecture diagram section present and well-formed, no
+  LLM call), pre-merge index simulation (dry-run over the same merge code path as the real merge),
+  and `{repo}/{branch}` branch-state push to the instance repo.
+- Org-configurable gating per check type (init/doc-drift blocking, interface-conflict and
+  diagram-missing advisory, by default), read from the instance repo's `panopticon.config.json`
+  rather than hardcoded.
 - Combined report: a de-duplicated TL;DR leading (and trailing) the GitHub Actions summary and PR
-  comment, collapsing every doc-drift/index-currency finding into a single "run
-  panopticon-doc-generation once" action regardless of how many docs or the index are affected.
+  comment, collapsing every doc-drift/index-currency/diagram-existence finding into a single "run
+  panopticon-doc-generation once" action regardless of how many docs, the index, or the diagram
+  section are affected.
 - CI checks distinguish an operational failure (crash, malformed LLM response, unreachable
   endpoint) from a genuine business verdict by a fixed exit-code contract, so a check that could
   not run is never silently misreported as passing or as a stale-docs finding — and every
@@ -70,6 +94,8 @@ gating for pull requests. Established across `openspec/changes/establish-panopti
 **Master sync** (`master-sync`)
 - Merge-to-main sync workflow: docs copied to `docs/{repo}/`, index shard replaced wholesale,
   compiled index rebuilt, pushed directly to the instance repo's default branch (no PR).
+- Deterministic org-wide architecture diagram rebuilt in the same commit as the compiled index,
+  with no dependency on any child repo having a diagram section yet.
 - Fetch-rebase-retry loop for concurrent pushes from multiple child repos, touching only the
   compiled-index rebuild on retry — shards are never cross-modified.
 - Conflict-issue creation in both the instance and child repo on a merge conflict, cross-linked,
