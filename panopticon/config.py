@@ -36,6 +36,16 @@ always wins over whatever the template ships (design D7/D8, ``PROTECTED_CONFIG_F
 ``format`` defaults to ``mermaid`` when the file is absent. Kept as its own file rather than a key
 in the org config because it needs different sync treatment (protected vs. merged-and-manually-
 resolved) and git's protection mechanisms operate per-path, not per-JSON-field.
+
+``protected_paths`` (tooling-currency capability, design D6) is an org-declared array of arbitrary
+paths — skills, vendored tooling modules, or other instance-repo content — customized at the
+instance level and excluded from ``sync-from-template``'s merge the same way, but via
+``.git/info/attributes`` rather than a ``PROTECTED_CONFIG_FILES`` registry entry, since these paths
+are org-declared and open-ended rather than template-declared and fixed:
+
+    {"protected_paths": [".agents/skills/panopticon-doc-generation/SKILL.md"]}
+
+Defaults to an empty list when omitted.
 """
 
 import json
@@ -102,10 +112,16 @@ def load_org_config(instance_root="."):
         if mode not in GATING_MODES:
             raise ConfigError(f"org config: gating for '{check}' must be one of {list(GATING_MODES)}, got '{mode}'")
         gating[check] = mode
+    protected_paths = doc.get("protected_paths", [])
+    if not isinstance(protected_paths, list) or not all(
+        isinstance(p, str) and p for p in protected_paths
+    ):
+        raise ConfigError("org config: 'protected_paths' must be a list of non-empty path strings")
     return {
         "schema_version": doc.get("schema_version", SCHEMA_VERSION),
         "gating": gating,
         "workflow_ref": doc.get("workflow_ref"),
+        "protected_paths": protected_paths,
     }
 
 

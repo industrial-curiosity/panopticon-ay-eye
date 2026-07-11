@@ -56,6 +56,40 @@ class TestOrgConfig(unittest.TestCase):
         self.assertEqual(gating_mode(config, "doc-drift"), "advisory")
         self.assertEqual(gating_mode(config, "init"), "blocking")
 
+    def test_protected_paths_defaults_to_empty_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_org_config(tmp)
+        self.assertEqual(config["protected_paths"], [])
+
+    def test_protected_paths_round_trip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(
+                tmp, {"protected_paths": [".agents/skills/panopticon-foo/SKILL.md", "panopticon/docs.py"]}
+            )
+            config = load_org_config(tmp)
+        self.assertEqual(
+            config["protected_paths"],
+            [".agents/skills/panopticon-foo/SKILL.md", "panopticon/docs.py"],
+        )
+
+    def test_protected_paths_rejects_non_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, {"protected_paths": "not-a-list"})
+            with self.assertRaises(ConfigError):
+                load_org_config(tmp)
+
+    def test_protected_paths_rejects_empty_string_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, {"protected_paths": [""]})
+            with self.assertRaises(ConfigError):
+                load_org_config(tmp)
+
+    def test_protected_paths_rejects_non_string_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, {"protected_paths": [123]})
+            with self.assertRaises(ConfigError):
+                load_org_config(tmp)
+
     def test_unknown_check_type_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.write_config(tmp, {"gating": {"linting": "blocking"}})

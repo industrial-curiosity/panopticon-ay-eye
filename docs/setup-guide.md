@@ -21,7 +21,9 @@ GitHub does not allow private forks of public repositories, so the instance is c
    **Sync from template**, and click **Run workflow**. If the merge produces conflicts
    (e.g. both sides modified `panopticon.config.json`), the workflow fails with
    instructions to resolve them locally. You can also enable the weekly schedule
-   in the workflow file to receive updates automatically.
+   in the workflow file to receive updates automatically. Any path listed in your org config's
+   `protected_paths` (step 3 below) always survives this sync unchanged — see that section for
+   how to declare instance-level customizations.
 4. No tagging is required to get started — child caller workflows default to the instance repo's
    default branch until you opt into pinning a ref (see step 3's `workflow_ref`).
 
@@ -85,7 +87,8 @@ index updates — run in each developer's own AI agent harness and need none of 
     "doc-drift": "blocking",
     "interface-conflict": "advisory",
     "diagram-missing": "advisory"
-  }
+  },
+  "protected_paths": [".agents/skills/panopticon-doc-generation/references/custom.md"]
 }
 ```
 
@@ -99,6 +102,14 @@ index updates — run in each developer's own AI agent harness and need none of 
   caller workflows to the instance's reusable workflows. Omit it and the instance repo's default branch
   is used — no tagging required to get started. Set it once you want to pin caller workflows to a
   specific tag or branch instead.
+- **`protected_paths`** *(optional, default `[]`)* — literal paths (skills, vendored tooling modules,
+  or other instance-repo content) your org has customized at the instance level, which
+  `sync-from-template` must never overwrite. Unlike `panopticon.diagram.config.json`'s protection
+  (a template-declared, fixed registry), these are org-declared and open-ended — list any exact file
+  path you've customized. Protection is applied via `.git/info/attributes` on every sync run (never
+  a commit, never the tracked `.gitattributes`), so it's invisible in the tracked tree; each sync run's
+  GitHub Actions step summary lists which paths were protected that run as the audit trail. Entries
+  are exact file paths, not directory globs — list each customized file individually.
 
 ## 4. Initialize a child repo
 
@@ -164,8 +175,9 @@ whether to keep, edit, or discard it before you commit.
   diagram` section's staleness alongside prose), index-currency check, a deterministic
   diagram-existence check (the section exists and parses — no LLM call, independent of doc-drift's
   accuracy judgment), pre-merge conflict simulation against the compiled index (results as a PR
-  comment), and a push of the PR's docs/index state to the `{repo}/{branch}` branch of the
-  instance repo.
+  comment), a push of the PR's docs/index state to the `{repo}/{branch}` branch of the
+  instance repo, and a **tooling-currency check** (see below) — always advisory, never affects the
+  workflow's pass/fail outcome.
 - **Every merge to main:** docs copied to `docs/{repo}/`, shard replaced, compiled index rebuilt,
   and the org-wide architecture diagram (`docs/architecture.md` in the instance repo — one section
   per repo with cross-repo interfaces, a relationship diagram, and a table) rebuilt from the fresh
@@ -177,3 +189,34 @@ Diagram rendering format defaults to Mermaid and is configurable per instance vi
 `panopticon.diagram.config.json` at the instance repo root — this file is protected from
 `sync-from-template`'s merge (your customization always wins), and syncing warns (non-blocking) if
 the template adds or removes a config field you haven't picked up.
+
+## 6. Keeping a child repo's skills and tooling current
+
+A child repo's downloaded skills, vendored `panopticon/` tooling, and wired workflow ref are all
+snapshots taken at bootstrap time. Nothing forces them to stay current — the **tooling-currency
+check** (every PR, see above) warns, non-blocking, when any of the three has drifted from the
+instance repo's current default branch: the wired ref no longer resolves to the instance's tip
+commit, or a skill/tooling file's content differs, is missing, or is extra. It's always advisory
+and never gated — acting on it is entirely at your discretion.
+
+To pull the instance's current skills and tooling into an already-bootstrapped child repo:
+
+```bash
+python3 -m panopticon.sync
+```
+
+This overwrites the repo's skills and vendored `panopticon/` tooling unconditionally — there is no
+per-file protection at the child layer. Review `git diff`/`git status` before committing; anything
+you disagree with, don't commit or hand-edit back. To see what would change without writing
+anything:
+
+```bash
+python3 -m panopticon.sync --check-updates
+```
+
+If you've customized a skill or tooling module at the **instance** level and want that
+customization to survive both this script's overwrite and `sync-from-template`'s pulls from the
+upstream template, declare it in the instance's `panopticon.config.json` under `protected_paths`
+(step 3) — `sync.py` does not consult `protected_paths` itself (it always overwrites the child
+unconditionally by design); `protected_paths` only protects the *instance* repo's own copy from the
+*template*.

@@ -14,6 +14,17 @@
 # version's top-level JSON fields against the instance's (unchanged) current file for each
 # registered path, warning (never blocking) when the template added or removed a field.
 #
+# Org-declared instance-level customization protection (tooling-currency capability, design D6):
+# panopticon.config.json's org-declared `protected_paths` field lists arbitrary paths (skills,
+# vendored tooling modules, future plugin content) customized at the instance level. Unlike
+# PROTECTED_CONFIG_FILES, these are written to .git/info/attributes — never the tracked
+# .gitattributes — every run, before the merge step, since an uncommitted edit to a *tracked* file
+# aborts the merge outright the moment the incoming side also touches that file (verified
+# empirically; see design.md D6). This file lives entirely inside .git/, is never tracked, and
+# needs no commit; the same `merge.ours.driver` registered below covers both mechanisms. Because
+# this protection leaves no trace in the tracked tree, the step prints every protected path to the
+# step summary as the run's only audit trail.
+#
 # Optionally enable the schedule below to check for updates automatically.
 name: Sync from template
 
@@ -54,6 +65,39 @@ jobs:
           # Open Questions) to engage correctly in both the first-sync (-X theirs,
           # --allow-unrelated-histories) and routine-sync (default strategy) paths below.
           git config merge.ours.driver true
+
+      # Regenerated every run (this file is untracked and lives entirely inside .git/, so nothing
+      # here persists across runs on its own). Must run before the merge step below, in the same
+      # job/working directory — .git/info/attributes is per-checkout state (design D6 risk).
+      - name: Register org-declared protected paths
+        shell: python
+        run: |
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, ".")
+          from panopticon.config import load_org_config
+
+          protected_paths = load_org_config(".")["protected_paths"]
+
+          attrs_path = Path(".git/info/attributes")
+          attrs_path.parent.mkdir(parents=True, exist_ok=True)
+          attrs_path.write_text(
+              "".join(f"{path} merge=ours\n" for path in protected_paths), encoding="utf-8"
+          )
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## Org-declared protected paths\n\n")
+              if protected_paths:
+                  handle.write(
+                      "The following `protected_paths` entries were protected from this sync "
+                      "(never visible in the tracked tree — this step summary is the audit trail):\n\n"
+                  )
+                  for path in protected_paths:
+                      handle.write(f"- `{path}`\n")
+              else:
+                  handle.write("No `protected_paths` entries declared in `panopticon.config.json`.\n")
 
       - name: Merge template changes
         run: |

@@ -37,7 +37,10 @@ There are three repository roles:
    and index state are pushed to a matching branch named `{repo}/{branch}` in the instance repo, making in-flight
    branch state visible org-wide. Initialization and doc-drift checks fail loudly by default so the developer
    knows what to fix; interface-conflict and diagram-missing checks are advisory by default. Organizations can
-   adjust each check type.
+   adjust each check type. A separate **tooling-currency check** — always advisory, never gated, no
+   `CHECK_TYPES` entry — warns when the repo's wired workflow ref, downloaded skills, or vendored local
+   tooling have drifted from the instance repo's current default branch; remediation is `python3 -m
+   panopticon.sync` (see below), left to the maintainer's discretion.
 3. **Merge to main** — the child repo pushes directly to the instance repo: docs are copied to `docs/{repo}/`, the
    repo's index shard is replaced wholesale, the compiled org-wide index is rebuilt, and the org-wide architecture
    diagram (`docs/architecture.md`, one section per repo with cross-repo interfaces) is deterministically rebuilt
@@ -81,14 +84,17 @@ stopgaps.
 - `panopticon/` — the stdlib-only Python tooling: index schema (`index.py`), shard merge / compiled rebuild /
   simulation (`merge.py`), name normalization and hints (`naming.py`), deterministic parsers (`parsers/`),
   extraction driver (`extraction.py`), CI LLM runtime (`llm.py`, `skills.py`), doc rendering and diagram-section
-  validation (`docs.py`), doc-drift, index-currency, and diagram-existence checks (`drift.py`, `currency.py`,
-  `diagram_check.py`), deterministic org-wide diagram rendering (`diagrams.py`), org/repo/diagram config and the
-  protected-config registry (`config.py`), and child-repo init (`init_repo.py`)
+  validation (`docs.py`), doc-drift, index-currency, diagram-existence, and tooling-currency checks (`drift.py`,
+  `currency.py`, `diagram_check.py`, `tooling_currency.py` — the last always advisory, never gated), deterministic
+  org-wide diagram rendering (`diagrams.py`), org/repo/diagram config and the protected-config registries
+  (`config.py`), child-repo init (`init_repo.py`), and the on-demand local sync script (`sync.py`)
 - `.github/workflows/` — the reusable workflows child repos call: `panopticon-pr.yml`, `panopticon-merge.yml`,
   `panopticon-pr-close.yml`; plus `sync-from-template.yml`, run from instance repos to pull template updates
 - `interfaces/` — index shards + compiled index (empty in the template; populated in instance repos)
 - `panopticon.config.json` — org configuration: per-check gating (including `diagram-missing`) and workflow ref
-  policy
+  policy, and `protected_paths` — an org-declared list of instance-level customizations (skills, vendored
+  tooling modules) excluded from `sync-from-template`'s merge via `.git/info/attributes` (never committed;
+  printed to the sync run's step summary instead)
 - `panopticon.diagram.config.json` *(instance repos only)* — diagram rendering format (default `mermaid`);
   protected from `sync-from-template`'s merge via `.gitattributes`
 - `tests/` — `unittest` suite ([how to run](docs/testing.md))
