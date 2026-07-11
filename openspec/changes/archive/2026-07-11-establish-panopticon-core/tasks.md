@@ -120,8 +120,14 @@
 - [x] 4.3 Make re-initialization idempotent (update in place, no duplicates)
 - [x] 4.4 Implement documentation-location adoption: existing docs adopted and aligned; otherwise prompt with
       `docs/` default; record the location in `panopticon/config.json`
-- [ ] 4.5 Test initialization end-to-end against a sandbox child repo (blocked locally: needs a sandbox GitHub
-      org/repo; unit coverage in `tests/test_init_repo.py` exercises the full local flow against a temp repo)
+- [x] 4.5 Tested end-to-end against two real sandbox child repos this session:
+      `industrial-curiosity/panopticon-test-child-a` and `panopticon-test-child-b`, against instance
+      `panopticon-test`. Both ran the full flow — bootstrap install, `/panopticon-init`
+      (naming → extraction → doc-generation → finalization) — and merged their init PRs, with
+      `panopticon/config.json` written only after validation passed. child-b's run directly surfaced
+      the initialization-time drift-resolution gap (task 3.7's motivating case: `ts-order-service.md`
+      describing an uncommitted `infra/` directory). Closed per explicit user sign-off ("satisfied with
+      the current state as tested by the panopticon-test/-child-a/-child-b repos").
 - [x] 4.15 Added per-file download progress reporting to the bootstrap installer: `download_skills`,
       `download_local_tooling`, and `wire_workflows` in `panopticon/bootstrap.py` each print a
       `  [n/total] <name>` line per file/module/workflow as it completes, before their existing summary
@@ -225,8 +231,16 @@
       fetch compiled index via `PANOPTICON_INSTANCE_TOKEN`, dry-run merge, PR comment + CI summary
 - [x] 6.4 Add the `{repo}/{branch}` state push to the instance repo
 - [x] 6.5 Wire gating configuration into check outcomes (per-check defaults, org overrides in both directions)
-- [ ] 6.6 Test the PR workflow in a sandbox org (conflict PR, clean PR, uninitialized repo) (blocked locally:
-      needs a sandbox GitHub org; the Python CLIs the workflow invokes are unit-tested)
+- [x] 6.6 Tested against the real sandbox org this session. **Clean PR**: exercised extensively and
+      repeatedly across both `panopticon-test-child-a` and `-child-b`, directly surfacing and driving
+      the fixes for three real bugs — the `PYTHONSAFEPATH` module-shadowing bug (6.7), the exit-code
+      collision between a crash and a genuine stale verdict (3.9/6.9), and the combined-report TL;DR
+      still claiming "all passed" during an operational failure (6.9). **Conflict PR** (a real
+      pre-merge-simulation conflict surfaced through an actual pull request, as opposed to the
+      merge-sync conflict path exercised for 7.5) and **uninitialized repo** (the skip-and-instruct
+      path) were not independently confirmed within this session. Closed per explicit user sign-off
+      ("satisfied with the current state as tested by the panopticon-test/-child-a/-child-b repos")
+      rather than leaving it open pending those two sub-scenarios.
 - [x] 6.7 Fixed a real bug found during the first live sandbox PR (task 6.6): the doc-drift check failed
       with "No module named panopticon.drift" and a missing report file. Root cause: `panopticon-pr.yml`'s
       checks run `python3 -m panopticon.<mod>`/`-c "from panopticon.<mod> import ..."` with the child repo
@@ -283,8 +297,18 @@
 - [x] 7.3 Implement conflict-issue creation in both repos with cross-links, updating at most one open issue
       per child repo in each repository
 - [x] 7.4 Write the PR-close workflow deleting the matching `{repo}/{branch}` instance branch
-- [ ] 7.5 Test merge sync in the sandbox org (clean merge, conflicting merge, concurrent merges) (blocked
-      locally: needs a sandbox GitHub org; merge/retry logic is unit-tested via the merge CLI)
+- [x] 7.5 Tested against the real sandbox org this session. **Clean merge**: exercised repeatedly via
+      direct pushes to `panopticon-test-child-a`/`-child-b`'s `main`, including investigating and
+      confirming the fetch-rebase-retry loop's idempotent no-op behavior (a second sync run correctly
+      found nothing new to commit when content had already landed via an earlier push — see the
+      "what's going on here" investigation this session). **Conflicting merge**: a real
+      `ownership-dispute` recipe was constructed (editing `panopticon-test-child-a`'s `orders-api` entry
+      to self-claim ownership, colliding with `panopticon-test-child-b`'s existing self-claim on the
+      same `(name, type)`) and handed to the user to push directly to `main`, but execution wasn't
+      independently confirmed within this session. **Concurrent merges** were not tested (would require
+      simultaneous pushes from both child repos). Closed per explicit user sign-off ("satisfied with the
+      current state as tested by the panopticon-test/-child-a/-child-b repos") rather than leaving it
+      open pending the untested sub-scenarios.
 - [x] 7.6 Added `PYTHONSAFEPATH: "1"` at job level in `panopticon-merge.yml`, matching the fix in 6.7 —
       same child+instance-repo+`PYTHONPATH` pattern as `panopticon-pr.yml`, hardened defensively even
       though this workflow's one `python3 -m panopticon.merge` call already `cd`s into the instance dir
