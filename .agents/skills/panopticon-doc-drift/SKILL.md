@@ -24,6 +24,13 @@ statement be wrong, incomplete, or missing for the behavior the PR introduces?
 - Interface docs (`interfaces.md`) are generated from the index — when interface changes are
   missing from it, point remediation at updating `panopticon/index.json` and re-rendering, not at
   hand-editing the file.
+- The `## Architecture diagram` section (in `architecture.md`) is part of the architecture
+  overview, judged the same as its prose: if the diff adds, removes, or rewires a component in a
+  way the diagram no longer reflects — a node or edge that's now missing, renamed, or wrong — that
+  is a stale-doc finding like any other, reported with `"doc": "docs/architecture.md"` and a `why`
+  that names the diagram specifically (e.g. "the diagram still shows the `worker` component,
+  removed in this diff"). Do not judge the diagram's rendering syntax or which format it's in —
+  that's the deterministic diagram-existence check's job, not yours.
 - Be concrete: each reason names one doc file, why it is stale, and what must change. No generic
   advice.
 - When genuinely uncertain whether behavior is documented-relevant, lean **not stale** — this

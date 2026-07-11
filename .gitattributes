@@ -1,0 +1,11 @@
+# Protected instance-local config (architecture-diagrams design D7): paths registered in
+# panopticon/config.py's PROTECTED_CONFIG_FILES get the "ours" merge driver during
+# sync-from-template.yml, so an instance's customized version always wins over whatever the
+# template ships. The driver itself (what "ours" means) is registered locally by that workflow via
+# `git config merge.ours.driver true` — this file only maps paths to the driver name; it does not
+# define the driver's behavior, since git does not allow arbitrary merge commands to live in
+# versioned, untrusted content.
+#
+# Adding a second protected config: add its default to PROTECTED_CONFIG_FILES in
+# panopticon/config.py, then add its path here — no new mechanism needed.
+panopticon.diagram.config.json merge=ours

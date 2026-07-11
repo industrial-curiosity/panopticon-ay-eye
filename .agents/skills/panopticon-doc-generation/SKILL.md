@@ -57,7 +57,20 @@ components that no longer exist.
    python3 -m panopticon.docs validate --docs-root <docs-location>
    ```
 
-7. **Resolve drift against docs you find, don't just flag it.** If existing documentation — this
+7. **Draw the architecture diagram grounded in the actual code.** The `## Architecture diagram`
+   section holds exactly one fenced code block, tagged with the instance's configured diagram
+   format (read `panopticon.diagram.config.json` in the instance repo checkout if one is
+   available; default `mermaid` when absent or no instance checkout is available locally) —
+   depicting this repo's components and how they relate, same "ground every statement in the
+   code" discipline as the rest of this layer. Do not invent components or relationships that
+   aren't in the code. Directly below the fenced block, add a one-line back-link to this repo's
+   section in the org diagram: `` See the org diagram: `{instance-repo-url}/docs/architecture.md#{repo}` ``,
+   where `{instance-repo-url}` and `{repo}` are derived from `panopticon/config.json`'s `instance`
+   and `repo` fields (e.g. `instance: "acme/panopticon-instance"` → `https://github.com/acme/panopticon-instance`).
+   No node-level click-through inside the diagram — GitHub's Mermaid renderer does not reliably
+   support `click`-to-URL navigation; the back-link is a plain markdown link, not a diagram
+   directive.
+8. **Resolve drift against docs you find, don't just flag it.** If existing documentation — this
    repo's own docs, or a reference/fixture doc committed elsewhere in the repo — describes code,
    configuration, or interfaces that no longer match the repo's actual current state, revise the
    documentation to match reality rather than leaving it stale or merely noting the mismatch in a

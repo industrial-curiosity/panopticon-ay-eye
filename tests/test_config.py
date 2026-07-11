@@ -7,10 +7,15 @@ from pathlib import Path
 
 from panopticon.config import (
     ConfigError,
+    DEFAULT_DIAGRAM_FORMAT,
     DEFAULT_GATING,
+    DIAGRAM_CONFIG_BASENAME,
+    PROTECTED_CONFIG_FILES,
     gating_mode,
+    load_diagram_config,
     load_org_config,
     load_repo_config,
+    require_supported_diagram_format,
     save_repo_config,
 )
 
@@ -37,6 +42,9 @@ class TestOrgConfig(unittest.TestCase):
         self.assertEqual(DEFAULT_GATING["init"], "blocking")
         self.assertEqual(DEFAULT_GATING["doc-drift"], "blocking")
         self.assertEqual(DEFAULT_GATING["interface-conflict"], "advisory")
+        # Advisory at first so existing initialized repos aren't immediately blocked before
+        # they've backfilled a diagram section (migration plan).
+        self.assertEqual(DEFAULT_GATING["diagram-missing"], "advisory")
 
     def test_org_can_escalate_and_downgrade(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -103,6 +111,48 @@ class TestRepoConfig(unittest.TestCase):
             with self.assertRaises(ConfigError) as ctx:
                 load_repo_config(tmp)
         self.assertIn("instance", str(ctx.exception))
+
+
+class TestDiagramConfig(unittest.TestCase):
+    def write_config(self, tmp, doc):
+        (Path(tmp) / DIAGRAM_CONFIG_BASENAME).write_text(json.dumps(doc))
+
+    def test_missing_file_yields_mermaid_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_diagram_config(tmp)
+        self.assertEqual(config, {"format": DEFAULT_DIAGRAM_FORMAT})
+
+    def test_instance_overrides_format(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, {"format": "plantuml"})
+            config = load_diagram_config(tmp)
+        self.assertEqual(config["format"], "plantuml")
+
+    def test_unknown_top_level_field_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, {"format": "mermaid", "extra": True})
+            with self.assertRaises(ConfigError):
+                load_diagram_config(tmp)
+
+    def test_empty_format_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, {"format": ""})
+            with self.assertRaises(ConfigError):
+                load_diagram_config(tmp)
+
+    def test_supported_format_passes(self):
+        require_supported_diagram_format(DEFAULT_DIAGRAM_FORMAT)  # does not raise
+
+    def test_unsupported_format_fails_loudly(self):
+        with self.assertRaises(ConfigError) as ctx:
+            require_supported_diagram_format("plantuml")
+        self.assertIn("plantuml", str(ctx.exception))
+
+    def test_protected_config_registry_contains_diagram_config(self):
+        self.assertIn(DIAGRAM_CONFIG_BASENAME, PROTECTED_CONFIG_FILES)
+        self.assertEqual(
+            PROTECTED_CONFIG_FILES[DIAGRAM_CONFIG_BASENAME], {"format": DEFAULT_DIAGRAM_FORMAT}
+        )
 
 
 if __name__ == "__main__":

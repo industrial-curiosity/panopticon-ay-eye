@@ -158,11 +158,14 @@ adding a second protected config later is a registry entry plus a `.gitattribute
 workflow). Rejected per explicit product direction — the general primitive costs little extra now and avoids
 redoing the mechanism for the next instance-local setting.
 
-**Open technical question this design does not resolve** (see Open Questions): the exact git-level
-implementation of "protection" — likely a `.gitattributes` `merge=ours` custom driver — has not been verified
-against `sync-from-template.yml`'s existing first-sync path (`--allow-unrelated-histories -X theirs` when no
-common ancestor exists). Whether a custom merge driver even engages for a path with no shared history is
-unconfirmed; this needs a spike before tasks.md's implementation step for D7 can be considered low-risk.
+**Resolved by spike** (see Open Questions): `.gitattributes merge=ours` engages correctly in both
+`sync-from-template.yml` paths — first-sync (`--allow-unrelated-histories -X theirs`, no common ancestor) and
+routine-sync (default strategy, common ancestor) — but only when the workflow explicitly runs
+`git config merge.ours.driver true` as a step before `git merge`. The driver's command is git config, not
+versioned content, so `.gitattributes` alone (declaring `panopticon.diagram.config.json merge=ours`) is not
+sufficient by itself; the workflow must register the driver locally on every run. Confirmed empirically: without
+the `git config` step, `-X theirs` overwrote the instance's customized file with the template's; with the step,
+the instance's file was untouched in both merge paths, and appeared in neither the diff nor a conflict.
 
 ### D8: New gating check type `diagram-missing`, default blocking
 
@@ -212,15 +215,14 @@ so a failure is always actionable and blocking-by-default matches those checks r
 
 ## Open Questions
 
-- Does a `.gitattributes`-registered `merge=ours` driver engage during `sync-from-template.yml`'s first-sync
-  path (`--allow-unrelated-histories`, no common ancestor)? Needs a spike in a sandbox instance repo before
-  tasks.md's D7 implementation step can be trusted; the fallback (explicit post-merge restore script) is
-  documented above if it doesn't.
-- Should `diagram-missing` ship `blocking` by default from day one (matching `init`/`doc-drift`, per D8's
-  reasoning) or `advisory` by default at the template level to protect existing instance repos from an
-  immediate wave of failing PRs (per the Migration Plan)? This design picks the latter for the *template's*
-  shipped default but the reasoning in D8 argues for the former as the "correct" steady state — worth
-  confirming which the template should actually ship before tasks.md locks in a `DEFAULT_GATING` value.
+- ~~Does a `.gitattributes`-registered `merge=ours` driver engage during `sync-from-template.yml`'s first-sync
+  path?~~ **Resolved**: yes, in both the first-sync and routine-sync paths, provided the workflow runs
+  `git config merge.ours.driver true` before merging (the driver command lives in git config, not
+  `.gitattributes`, so it must be set locally on every run — it cannot be shipped as versioned content alone).
+  Group 7 uses this `.gitattributes` + `git config` approach, not the post-merge-restore fallback.
+- ~~Should `diagram-missing` ship `blocking` or `advisory` by default?~~ **Resolved** by the pr-evaluation
+  spec's "Org-configurable gating" requirement: `advisory` by default (Migration Plan's rollout reasoning),
+  same as the `DEFAULT_GATING` value tasks.md group 4.1 implements.
 - Exact registry shape for D7 (module location, whether the field-diff warning also needs to detect *value*
   drift for specific fields the template cares about, vs. field-*name* drift only as currently scoped) —
   left for tasks.md/implementation to settle against the real `panopticon/config.py` structure.

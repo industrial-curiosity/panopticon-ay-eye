@@ -18,6 +18,12 @@ index. Two reasons are detected:
 - ``ownership-dispute`` — two or more repos claim themselves as owner of one interface object.
 - ``owner-attribution-mismatch`` — repos attribute ownership to different repos (no dispute
   between self-claims, but the org's picture of who owns the interface disagrees).
+
+``merge_into_instance`` also rebuilds the org-wide diagram (``panopticon.diagrams``) immediately
+after ``compile_index`` produces the new compiled state, in the same commit as the compiled index
+(architecture-diagrams capability design D3) — purely derived from the compiled index, no LLM
+involvement, so it can never disagree with it. Simulation never touches the org diagram; it's a
+real-merge-only side effect.
 """
 
 import argparse
@@ -25,6 +31,8 @@ import sys
 from pathlib import Path
 
 from . import SCHEMA_VERSION
+from .config import ConfigError, load_diagram_config, require_supported_diagram_format
+from .diagrams import write_org_diagram
 from .index import (
     IndexValidationError,
     KIND_COMPILED,
@@ -266,7 +274,9 @@ def load_shards(instance_root):
 
 
 def merge_into_instance(instance_root, repo, local_doc):
-    """Replace the repo's shard on disk, rebuild the compiled index, and return the merge report."""
+    """Replace the repo's shard on disk, rebuild the compiled index, rebuild the org diagram
+    (design D3: same commit as the compiled index, immediately after compile_index), and return
+    the merge report."""
     instance_root = Path(instance_root)
     interfaces_dir = instance_root / INTERFACES_DIR
     compiled_path = interfaces_dir / COMPILED_BASENAME
@@ -283,6 +293,9 @@ def merge_into_instance(instance_root, repo, local_doc):
         shard_path.unlink()
     interfaces_dir.mkdir(parents=True, exist_ok=True)
     compiled_path.write_text(dumps_index(after), encoding="utf-8")
+    diagram_format = load_diagram_config(instance_root)["format"]
+    require_supported_diagram_format(diagram_format)
+    write_org_diagram(after, instance_root, diagram_format)
     return diff_compiled(before, after, repo)
 
 
@@ -385,7 +398,7 @@ def main(argv=None):
             report = simulate_merge(local_doc, compiled, args.repo)
         else:
             report = merge_into_instance(args.instance_root, args.repo, local_doc)
-    except IndexValidationError as exc:
+    except (IndexValidationError, ConfigError) as exc:
         label = "pre-merge simulation" if args.command == "simulate" else "merge"
         print(f"::error::Panopticon {label} could not run: {exc}")
         if args.report_file:

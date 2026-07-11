@@ -26,6 +26,16 @@ and records repo-level settings:
       "workflow_ref": "v1",
       "docs_location": "docs"
     }
+
+**Diagram config** — ``panopticon.diagram.config.json`` at the instance repo root (design D6): a
+*protected* config file, excluded from ``sync-from-template``'s merge so the instance's version
+always wins over whatever the template ships (design D7/D8, ``PROTECTED_CONFIG_FILES``):
+
+    {"format": "mermaid"}
+
+``format`` defaults to ``mermaid`` when the file is absent. Kept as its own file rather than a key
+in the org config because it needs different sync treatment (protected vs. merged-and-manually-
+resolved) and git's protection mechanisms operate per-path, not per-JSON-field.
 """
 
 import json
@@ -36,9 +46,33 @@ from . import SCHEMA_VERSION
 ORG_CONFIG_BASENAME = "panopticon.config.json"
 REPO_CONFIG_PATH = Path("panopticon") / "config.json"
 
-CHECK_TYPES = ("init", "doc-drift", "interface-conflict")
+CHECK_TYPES = ("init", "doc-drift", "interface-conflict", "diagram-missing")
 GATING_MODES = ("blocking", "advisory")
-DEFAULT_GATING = {"init": "blocking", "doc-drift": "blocking", "interface-conflict": "advisory"}
+DEFAULT_GATING = {
+    "init": "blocking",
+    "doc-drift": "blocking",
+    "interface-conflict": "advisory",
+    # Advisory at first so existing initialized repos aren't immediately blocked before they've
+    # backfilled a diagram section (migration plan); orgs opt into blocking once backfilled.
+    "diagram-missing": "advisory",
+}
+
+DIAGRAM_CONFIG_BASENAME = "panopticon.diagram.config.json"
+DEFAULT_DIAGRAM_FORMAT = "mermaid"
+# Renderers actually implemented in this codebase (design: non-goal to build a second renderer
+# with no requester) — a configured format outside this set fails loudly rather than silently
+# no-op-ing (group 2.4).
+SUPPORTED_DIAGRAM_FORMATS = (DEFAULT_DIAGRAM_FORMAT,)
+
+# General protected-instance-local-config primitive (design D7): registry of {path: template
+# default content} pairs that sync-from-template.yml excludes from its merge entirely (the
+# instance's version always wins) and field-diffs (template's top-level keys vs. the instance's)
+# to warn, non-blocking, when the template adds/removes a field the instance hasn't picked up.
+# Diagram config is the first entry; adding a second later is a registry entry plus a
+# .gitattributes line, not a new mechanism.
+PROTECTED_CONFIG_FILES = {
+    DIAGRAM_CONFIG_BASENAME: {"format": DEFAULT_DIAGRAM_FORMAT},
+}
 
 
 class ConfigError(Exception):
@@ -99,3 +133,27 @@ def save_repo_config(config, repo_root="."):
     payload = {"schema_version": SCHEMA_VERSION, **config}
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
+
+
+def load_diagram_config(instance_root="."):
+    """Diagram format config with the ``mermaid`` default applied; a missing file yields the
+    default (architecture-diagrams spec: "Default format with no config file")."""
+    path = Path(instance_root) / DIAGRAM_CONFIG_BASENAME
+    doc = _load_json(path, "diagram config") or {}
+    fmt = doc.get("format", DEFAULT_DIAGRAM_FORMAT)
+    if not isinstance(fmt, str) or not fmt:
+        raise ConfigError(f"diagram config at {path}: 'format' must be a non-empty string")
+    unknown = set(doc) - {"format"}
+    if unknown:
+        raise ConfigError(f"diagram config at {path}: unknown fields {sorted(unknown)}")
+    return {"format": fmt}
+
+
+def require_supported_diagram_format(fmt):
+    """Loud failure for a configured format with no implemented renderer (group 2.4) — the
+    diagram-existence check and the org-diagram rebuild both fail rather than silently skipping
+    diagram generation (architecture-diagrams spec: "Unsupported format fails loudly")."""
+    if fmt not in SUPPORTED_DIAGRAM_FORMATS:
+        raise ConfigError(
+            f"unknown diagram format '{fmt}' (supported: {list(SUPPORTED_DIAGRAM_FORMATS)})"
+        )

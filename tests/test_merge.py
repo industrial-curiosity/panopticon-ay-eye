@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from panopticon.config import ConfigError
 from panopticon.index import KIND_COMPILED, dumps_index, empty_index, validate_index
 from panopticon.merge import (
     collect_actions,
@@ -159,6 +160,56 @@ class TestSimulationParity(unittest.TestCase):
             report = merge_into_instance(instance, "svc-b", empty_index())
             self.assertFalse((instance / "interfaces" / "svc-b.json").exists())
         self.assertTrue(report["removed"] or report["changed"])
+
+
+class TestOrgDiagramRebuild(unittest.TestCase):
+    """merge_into_instance() rebuilds the org diagram alongside the compiled index (design D3)."""
+
+    def write_instance(self, tmp, shards):
+        instance = Path(tmp)
+        compiled = compile_index(shards)
+        (instance / "interfaces").mkdir()
+        for repo, shard in shards.items():
+            (instance / "interfaces" / f"{repo}.json").write_text(dumps_index(shard))
+        (instance / "interfaces" / "index.json").write_text(dumps_index(compiled))
+        return instance, compiled
+
+    def test_merge_writes_org_diagram_alongside_compiled_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            instance, _ = self.write_instance(tmp, {"svc-a": load_fixture("local_svc_a.json")})
+            merge_into_instance(instance, "svc-b", load_fixture("local_svc_b.json"))
+            text = (instance / "docs" / "architecture.md").read_text()
+        self.assertIn("## svc-a", text)
+        self.assertIn("## svc-b", text)
+        self.assertIn("```mermaid", text)
+
+    def test_org_diagram_honors_instance_configured_format(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            instance, _ = self.write_instance(tmp, {"svc-a": load_fixture("local_svc_a.json")})
+            (instance / "panopticon.diagram.config.json").write_text('{"format": "mermaid"}')
+            merge_into_instance(instance, "svc-b", load_fixture("local_svc_b.json"))
+            text = (instance / "docs" / "architecture.md").read_text()
+        self.assertIn("```mermaid", text)
+
+    def test_unsupported_diagram_format_fails_loudly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            instance, _ = self.write_instance(tmp, {"svc-a": load_fixture("local_svc_a.json")})
+            (instance / "panopticon.diagram.config.json").write_text('{"format": "plantuml"}')
+            with self.assertRaises(ConfigError):
+                merge_into_instance(instance, "svc-b", load_fixture("local_svc_b.json"))
+            # Not silently skipped: no half-written org diagram from this failed attempt.
+            self.assertFalse((instance / "docs" / "architecture.md").exists())
+
+    def test_org_diagram_rebuild_does_not_depend_on_child_repo_docs_existing(self):
+        # merge_into_instance never reads docs/{repo}/ — it's derived purely from the compiled
+        # index, so a child repo with no docs/architecture.md at all still gets an org-diagram
+        # section once it has a cross-repo interface.
+        with tempfile.TemporaryDirectory() as tmp:
+            instance, _ = self.write_instance(tmp, {"svc-a": load_fixture("local_svc_a.json")})
+            self.assertFalse((instance / "docs" / "svc-b").exists())
+            merge_into_instance(instance, "svc-b", load_fixture("local_svc_b.json"))
+            text = (instance / "docs" / "architecture.md").read_text()
+        self.assertIn("## svc-b", text)
 
 
 class TestDiff(unittest.TestCase):

@@ -83,15 +83,18 @@ index updates — run in each developer's own AI agent harness and need none of 
   "gating": {
     "init": "blocking",
     "doc-drift": "blocking",
-    "interface-conflict": "advisory"
+    "interface-conflict": "advisory",
+    "diagram-missing": "advisory"
   }
 }
 ```
 
 - **`gating`** — per-check outcomes. Defaults: initialization and doc-drift checks **fail** the
   workflow when they find a problem; interface-conflict checks are **advisory** (reported but
-  passing) because LLM-extracted entries can false-positive. Each check type can be moved in
-  either direction.
+  passing) because LLM-extracted entries can false-positive; diagram-missing checks are
+  **advisory** at first so already-initialized repos aren't immediately blocked before they've
+  regenerated docs to pick up the new `## Architecture diagram` section — flip it to `blocking`
+  once your repos have backfilled. Each check type can be moved in either direction.
 - **`workflow_ref`** *(optional)* — the git ref (tag or branch) at which the init tooling wires child
   caller workflows to the instance's reusable workflows. Omit it and the instance repo's default branch
   is used — no tagging required to get started. Set it once you want to pin caller workflows to a
@@ -157,10 +160,20 @@ whether to keep, edit, or discard it before you commit.
 
 ## 5. What runs afterwards
 
-- **Every PR:** initialization check, doc-drift check, index-currency check, pre-merge conflict
-  simulation against the compiled index (results as a PR comment), and a push of the PR's
-  docs/index state to the `{repo}/{branch}` branch of the instance repo.
-- **Every merge to main:** docs copied to `docs/{repo}/`, shard replaced, compiled index rebuilt
-  and pushed directly to the instance repo; conflict issues opened/updated in both repos when the
-  merge produces conflicts.
+- **Every PR:** initialization check, doc-drift check (now also judging the `## Architecture
+  diagram` section's staleness alongside prose), index-currency check, a deterministic
+  diagram-existence check (the section exists and parses — no LLM call, independent of doc-drift's
+  accuracy judgment), pre-merge conflict simulation against the compiled index (results as a PR
+  comment), and a push of the PR's docs/index state to the `{repo}/{branch}` branch of the
+  instance repo.
+- **Every merge to main:** docs copied to `docs/{repo}/`, shard replaced, compiled index rebuilt,
+  and the org-wide architecture diagram (`docs/architecture.md` in the instance repo — one section
+  per repo with cross-repo interfaces, a relationship diagram, and a table) rebuilt from the fresh
+  compiled index, all pushed directly to the instance repo in the same commit; conflict issues
+  opened/updated in both repos when the merge produces conflicts.
 - **Every PR close:** the matching `{repo}/{branch}` instance branch is deleted.
+
+Diagram rendering format defaults to Mermaid and is configurable per instance via
+`panopticon.diagram.config.json` at the instance repo root — this file is protected from
+`sync-from-template`'s merge (your customization always wins), and syncing warns (non-blocking) if
+the template adds or removes a config field you haven't picked up.

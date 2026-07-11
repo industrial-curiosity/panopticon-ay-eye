@@ -5,11 +5,11 @@
 # with `secrets: inherit`). Org-level secrets: PANOPTICON_LLM_API_KEY, PANOPTICON_INSTANCE_TOKEN.
 # Org-level variables: PANOPTICON_LLM_ENDPOINT, PANOPTICON_LLM_MODEL.
 #
-# Checks (pr-evaluation spec): initialization → doc drift → index currency → pre-merge
-# simulation → branch state push. Check outcomes honor the org gating configuration in the
-# instance repo's panopticon.config.json (init/doc-drift blocking by default,
-# interface-conflict advisory by default). Checks run and report even when an earlier check
-# found problems; a final gate step applies gating and fails the workflow.
+# Checks (pr-evaluation spec): initialization → doc drift → index currency → diagram existence →
+# pre-merge simulation → branch state push. Check outcomes honor the org gating configuration in
+# the instance repo's panopticon.config.json (init/doc-drift blocking by default,
+# interface-conflict/diagram-missing advisory by default). Checks run and report even when an
+# earlier check found problems; a final gate step applies gating and fails the workflow.
 name: Panopticon PR evaluation
 
 on:
@@ -112,6 +112,7 @@ jobs:
           {
             echo "GATE_DOC_DRIFT=$(python3 -c "from panopticon.config import load_org_config;print(load_org_config('$PANOPTICON_INSTANCE_DIR')['gating']['doc-drift'])")"
             echo "GATE_CONFLICT=$(python3 -c "from panopticon.config import load_org_config;print(load_org_config('$PANOPTICON_INSTANCE_DIR')['gating']['interface-conflict'])")"
+            echo "GATE_DIAGRAM=$(python3 -c "from panopticon.config import load_org_config;print(load_org_config('$PANOPTICON_INSTANCE_DIR')['gating']['diagram-missing'])")"
           } >> "$GITHUB_ENV"
           git diff "origin/${{ github.base_ref }}...HEAD" -- ':!.panopticon-instance' > /tmp/panopticon-pr.diff
           mkdir -p /tmp/panopticon-reports
@@ -181,6 +182,32 @@ jobs:
             echo "stale=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           fi
 
+      # Deterministic, no LLM call: verifies architecture.md has a well-formed diagram section in
+      # the instance's configured format (design D2). Independent of doc-drift, which judges
+      # diagram *accuracy* — this only checks existence/structure.
+      - name: Diagram-existence check
+        id: diagram
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          python3 -m panopticon.diagram_check \
+            --docs-root "$PANOPTICON_DOCS" \
+            --instance-root "$PANOPTICON_INSTANCE_DIR" \
+            --report-file /tmp/panopticon-reports/diagram.md \
+            --actions-file /tmp/panopticon-reports/diagram-actions.json
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "::error::Panopticon diagram-existence check could not run (exit $status); see the step log"
+            echo "error=true" >> "$GITHUB_OUTPUT"
+            echo "missing=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "error=false" >> "$GITHUB_OUTPUT"
+            echo "missing=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          fi
+
       # Same merge code path as the real merge, in dry-run mode, against the compiled index
       # fetched from the instance repo's default branch (design D4).
       - name: Pre-merge simulation
@@ -223,6 +250,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           DRIFT_ERROR: ${{ steps.drift.outputs.error }}
           CURRENCY_ERROR: ${{ steps.currency.outputs.error }}
+          DIAGRAM_ERROR: ${{ steps.diagram.outputs.error }}
           SIMULATE_ERROR: ${{ steps.simulate.outputs.error }}
         run: |
           import os
@@ -235,7 +263,7 @@ jobs:
           reports_dir = "/tmp/panopticon-reports"
           sections = []
           actions = []
-          for check in ("drift", "currency", "simulation"):
+          for check in ("drift", "currency", "diagram", "simulation"):
               report_path = os.path.join(reports_dir, f"{check}.md")
               if os.path.exists(report_path):
                   with open(report_path, encoding="utf-8") as handle:
@@ -243,7 +271,8 @@ jobs:
               actions.extend(load_actions(os.path.join(reports_dir, f"{check}-actions.json")))
 
           has_operational_failure = "true" in (
-              os.environ.get("DRIFT_ERROR"), os.environ.get("CURRENCY_ERROR"), os.environ.get("SIMULATE_ERROR"),
+              os.environ.get("DRIFT_ERROR"), os.environ.get("CURRENCY_ERROR"),
+              os.environ.get("DIAGRAM_ERROR"), os.environ.get("SIMULATE_ERROR"),
           )
           body = build_combined_report(sections, actions, has_operational_failure=has_operational_failure)
 
@@ -326,6 +355,12 @@ jobs:
           elif [ "${{ steps.currency.outputs.stale }}" = "true" ]; then
             # A stale index always fails: simulation over a stale index predicts the wrong merge.
             fail "Panopticon index-currency check found a stale local index (see PR comment)"
+          fi
+          if [ "${{ steps.diagram.outputs.error }}" = "true" ]; then
+            fail "Panopticon diagram-existence check could not run (see PR comment for the error)"
+          elif [ "${{ steps.diagram.outputs.missing }}" = "true" ]; then
+            message="Panopticon diagram-existence check found no architecture diagram section (see PR comment)"
+            [ "$GATE_DIAGRAM" = "blocking" ] && fail "$message" || warn "$message (advisory by org configuration)"
           fi
           if [ "${{ steps.simulate.outputs.error }}" = "true" ]; then
             fail "Panopticon pre-merge simulation could not run (see PR comment for the error)"

@@ -4,6 +4,16 @@
 # If the merge produces conflicts (e.g. panopticon.config.json edited on both sides),
 # the workflow fails with instructions to resolve locally.
 #
+# Protected instance-local config (architecture-diagrams design D7): every path registered in
+# panopticon/config.py's PROTECTED_CONFIG_FILES (e.g. panopticon.diagram.config.json) is excluded
+# from the merge entirely via .gitattributes' `merge=ours` — the instance's version always wins,
+# in both the first-sync (no common ancestor) and routine-sync paths. Confirmed by spike (design.md
+# Open Questions): this requires `git config merge.ours.driver true` to be registered locally on
+# every run, since the driver's command lives in git config, not in versioned .gitattributes
+# content. After a successful merge, a field-diff warning step compares the incoming template
+# version's top-level JSON fields against the instance's (unchanged) current file for each
+# registered path, warning (never blocking) when the template added or removed a field.
+#
 # Optionally enable the schedule below to check for updates automatically.
 name: Sync from template
 
@@ -35,6 +45,16 @@ jobs:
           git remote add template https://github.com/industrial-curiosity/panopticon-ay-eye.git 2>/dev/null || true
           git fetch template main
 
+      - name: Register protected-config merge driver
+        run: |
+          # .gitattributes maps each PROTECTED_CONFIG_FILES path to the "ours" driver name, but the
+          # driver's actual behavior (keep the current branch's version) lives in git config, not in
+          # versioned content — git does not allow arbitrary merge commands to come from untrusted
+          # repo content. Must be registered locally on every run. Confirmed by spike (design.md
+          # Open Questions) to engage correctly in both the first-sync (-X theirs,
+          # --allow-unrelated-histories) and routine-sync (default strategy) paths below.
+          git config merge.ours.driver true
+
       - name: Merge template changes
         run: |
           # Detect whether repos share history (first-time sync after "Use this template" has none).
@@ -58,6 +78,44 @@ jobs:
             echo "::error::  git push origin main"
             exit 1
           fi
+
+      # Non-blocking: registered protected-config paths (panopticon.diagram.config.json today)
+      # were excluded from the merge above, so the instance's copy is unchanged. This only warns
+      # when the template's incoming version and the instance's current copy have different
+      # top-level JSON fields, so an org owner notices a newly-added/removed config option without
+      # it being silently applied or silently missed (design D7).
+      - name: Warn on protected-config field drift
+        shell: python
+        run: |
+          import json
+          import subprocess
+          import sys
+
+          sys.path.insert(0, ".")
+          from panopticon.config import PROTECTED_CONFIG_FILES
+
+          for path in PROTECTED_CONFIG_FILES:
+              incoming = subprocess.run(
+                  ["git", "show", f"template/main:{path}"], capture_output=True, text=True,
+              )
+              if incoming.returncode != 0:
+                  continue  # path doesn't exist in the incoming template version
+              try:
+                  incoming_fields = set(json.loads(incoming.stdout))
+              except json.JSONDecodeError:
+                  print(f"::warning::{path}: incoming template version is not valid JSON; skipping field-diff check")
+                  continue
+              try:
+                  with open(path, encoding="utf-8") as handle:
+                      current_fields = set(json.load(handle))
+              except FileNotFoundError:
+                  continue  # instance never customized it — nothing to compare
+              added = sorted(incoming_fields - current_fields)
+              removed = sorted(current_fields - incoming_fields)
+              if added:
+                  print(f"::warning::{path}: the template added field(s) {added} not present in your copy")
+              if removed:
+                  print(f"::warning::{path}: the template removed field(s) {removed} still present in your copy")
 
       - name: Push
         run: git push origin main
