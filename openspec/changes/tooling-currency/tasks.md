@@ -83,28 +83,29 @@
 
 ## 9. Getting-started guide (`PANOPTICON.md`)
 
-- [ ] 9.1 Author `PANOPTICON.md` at the template repo root: concise, static content covering the
+- [x] 9.1 Author `PANOPTICON.md` at the template repo root: concise, static content covering the
       three repo roles/lifecycle, where architecture diagrams live (this repo's own diagram section
       and the instance repo's org-wide `docs/architecture.md`), and the literal
       `python3 -m panopticon.sync` / `--check-updates` commands
-- [ ] 9.2 Add a download step to `panopticon/bootstrap.py`'s `main()` that fetches `PANOPTICON.md`
+- [x] 9.2 Add a download step to `panopticon/bootstrap.py`'s `main()` that fetches `PANOPTICON.md`
       from the instance repo and writes it to the child repo's root, overwritten idempotently on
       re-run (same trust model as skills/tooling)
-- [ ] 9.3 Update `bootstrap.py`'s printed output so every run (first bootstrap and re-run alike)
+- [x] 9.3 Update `bootstrap.py`'s printed output so every run (first bootstrap and re-run alike)
       names `PANOPTICON.md`'s location and the literal `python3 -m panopticon.sync` command,
       independent of the `/panopticon-init` agent prompt
-- [ ] 9.4 Unit tests: `PANOPTICON.md` is downloaded on first run and overwritten (not duplicated) on
+- [x] 9.4 Unit tests: `PANOPTICON.md` is downloaded on first run and overwritten (not duplicated) on
       re-run; bootstrap's printed output contains both the guide's location and the sync command on
       both first-run and re-run
 
 ## 10. Cross-repo diagram link fix
 
-- [ ] 10.1 Fix `.agents/skills/panopticon-doc-generation/SKILL.md` and
+- [x] 10.1 Fix `.agents/skills/panopticon-doc-generation/SKILL.md` and
       `assets/architecture-template.md`'s org-diagram back-link instructions: replace the malformed
       bare-URL prose with the relative markdown link `[org diagram](../architecture.md#{repo})`
       (`{repo}` from `panopticon/config.json`'s existing `repo` field — no new config field needed),
       and note explicitly that this link resolves once the file is merged into the instance repo at
       `docs/{repo}/architecture.md`, not when viewed directly in the child repo
-- [ ] 10.2 Verify the already-relative same-repo diagram links in `panopticon/diagrams.py`
+- [x] 10.2 Verify the already-relative same-repo diagram links in `panopticon/diagrams.py`
       (`docs/{other}/architecture.md`, `docs/{repo}/architecture.md`) remain unchanged and correct —
-      no code change expected here, confirm via existing `tests/test_diagrams.py` coverage
+      no code change expected here, confirmed via existing `tests/test_diagrams.py` coverage
+      (13/13 passing, `panopticon/diagrams.py` untouched this session)

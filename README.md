@@ -97,6 +97,8 @@ stopgaps.
   printed to the sync run's step summary instead)
 - `panopticon.diagram.config.json` *(instance repos only)* — diagram rendering format (default `mermaid`);
   protected from `sync-from-template`'s merge via `.gitattributes`
+- `PANOPTICON.md` — a concise, static getting-started guide, downloaded verbatim into every child repo's
+  root by the bootstrap script (identical across child repos of a given instance; not per-repo templated)
 - `tests/` — `unittest` suite ([how to run](docs/testing.md))
 - `docs/` — [org-owner setup guide](docs/setup-guide.md), [parser contribution guide](docs/parser-contribution.md),
   [testing](docs/testing.md), and project strategy documents

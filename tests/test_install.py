@@ -16,6 +16,7 @@ from unittest.mock import patch
 from panopticon.bootstrap import (
     CALLER_WORKFLOWS,
     DEFAULT_SKILLS_LOCATION,
+    GETTING_STARTED_GUIDE,
     LOCAL_TOOLING_MODULES,
     ORG_SECRETS,
     ORG_VARS,
@@ -29,12 +30,14 @@ from panopticon.bootstrap import (
     caller_workflow_text,
     candidate_locations,
     check_prerequisites,
+    download_getting_started_guide,
     download_local_tooling,
     download_skills,
     manual_verification_steps,
     resolve_instance,
     resolve_token,
     select_skills_location,
+    sync_reminder,
     wire_workflows,
 )
 from panopticon.bootstrap import main as bootstrap_main
@@ -294,6 +297,53 @@ class TestDownloadLocalTooling(unittest.TestCase):
             self.assertIn(f"[{i}/{total}] {name}", out.getvalue())
 
 
+# ── Getting-started guide ────────────────────────────────────────────────────────
+
+class TestDownloadGettingStartedGuide(unittest.TestCase):
+    def _make_urlopen(self, content=b"# Panopticon\n"):
+        def urlopen(request, timeout=30):
+            url = request.full_url
+            if f"/contents/{GETTING_STARTED_GUIDE}" in url:
+                return BytesIO(json.dumps(_file_response(content)).encode())
+            raise AssertionError(f"unexpected url: {url}")
+
+        return urlopen
+
+    def test_downloads_guide_to_child_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            download_getting_started_guide("acme", "instance", "main", child_root=tmp,
+                                           urlopen=self._make_urlopen())
+            local = Path(tmp) / GETTING_STARTED_GUIDE
+            self.assertTrue(local.exists())
+
+    def test_content_matches_fetched_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            download_getting_started_guide("acme", "instance", "main", child_root=tmp,
+                                           urlopen=self._make_urlopen(b"# Panopticon\nhello\n"))
+            content = (Path(tmp) / GETTING_STARTED_GUIDE).read_text()
+        self.assertEqual(content, "# Panopticon\nhello\n")
+
+    def test_idempotent_rerun_overwrites_in_place(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / GETTING_STARTED_GUIDE
+            local.write_text("stale content")
+            download_getting_started_guide("acme", "instance", "main", child_root=tmp,
+                                           urlopen=self._make_urlopen())
+            content = local.read_text()
+        self.assertEqual(content, "# Panopticon\n")
+
+
+class TestSyncReminder(unittest.TestCase):
+    def test_names_guide_location(self):
+        self.assertIn(GETTING_STARTED_GUIDE, sync_reminder())
+
+    def test_contains_sync_command(self):
+        self.assertIn("python3 -m panopticon.sync", sync_reminder())
+
+    def test_contains_check_updates_flag(self):
+        self.assertIn("python3 -m panopticon.sync --check-updates", sync_reminder())
+
+
 # ── Prerequisite check ────────────────────────────────────────────────────────
 
 class TestCheckPrerequisites(unittest.TestCase):
@@ -437,6 +487,8 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
             for name in LOCAL_TOOLING_MODULES:
                 if f"/contents/panopticon/{name}" in url:
                     return BytesIO(json.dumps(_file_response(f"# {name}".encode())).encode())
+            if f"contents/{GETTING_STARTED_GUIDE}" in url:
+                return BytesIO(json.dumps(_file_response(b"# Panopticon")).encode())
             if "actions/secrets" in url:
                 return BytesIO(json.dumps({"secrets": [{"name": n} for n in secrets]}).encode())
             if "actions/variables" in url:
@@ -644,6 +696,8 @@ class TestMainSkillsLocationFlow(unittest.TestCase):
             for name in LOCAL_TOOLING_MODULES:
                 if f"/contents/panopticon/{name}" in url:
                     return BytesIO(json.dumps(_file_response(f"# {name}".encode())).encode())
+            if f"contents/{GETTING_STARTED_GUIDE}" in url:
+                return BytesIO(json.dumps(_file_response(b"# Panopticon")).encode())
             if "actions/secrets" in url:
                 return BytesIO(json.dumps({"secrets": [{"name": n} for n in ORG_SECRETS]}).encode())
             if "actions/variables" in url:
@@ -697,6 +751,67 @@ class TestMainSkillsLocationFlow(unittest.TestCase):
             ).exists()
         self.assertEqual(code, 0)
         self.assertTrue(agents_skills_exists)
+
+    def test_getting_started_guide_downloaded_on_first_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code = bootstrap_main(
+                env={"PANOPTICON_INSTANCE": "acme/instance", "GH_TOKEN": "tok",
+                     "PANOPTICON_SKILLS_LOCATION": ".claude/skills"},
+                child_root=tmp,
+                urlopen=self._router(),
+            )
+            guide_exists = (Path(tmp) / GETTING_STARTED_GUIDE).exists()
+        self.assertEqual(code, 0)
+        self.assertTrue(guide_exists)
+
+    def test_getting_started_guide_overwritten_on_rerun(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / GETTING_STARTED_GUIDE).write_text("stale content")
+            code = bootstrap_main(
+                env={"PANOPTICON_INSTANCE": "acme/instance", "GH_TOKEN": "tok",
+                     "PANOPTICON_SKILLS_LOCATION": ".claude/skills"},
+                child_root=tmp,
+                urlopen=self._router(),
+            )
+            content = (Path(tmp) / GETTING_STARTED_GUIDE).read_text()
+            guide_count = len(list(Path(tmp).glob(f"{GETTING_STARTED_GUIDE}*")))
+        self.assertEqual(code, 0)
+        self.assertEqual(content, "# Panopticon")
+        self.assertEqual(guide_count, 1)
+
+    def test_output_names_guide_and_sync_command_on_first_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                code = bootstrap_main(
+                    env={"PANOPTICON_INSTANCE": "acme/instance", "GH_TOKEN": "tok",
+                         "PANOPTICON_SKILLS_LOCATION": ".claude/skills"},
+                    child_root=tmp,
+                    urlopen=self._router(),
+                )
+        self.assertEqual(code, 0)
+        self.assertIn(GETTING_STARTED_GUIDE, out.getvalue())
+        self.assertIn("python3 -m panopticon.sync", out.getvalue())
+
+    def test_output_names_guide_and_sync_command_on_rerun(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bootstrap_main(
+                env={"PANOPTICON_INSTANCE": "acme/instance", "GH_TOKEN": "tok",
+                     "PANOPTICON_SKILLS_LOCATION": ".claude/skills"},
+                child_root=tmp,
+                urlopen=self._router(),
+            )
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                code = bootstrap_main(
+                    env={"PANOPTICON_INSTANCE": "acme/instance", "GH_TOKEN": "tok",
+                         "PANOPTICON_SKILLS_LOCATION": ".claude/skills"},
+                    child_root=tmp,
+                    urlopen=self._router(),
+                )
+        self.assertEqual(code, 0)
+        self.assertIn(GETTING_STARTED_GUIDE, out.getvalue())
+        self.assertIn("python3 -m panopticon.sync", out.getvalue())
 
 
 # ── Agent prompts ─────────────────────────────────────────────────────────────

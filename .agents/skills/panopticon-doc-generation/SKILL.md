@@ -63,13 +63,17 @@ components that no longer exist.
    available; default `mermaid` when absent or no instance checkout is available locally) —
    depicting this repo's components and how they relate, same "ground every statement in the
    code" discipline as the rest of this layer. Do not invent components or relationships that
-   aren't in the code. Directly below the fenced block, add a one-line back-link to this repo's
-   section in the org diagram: `` See the org diagram: `{instance-repo-url}/docs/architecture.md#{repo}` ``,
-   where `{instance-repo-url}` and `{repo}` are derived from `panopticon/config.json`'s `instance`
-   and `repo` fields (e.g. `instance: "acme/panopticon-instance"` → `https://github.com/acme/panopticon-instance`).
-   No node-level click-through inside the diagram — GitHub's Mermaid renderer does not reliably
-   support `click`-to-URL navigation; the back-link is a plain markdown link, not a diagram
-   directive.
+   aren't in the code. Directly below the fenced block, add a markdown link back to this repo's
+   section in the org diagram: `` [org diagram](../architecture.md#{repo}) ``, where `{repo}` is
+   `panopticon/config.json`'s `repo` field (e.g. `repo: "svc-a"` → `[org diagram](../architecture.md#svc-a)`).
+   This is a *relative* link, not an absolute GitHub URL — this repo's docs are merged into the
+   instance repo at `docs/{repo}/` on every push (master-sync capability), landing this file at
+   `docs/{repo}/architecture.md` alongside the org diagram at `docs/architecture.md`, so
+   `../architecture.md` resolves correctly there. It will not resolve when viewed directly in this
+   repo before that merge — that's expected: architecture diagrams are reviewed in the instance
+   repo, not by browsing child repos in isolation. No node-level click-through inside the diagram —
+   GitHub's Mermaid renderer does not reliably support `click`-to-URL navigation; the back-link is a
+   plain markdown link, not a diagram directive.
 8. **Resolve drift against docs you find, don't just flag it.** If existing documentation — this
    repo's own docs, or a reference/fixture doc committed elsewhere in the repo — describes code,
    configuration, or interfaces that no longer match the repo's actual current state, revise the
