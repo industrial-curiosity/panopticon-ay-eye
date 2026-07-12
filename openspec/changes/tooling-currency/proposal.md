@@ -41,9 +41,18 @@ built for `panopticon.diagram.config.json` to arbitrary, org-declared paths.
   back-link is therefore a plain relative link (`../architecture.md#{repo}`), not an absolute GitHub URL,
   and resolves correctly once merged (not before, by design — see design.md D9). The previous prose was
   a bare, malformed URL missing GitHub's required `/blob/<branch>/` segment (a live 404 as written); no
-  new config field or branch resolution is needed for the fix. The already-relative same-repo diagram
-  links (`panopticon/diagrams.py`'s `docs/{other}/architecture.md`) were already correct and are
-  unchanged.
+  new config field or branch resolution is needed for the fix itself. The already-relative same-repo
+  diagram links (`panopticon/diagrams.py`'s `docs/{other}/architecture.md`) were already correct and
+  are unchanged.
+- The child repo config (`panopticon/config.json`) gains a new `instance_default_branch` field —
+  resolved via the GitHub API at finalization time, never guessed, never derived from the
+  possibly-pinned-tag `workflow_ref` (design D10; this is a different need from the diagram-link fix
+  above, not a reintroduction of it). It powers a new local script,
+  `python3 -m panopticon.org_diagram_link`, vendored alongside `sync.py`, that a developer runs from
+  their child repo checkout — before any merge — to print an immediately clickable, fully-resolved
+  link to this repo's section of the org diagram
+  (`{instance-repo-url}/blob/{instance_default_branch}/docs/architecture.md#{repo}`). No network call:
+  it reads only local config.
 - `panopticon.config.json` gains a new org-declared `protected_paths` field — arbitrary paths
   (skills, tooling modules, future plugin content) an org has customized at the instance level.
   `sync-from-template.yml` gains a step, run before `git merge`, that writes these paths (each with
@@ -74,12 +83,16 @@ built for `panopticon.diagram.config.json` to arbitrary, org-declared paths.
   regenerated every run rather than the tracked `.gitattributes`; the local-tooling vendoring list
   gains the new sync script so it's available in any already-bootstrapped child repo. Bootstrap also
   now vendors a static `PANOPTICON.md` getting-started guide and prints the sync command on every run
-  (design D8).
+  (design D8). The finalization step gains a new `instance_default_branch` config field, resolved
+  deterministically via the GitHub API (design D10), and the local-tooling vendoring list gains the
+  new org-diagram-link script.
 - `architecture-diagrams`: the child-repo → org-diagram back-link is corrected from a malformed,
   non-resolving bare URL to a proper relative markdown link authored for its post-merge location in
   the instance repo (design D9) — a fix, not a new capability, since the link's *intent* ("navigate to
   the org diagram") was already specified; only the URL's exact shape was under-specified and, as
-  implemented, wrong.
+  implemented, wrong. Separately gains a new "Org-diagram link script" requirement (design D10) — a
+  local script that prints a resolvable deep link to the org diagram, complementing the embedded
+  back-link for the pre-merge case it structurally can't cover.
 - `pr-evaluation`: adds the tooling-currency check's CI wiring (workflow-ref alignment,
   skills/tooling diff) as a new, always-advisory step — distinct from the existing combined report
   and its TL;DR action-collapsing, since remediation here ("run the sync script") doesn't fit that
@@ -93,13 +106,16 @@ built for `panopticon.diagram.config.json` to arbitrary, org-declared paths.
   (`LOCAL_TOOLING_MODULES` gains the new script; new `PANOPTICON.md` download step; printed output
   gains the sync-command reference), a new template-root `PANOPTICON.md` source file authored once and
   downloaded verbatim, `.agents/skills/panopticon-doc-generation/` (`SKILL.md` and
-  `assets/architecture-template.md` — corrected org-diagram back-link to a relative link).
+  `assets/architecture-template.md` — corrected org-diagram back-link to a relative link),
+  `panopticon/init_repo.py` (finalization resolves and persists `instance_default_branch` via the
+  GitHub API), a new `panopticon/org_diagram_link.py` implementing the org-diagram link script, added
+  to `LOCAL_TOOLING_MODULES` alongside `sync.py`.
 - **Workflows**: `panopticon-pr.yml` (two new advisory-only steps: workflow-ref alignment,
   skills/tooling diff), `sync-from-template.yml` (new `.git/info/attributes` regeneration step with
   step-summary visibility, run before the merge step).
 - **Docs**: `docs/setup-guide.md`, `README.md`, `docs/testing.md` — the sync script's usage, the
-  CI warning's meaning and remediation, the `protected_paths` config field, and `PANOPTICON.md` all
-  need to be documented clearly, per explicit requirement.
+  CI warning's meaning and remediation, the `protected_paths` config field, `PANOPTICON.md`, and the
+  org-diagram link script all need to be documented clearly, per explicit requirement.
 - **No breaking changes**: purely additive. No new `CHECK_TYPES`/gating entry (this check is
   deliberately never gated). No changes to the index schema or existing protected-config behavior
   for `panopticon.diagram.config.json`, which keeps working exactly as `architecture-diagrams`

@@ -109,3 +109,24 @@
       (`docs/{other}/architecture.md`, `docs/{repo}/architecture.md`) remain unchanged and correct —
       no code change expected here, confirmed via existing `tests/test_diagrams.py` coverage
       (13/13 passing, `panopticon/diagrams.py` untouched this session)
+
+## 11. instance_default_branch and the org-diagram link script
+
+- [ ] 11.1 Resolve the instance repo's actual default branch via the GitHub API in
+      `panopticon/init_repo.py`'s finalization step (never hardcode `"main"`, never derive from
+      `workflow_ref`) and persist it as `instance_default_branch` in `panopticon/config.json`
+      alongside `repo`/`instance`/`workflow_ref`/`docs_location`
+- [ ] 11.2 Create `panopticon/org_diagram_link.py`: reads `panopticon/config.json`'s `instance`,
+      `instance_default_branch`, and `repo` fields and prints exactly
+      `https://github.com/{instance}/blob/{instance_default_branch}/docs/architecture.md#{repo}` — no
+      network call, no instance-repo clone
+- [ ] 11.3 Add `org_diagram_link.py` to `LOCAL_TOOLING_MODULES` in `bootstrap.py` so it's vendored
+      into any already-bootstrapped child repo. `panopticon/tooling_currency.py`'s drift check
+      imports `LOCAL_TOOLING_MODULES` from `bootstrap.py` directly, so it picks this up
+      automatically — no separate change needed there. `panopticon/sync.py` cannot import from
+      `bootstrap.py` (see task 5.1's `ModuleNotFoundError` lesson) and duplicates its own copy of
+      `LOCAL_TOOLING_MODULES`, so that duplicated tuple needs the same addition, kept in sync via
+      `test_sync.py::TestSelfContained.test_local_tooling_modules_matches_bootstrap`
+- [ ] 11.4 Unit tests: `instance_default_branch` resolution (reflects the instance's actual default
+      branch including a non-`main` name; never conflated with a `workflow_ref` pinned to a different
+      tag/branch) and `org_diagram_link.py`'s output (exact URL construction, no network call made)

@@ -264,6 +264,28 @@ Rejected — the malformed link is a live 404 for every existing child repo's `a
 merged into the instance), not a hypothetical; fixing it is in scope for the same "make diagram links work
 correctly" ask.
 
+### D10: `instance_default_branch` reintroduced — for a script, not the embedded diagram back-link
+
+**Decision**: `instance_default_branch` (dropped in D9, above, once the embedded diagram back-link
+turned out to need only a same-repo relative path) is reintroduced, resolved and persisted exactly as
+D9's superseded first pass described: via the GitHub API at finalization time, never hardcoded, never
+derived from `workflow_ref`. The motivating need is different this time: a new local script
+(`panopticon/org_diagram_link.py`, "Org-diagram link script") that a developer runs from their child
+repo checkout, before any merge, to get an immediately clickable link to the org diagram. Unlike the
+embedded back-link (D9), this script's whole point is to work *before* merge, from the child repo's own
+checkout — so it structurally cannot use a same-repo relative path (there is no "same repo" yet); it
+needs a genuinely absolute, resolvable URL, which needs a concrete branch name.
+
+This is not a reversion of D9's reasoning — D9's conclusion (the *embedded* back-link should be
+relative) still holds and is unchanged. The two links solve different problems: one is authored once
+and read after merge (relative, no branch needed); the other is computed on demand and read before
+merge (absolute, branch needed). `instance_default_branch`'s never-guess resolution discipline (GitHub
+API, not `workflow_ref`, not hardcoded `"main"`) is unchanged from the original design.
+
+*Alternative considered*: derive the link from `workflow_ref` instead of adding a field back. Rejected
+for the same reason as before — `workflow_ref` may be a pinned tag, which would point the script's
+output at a historical snapshot rather than the live org diagram.
+
 ## Risks / Trade-offs
 
 - **[Risk]** `.git/info/attributes` is per-checkout: the regeneration step and `git merge` must run

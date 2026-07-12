@@ -1,3 +1,35 @@
+## ADDED Requirements
+
+### Requirement: Org-diagram link script
+
+A child repo SHALL provide a local script, runnable with no instance-repo clone and no network call
+(`python3 -m panopticon.org_diagram_link` or equivalent), that prints exactly one line: a
+fully-qualified, directly resolvable GitHub URL to this repo's section of the org diagram —
+`{instance-repo-url}/blob/{instance_default_branch}/docs/architecture.md#{repo}` — built from
+`panopticon/config.json`'s `instance`, `instance_default_branch` (repo-initialization capability,
+"Recorded instance_default_branch is resolved deterministically, never guessed"), and `repo` fields.
+
+This complements, rather than replaces, the relative link embedded in the repo's own
+`## Architecture diagram` section (see "Diagram navigation uses plain links, not in-diagram
+click-through"): that embedded link only resolves once this repo's docs have been merged into the
+instance repo. This script instead gives a developer sitting in the child repo's own checkout, before
+any merge, an immediately clickable link to the current org-wide picture — no waiting for the next
+merge, no need to already know the instance repo's URL or branch by heart.
+
+#### Scenario: Script prints a resolvable deep link
+
+- **GIVEN** a child repo's `panopticon/config.json` has `instance: "acme/panopticon-instance"`,
+  `instance_default_branch: "main"`, and `repo: "svc-a"`
+- **WHEN** the user runs the org-diagram link script
+- **THEN** it prints exactly `https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a`
+
+#### Scenario: Script requires no instance-repo clone or network call
+
+- **GIVEN** a freshly bootstrapped and initialized child repo with no instance repo cloned locally
+- **WHEN** the user runs the org-diagram link script
+- **THEN** it prints the link successfully by reading only local config — no GitHub API call, no
+  instance-repo clone, no `PYTHONPATH` configuration
+
 ## MODIFIED Requirements
 
 ### Requirement: Per-repo diagram section
