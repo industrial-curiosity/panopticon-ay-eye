@@ -219,12 +219,17 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
 # The exact transitive import closure of `python3 -m panopticon.init_repo` and the
 # `python3 -m panopticon.docs` commands panopticon-doc-generation/SKILL.md invokes directly, plus
 # `sync.py` (tooling-currency capability) so an already-bootstrapped child repo can pull the
-# instance's current skills/tooling on demand via `python3 -m panopticon.sync` — confirmed by
-# reading each module's imports. All stdlib-only. Everything else in panopticon/ (llm.py, drift.py,
-# currency.py, merge.py, extraction.py, skills.py, bootstrap.py, tooling_currency.py, parsers/) is
-# used only by the reusable GitHub Actions workflows that check out the instance repo directly,
-# and has no role in local Phase 2/3 work — it SHALL NOT be vendored into child repos.
-LOCAL_TOOLING_MODULES = ("__init__.py", "config.py", "docs.py", "index.py", "init_repo.py", "sync.py")
+# instance's current skills/tooling on demand via `python3 -m panopticon.sync`, and
+# `org_diagram_link.py` (architecture-diagrams capability) so a developer can print a resolvable
+# link to the org diagram via `python3 -m panopticon.org_diagram_link` — confirmed by reading each
+# module's imports. All stdlib-only. Everything else in panopticon/ (llm.py, drift.py, currency.py,
+# merge.py, extraction.py, skills.py, bootstrap.py, tooling_currency.py, parsers/) is used only by
+# the reusable GitHub Actions workflows that check out the instance repo directly, and has no role
+# in local Phase 2/3 work — it SHALL NOT be vendored into child repos.
+LOCAL_TOOLING_MODULES = (
+    "__init__.py", "config.py", "docs.py", "index.py", "init_repo.py", "sync.py",
+    "org_diagram_link.py",
+)
 
 
 def download_local_tooling(owner, repo, ref, token=None, child_root=".",

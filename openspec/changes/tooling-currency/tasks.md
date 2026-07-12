@@ -112,21 +112,32 @@
 
 ## 11. instance_default_branch and the org-diagram link script
 
-- [ ] 11.1 Resolve the instance repo's actual default branch via the GitHub API in
+- [x] 11.1 Resolve the instance repo's actual default branch via the GitHub API in
       `panopticon/init_repo.py`'s finalization step (never hardcode `"main"`, never derive from
       `workflow_ref`) and persist it as `instance_default_branch` in `panopticon/config.json`
-      alongside `repo`/`instance`/`workflow_ref`/`docs_location`
-- [ ] 11.2 Create `panopticon/org_diagram_link.py`: reads `panopticon/config.json`'s `instance`,
+      alongside `repo`/`instance`/`workflow_ref`/`docs_location`. Uses the same `gh api` pattern
+      already established by `verify_org_secrets` in this module (not raw `urllib`, since this
+      module is vendored/local-only). When unresolvable (no `gh` CLI, unauthenticated, or API
+      failure), the field is omitted rather than guessed, with a message explaining why.
+- [x] 11.2 Create `panopticon/org_diagram_link.py`: reads `panopticon/config.json`'s `instance`,
       `instance_default_branch`, and `repo` fields and prints exactly
       `https://github.com/{instance}/blob/{instance_default_branch}/docs/architecture.md#{repo}` — no
-      network call, no instance-repo clone
-- [ ] 11.3 Add `org_diagram_link.py` to `LOCAL_TOOLING_MODULES` in `bootstrap.py` so it's vendored
+      network call, no instance-repo clone. Fails loudly (never guesses a branch) when
+      `instance_default_branch` is missing from config.
+- [x] 11.3 Add `org_diagram_link.py` to `LOCAL_TOOLING_MODULES` in `bootstrap.py` so it's vendored
       into any already-bootstrapped child repo. `panopticon/tooling_currency.py`'s drift check
       imports `LOCAL_TOOLING_MODULES` from `bootstrap.py` directly, so it picks this up
       automatically — no separate change needed there. `panopticon/sync.py` cannot import from
       `bootstrap.py` (see task 5.1's `ModuleNotFoundError` lesson) and duplicates its own copy of
-      `LOCAL_TOOLING_MODULES`, so that duplicated tuple needs the same addition, kept in sync via
-      `test_sync.py::TestSelfContained.test_local_tooling_modules_matches_bootstrap`
-- [ ] 11.4 Unit tests: `instance_default_branch` resolution (reflects the instance's actual default
+      `LOCAL_TOOLING_MODULES`, so that duplicated tuple got the same addition, kept in sync via
+      `test_sync.py::TestSelfContained.test_local_tooling_modules_matches_bootstrap` (still passing).
+      `panopticon/__init__.py`'s docstring updated too. All existing tests pass unchanged — the
+      `_router()` stubs in test_install.py/test_sync.py iterate `LOCAL_TOOLING_MODULES` dynamically.
+- [x] 11.4 Unit tests: `instance_default_branch` resolution (reflects the instance's actual default
       branch including a non-`main` name; never conflated with a `workflow_ref` pinned to a different
-      tag/branch) and `org_diagram_link.py`'s output (exact URL construction, no network call made)
+      tag/branch) — `tests/test_init_repo.py`'s `TestResolveInstanceDefaultBranch` and
+      `TestInitializeWritesInstanceDefaultBranch`; `org_diagram_link.py`'s output (exact URL
+      construction, missing-field fails loudly rather than guessing, no network call made) —
+      new `tests/test_org_diagram_link.py`. Also fixed a pre-existing bug in `test_init_repo.py`
+      (`unittest.mock` used but never imported at module scope — worked only by accident when run
+      alongside other files that happened to import it first)

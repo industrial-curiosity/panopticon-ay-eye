@@ -28,7 +28,17 @@ org-wide architecture diagram is rebuilt from the fresh compiled index.
   `architecture.md`.
 - **The org-wide diagram** — `docs/architecture.md` at the instance repo's root, rebuilt on every
   merge from every child repo's current interfaces. This repo's own diagram section links to its
-  place in that org-wide picture once this repo's docs have been merged into the instance.
+  place in that org-wide picture once this repo's docs have been merged into the instance — that
+  link only resolves *after* the merge, not before.
+
+To get an immediately clickable link to the org diagram right now, before any merge:
+
+```bash
+python3 -m panopticon.org_diagram_link
+```
+
+This prints a single resolvable URL, reading only local config — no network call, no instance repo
+clone.
 
 ## Keeping this repo's skills and tooling current
 

@@ -2,6 +2,7 @@
 
 import subprocess
 import unittest
+import unittest.mock
 import tempfile
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from panopticon.init_repo import (
     initialize,
     verify_org_secrets,
     _fallback_workflow_ref,
+    _resolve_instance_default_branch,
 )
 
 from .helpers import load_fixture
@@ -42,6 +44,23 @@ def make_valid_child(root, repo="svc-a", docs="docs"):
     write_interface_docs(doc, root / docs, repo)
 
 
+def _stub_runner(returncode=0, stdout="main\n", stderr=""):
+    """A fake subprocess runner for `gh api` calls — never hits the network. Used as run_init()'s
+    default so tests stay hermetic regardless of whether `gh` happens to be installed on the
+    machine running the suite: if it is, this stub intercepts the call instead; if it isn't,
+    _resolve_instance_default_branch short-circuits to None before ever calling it."""
+    class Result:
+        def __init__(self):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def runner(args, **kwargs):
+        return Result()
+
+    return runner
+
+
 def run_init(tmp, **overrides):
     kwargs = {
         "child_root": tmp,
@@ -51,6 +70,7 @@ def run_init(tmp, **overrides):
         "docs_location": None,
         "skip_secret_check": True,
         "prompt": lambda _: "",
+        "runner": _stub_runner(),
     }
     kwargs.update(overrides)
     return initialize(**kwargs)
@@ -277,6 +297,79 @@ class TestSecretVerification(unittest.TestCase):
                 code, messages = run_init(tmp, skip_secret_check=False)
         self.assertEqual(code, 0, messages)
         self.assertIn("missing org-level secret", "\n".join(messages))
+
+
+class TestResolveInstanceDefaultBranch(unittest.TestCase):
+    def gh_stub(self, returncode=0, stdout="", stderr=""):
+        class Result:
+            pass
+
+        result = Result()
+        result.returncode, result.stdout, result.stderr = returncode, stdout, stderr
+        return lambda *args, **kwargs: result
+
+    def test_returns_instance_default_branch(self):
+        with unittest.mock.patch("shutil.which", return_value="/usr/bin/gh"):
+            branch = _resolve_instance_default_branch(
+                "acme/panopticon-instance", runner=self.gh_stub(stdout="main\n")
+            )
+        self.assertEqual(branch, "main")
+
+    def test_non_main_branch_name_returned_as_is(self):
+        with unittest.mock.patch("shutil.which", return_value="/usr/bin/gh"):
+            branch = _resolve_instance_default_branch(
+                "acme/panopticon-instance", runner=self.gh_stub(stdout="trunk\n")
+            )
+        self.assertEqual(branch, "trunk")
+
+    def test_gh_not_installed_returns_none(self):
+        with unittest.mock.patch("shutil.which", return_value=None):
+            branch = _resolve_instance_default_branch(
+                "acme/panopticon-instance", runner=self.gh_stub(stdout="main\n")
+            )
+        self.assertIsNone(branch)
+
+    def test_gh_failure_returns_none(self):
+        with unittest.mock.patch("shutil.which", return_value="/usr/bin/gh"):
+            branch = _resolve_instance_default_branch(
+                "acme/panopticon-instance", runner=self.gh_stub(returncode=1, stderr="HTTP 403")
+            )
+        self.assertIsNone(branch)
+
+
+class TestInitializeWritesInstanceDefaultBranch(unittest.TestCase):
+    def test_resolved_branch_is_persisted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            make_valid_child(tmp)
+            with unittest.mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                code, messages = run_init(tmp, runner=_stub_runner(stdout="main\n"))
+            self.assertEqual(code, 0, messages)
+            config = load_repo_config(tmp)
+        self.assertEqual(config["instance_default_branch"], "main")
+
+    def test_unresolvable_branch_is_omitted_not_guessed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            make_valid_child(tmp)
+            with unittest.mock.patch("shutil.which", return_value=None):
+                code, messages = run_init(tmp, runner=_stub_runner(stdout="main\n"))
+            self.assertEqual(code, 0, messages)
+            config = load_repo_config(tmp)
+        self.assertNotIn("instance_default_branch", config)
+        self.assertIn("could not resolve instance_default_branch", "\n".join(messages))
+
+    def test_never_conflated_with_workflow_ref(self):
+        """workflow_ref may be a pinned tag; instance_default_branch is resolved independently and
+        must never be derived from it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            make_valid_child(tmp)
+            with unittest.mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                code, messages = run_init(
+                    tmp, workflow_ref="v2", runner=_stub_runner(stdout="main\n")
+                )
+            self.assertEqual(code, 0, messages)
+            config = load_repo_config(tmp)
+        self.assertEqual(config["workflow_ref"], "v2")
+        self.assertEqual(config["instance_default_branch"], "main")
 
 
 if __name__ == "__main__":

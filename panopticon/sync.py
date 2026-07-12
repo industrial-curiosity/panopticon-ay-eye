@@ -61,7 +61,10 @@ TOOL_LOCATIONS = {
 }
 
 # Mirrors bootstrap.py's LOCAL_TOOLING_MODULES exactly (test_sync.py asserts this).
-LOCAL_TOOLING_MODULES = ("__init__.py", "config.py", "docs.py", "index.py", "init_repo.py", "sync.py")
+LOCAL_TOOLING_MODULES = (
+    "__init__.py", "config.py", "docs.py", "index.py", "init_repo.py", "sync.py",
+    "org_diagram_link.py",
+)
 
 
 def candidate_locations():

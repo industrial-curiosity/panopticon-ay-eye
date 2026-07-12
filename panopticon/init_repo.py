@@ -147,6 +147,27 @@ def _check_gh_api_kind(org, runner, endpoint, collection_key, items, kind):
     ]
 
 
+def _resolve_instance_default_branch(instance, runner=subprocess.run):
+    """Query the instance repo's actual default branch via `gh api` (tooling-currency capability:
+    "Recorded instance_default_branch is resolved deterministically, never guessed"). Returns None
+    when it can't be resolved (gh CLI missing, unauthenticated, or the API call fails) — the field
+    is then omitted from panopticon/config.json rather than guessed (never hardcode "main", never
+    derive from workflow_ref, which may be a pinned tag unrelated to the instance's actual default
+    branch)."""
+    if shutil.which("gh") is None:
+        return None
+    try:
+        result = runner(
+            ["gh", "api", f"repos/{instance}", "--jq", ".default_branch"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
 def verify_org_secrets(org, runner=subprocess.run):
     """Report-only org secret/variable verification via the gh CLI. Never blocks local init."""
     if shutil.which("gh") is None:
@@ -164,7 +185,7 @@ def verify_org_secrets(org, runner=subprocess.run):
 
 
 def initialize(child_root, repo_name, instance, docs_location=None, workflow_ref=None,
-               skip_secret_check=False, prompt=input):
+               skip_secret_check=False, prompt=input, runner=subprocess.run):
     """Finalization pass: validate agent output and write panopticon/config.json.
 
     `workflow_ref` defaults to None, meaning "derive it" — read from the ref bootstrap.py already
@@ -199,17 +220,24 @@ def initialize(child_root, repo_name, instance, docs_location=None, workflow_ref
         return 1, messages
 
     if not skip_secret_check:
-        messages.extend(verify_org_secrets(instance.split("/")[0]))
+        messages.extend(verify_org_secrets(instance.split("/")[0], runner=runner))
 
-    save_repo_config(
-        {
-            "repo": repo_name,
-            "instance": instance,
-            "workflow_ref": workflow_ref,
-            "docs_location": docs_location,
-        },
-        repo_root=child_root,
-    )
+    config = {
+        "repo": repo_name,
+        "instance": instance,
+        "workflow_ref": workflow_ref,
+        "docs_location": docs_location,
+    }
+    instance_default_branch = _resolve_instance_default_branch(instance, runner=runner)
+    if instance_default_branch:
+        config["instance_default_branch"] = instance_default_branch
+    else:
+        messages.append(
+            "could not resolve instance_default_branch (gh CLI unavailable or unauthenticated) — "
+            "panopticon.org_diagram_link will need it added to panopticon/config.json manually"
+        )
+
+    save_repo_config(config, repo_root=child_root)
     messages.append(f"wrote panopticon/config.json (repo={repo_name}, docs_location={docs_location})")
     return 0, messages
 

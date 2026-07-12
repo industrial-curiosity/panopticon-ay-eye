@@ -87,7 +87,8 @@ stopgaps.
   validation (`docs.py`), doc-drift, index-currency, diagram-existence, and tooling-currency checks (`drift.py`,
   `currency.py`, `diagram_check.py`, `tooling_currency.py` — the last always advisory, never gated), deterministic
   org-wide diagram rendering (`diagrams.py`), org/repo/diagram config and the protected-config registries
-  (`config.py`), child-repo init (`init_repo.py`), and the on-demand local sync script (`sync.py`)
+  (`config.py`), child-repo init (`init_repo.py`), the on-demand local sync script (`sync.py`), and the
+  org-diagram link script (`org_diagram_link.py`)
 - `.github/workflows/` — the reusable workflows child repos call: `panopticon-pr.yml`, `panopticon-merge.yml`,
   `panopticon-pr-close.yml`; plus `sync-from-template.yml`, run from instance repos to pull template updates
 - `interfaces/` — index shards + compiled index (empty in the template; populated in instance repos)

@@ -228,3 +228,20 @@ upstream template, declare it in the instance's `panopticon.config.json` under `
 (step 3) — `sync.py` does not consult `protected_paths` itself (it always overwrites the child
 unconditionally by design); `protected_paths` only protects the *instance* repo's own copy from the
 *template*.
+
+## 7. Finding the org-wide architecture diagram from a child repo
+
+A child repo's own `## Architecture diagram` section links back to the org diagram, but that link is
+relative and only resolves once this repo's docs have been merged into the instance repo (see the
+architecture-diagrams capability) — it won't work if you click it before then. For an immediately
+clickable link, from your own checkout, before any merge:
+
+```bash
+python3 -m panopticon.org_diagram_link
+```
+
+This prints a single resolvable URL, e.g. `https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a`,
+reading only local config — no network call, no instance repo clone. It requires `panopticon/config.json`'s
+`instance_default_branch` field, resolved automatically during Phase 3 finalization (via the `gh`
+CLI); if that field is missing (e.g. `gh` wasn't installed/authenticated when you finalized), re-run
+`python3 -m panopticon.init_repo` with `gh` available to populate it.
