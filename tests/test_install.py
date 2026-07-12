@@ -41,6 +41,7 @@ from panopticon.bootstrap import (
     select_skills_location,
     sync_reminder,
     wire_workflows,
+    write_local_tooling_gitignore,
 )
 from panopticon.bootstrap import main as bootstrap_main
 
@@ -297,6 +298,28 @@ class TestDownloadLocalTooling(unittest.TestCase):
         total = len(LOCAL_TOOLING_MODULES)
         for i, name in enumerate(LOCAL_TOOLING_MODULES, start=1):
             self.assertIn(f"[{i}/{total}] {name}", out.getvalue())
+
+
+class TestWriteLocalToolingGitignore(unittest.TestCase):
+    def test_writes_gitignore_with_pycache_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_local_tooling_gitignore(child_root=tmp)
+            content = (Path(tmp) / "panopticon" / ".gitignore").read_text()
+        self.assertEqual(path, Path(tmp) / "panopticon" / ".gitignore")
+        self.assertEqual(content, "__pycache__/\n")
+
+    def test_creates_panopticon_dir_if_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse((Path(tmp) / "panopticon").exists())
+            write_local_tooling_gitignore(child_root=tmp)
+            self.assertTrue((Path(tmp) / "panopticon").is_dir())
+
+    def test_idempotent_rerun_overwrites_without_duplicating(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_local_tooling_gitignore(child_root=tmp)
+            write_local_tooling_gitignore(child_root=tmp)
+            content = (Path(tmp) / "panopticon" / ".gitignore").read_text()
+        self.assertEqual(content, "__pycache__/\n")
 
 
 # ── Getting-started guide ────────────────────────────────────────────────────────
@@ -819,7 +842,7 @@ class TestMainSkillsLocationFlow(unittest.TestCase):
             )
             vendored = {p.name for p in (Path(tmp) / "panopticon").iterdir()}
         self.assertEqual(code, 0)
-        self.assertEqual(vendored, set(LOCAL_TOOLING_MODULES))
+        self.assertEqual(vendored, set(LOCAL_TOOLING_MODULES) | {".gitignore"})
 
     def test_default_location_used_without_override(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -32,6 +32,9 @@ Tooling-currency detection for child repos, plus robustness fixes surfaced by ex
   token/transport mechanism the bootstrap script already uses for every other request (never a
   `gh api` subprocess call, which depends on `gh auth login` specifically) — refreshed in place on
   every bootstrap rerun of an already-initialized repo.
+- Bootstrap now writes `panopticon/.gitignore` (`__pycache__/`) alongside the vendored local-tooling
+  modules, so running them (as the bundled skills instruct) never leaves compiled bytecode staged
+  on the next `git add -A`.
 
 **Architecture diagrams** (`architecture-diagrams`)
 - `python3 -m panopticon.org_diagram_link`: prints an immediately clickable link to a child repo's

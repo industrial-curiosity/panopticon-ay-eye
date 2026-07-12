@@ -285,6 +285,17 @@ def download_local_tooling(owner, repo, ref, token=None, child_root=".",
         print(f"  [{i}/{total}] {name}")
     return total
 
+
+def write_local_tooling_gitignore(child_root="."):
+    """Write panopticon/.gitignore so bytecode from running the vendored modules (`__pycache__/`)
+    is never accidentally committed. Idempotent: overwrites in place, same trust model as
+    download_local_tooling's own vendored files."""
+    dest_dir = Path(child_root) / "panopticon"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    path = dest_dir / ".gitignore"
+    path.write_text("__pycache__/\n", encoding="utf-8")
+    return path
+
 # ── Getting-started guide ────────────────────────────────────────────────────────
 # A single, concise, static, template-authored file (tooling-currency capability) — identical
 # across every child repo of a given instance, downloaded verbatim like skills/tooling (never
@@ -638,6 +649,8 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
     except RuntimeError as exc:
         print(f"  error: {exc}")
         return 1
+    write_local_tooling_gitignore(child_root)
+    print("  panopticon/.gitignore written (ignores __pycache__/)")
 
     # Download the getting-started guide (tooling-currency capability).
     print("\nDownloading getting-started guide...")
