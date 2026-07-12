@@ -2,6 +2,61 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [0.1.1] - 2026-07-12
+
+Tooling-currency detection for child repos, plus robustness fixes surfaced by exercising the
+0.1.0 release end-to-end. Established across `openspec/changes/tooling-currency` and
+`openspec/changes/robust-llm-verdicts`.
+
+### Added
+
+**Tooling currency** (`tooling-currency`, new capability)
+- Advisory-only PR check warning when a child repo's wired workflow ref, downloaded skills, or
+  vendored local tooling have drifted from the instance repo's current default branch —
+  content-based comparison only, never timestamps, and never gated or folded into the combined
+  TL;DR report.
+- `python3 -m panopticon.sync`: pulls the instance's current skills and tooling into an
+  already-bootstrapped child repo on demand, overwriting unconditionally (git review is the
+  safety net); `--check-updates` reports what would change via a git-blob-hash comparison without
+  writing anything.
+- Org-declared `protected_paths` in `panopticon.config.json`: arbitrary instance-level
+  customizations (skills, tooling modules) excluded from `sync-from-template`'s merge via
+  `.git/info/attributes` (never a commit, never the tracked `.gitattributes`), printed to the sync
+  run's step summary since the protection itself is invisible in the tracked tree.
+
+**Repo initialization** (`repo-initialization`)
+- `PANOPTICON.md`: a concise, static getting-started guide downloaded to every child repo's root
+  on bootstrap, covering the three repo roles, where architecture diagrams live, and how to run
+  the sync script; the bootstrap script's printed output now names both on every run.
+- `panopticon/config.json` gains `instance_default_branch`, resolved via the same GitHub
+  token/transport mechanism the bootstrap script already uses for every other request (never a
+  `gh api` subprocess call, which depends on `gh auth login` specifically) — refreshed in place on
+  every bootstrap rerun of an already-initialized repo.
+
+**Architecture diagrams** (`architecture-diagrams`)
+- `python3 -m panopticon.org_diagram_link`: prints an immediately clickable link to a child repo's
+  section of the org-wide diagram, for use before that repo's docs have been merged into the
+  instance (the embedded in-doc link only resolves after merge). Reads local config first with no
+  network call; falls back to a live lookup only when needed.
+
+**Agent runtime** (`agent-runtime`)
+- Structured LLM responses (doc-drift, index-currency, interface-extraction verdicts) now recover
+  from a non-compliant first response via one shared, bounded corrective-retry method instead of
+  failing outright — the model's non-compliant answer plus a specific correction are appended to
+  the conversation and retried before failing loudly. No provider-specific request parameters, so
+  this works across any litellm-compatible endpoint.
+
+### Fixed
+
+- Child repo's `## Architecture diagram` section linked back to the org diagram with a malformed,
+  non-resolving URL (missing GitHub's required `/blob/<branch>/` path segment); corrected to a
+  relative link that resolves once merged into the instance repo.
+- A model responding with prose reasoning instead of a JSON verdict crashed the doc-drift check
+  outright with no recovery path — now corrected via retry (see agent-runtime, above).
+- `instance_default_branch` resolution depended on `gh auth login` having been run interactively,
+  a stricter precondition than the token-based auth the bootstrap script's own downloads already
+  relied on successfully — a working `GH_TOKEN`/`GITHUB_TOKEN` now resolves it directly.
+
 ## [0.1.0] - 2026-07-10
 
 First usable release: an org-wide interface catalog and documentation system, initialized from a
@@ -110,4 +165,5 @@ gating for pull requests. Established across `openspec/changes/establish-panopti
 - Exit-code collision where an uncaught check exception and a genuine "stale" verdict produced the
   same exit code, causing crashes to be silently misreported as business verdicts.
 
+[0.1.1]: https://github.com/industrial-curiosity/panopticon-ay-eye/releases/tag/v0.1.1
 [0.1.0]: https://github.com/industrial-curiosity/panopticon-ay-eye/releases/tag/v0.1.0
