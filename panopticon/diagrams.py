@@ -112,7 +112,7 @@ def _table(rows):
     ]
     for row in rows:
         other = row["other_repo"]
-        link = f"[{other}](docs/{other}/architecture.md)"
+        link = f"[{other}]({other}/architecture.md)"
         lines.append(f"| `{row['name']}` | {row['type']} | {row['direction']} | {link} | {row['other_role']} |")
     return "\n".join(lines)
 
@@ -136,7 +136,7 @@ def render_org_diagram(compiled, diagram_format=None):
         lines += [
             f"## {repo}",
             "",
-            f"See this repo's own diagram: [docs/{repo}/architecture.md](docs/{repo}/architecture.md)",
+            f"See this repo's own diagram: [{repo}/architecture.md]({repo}/architecture.md)",
             "",
             f"```{fmt}",
             _mermaid_graph(repo, rows),

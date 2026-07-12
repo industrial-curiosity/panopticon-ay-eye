@@ -100,10 +100,15 @@ class TestRenderOrgDiagram(unittest.TestCase):
         self.assertIn("```mermaid", text)
 
     def test_navigation_links_to_child_repo_docs(self):
+        # Links live in docs/architecture.md itself, so the href must be relative to docs/ —
+        # i.e. "svc-a/architecture.md", not "docs/svc-a/architecture.md" (which would resolve to
+        # the non-existent docs/docs/svc-a/architecture.md on GitHub).
         compiled = compile_index(base_shards())
         text = render_org_diagram(compiled)
-        self.assertIn("docs/svc-a/architecture.md", text)
-        self.assertIn("docs/svc-b/architecture.md", text)
+        self.assertIn("svc-a/architecture.md", text)
+        self.assertIn("svc-b/architecture.md", text)
+        self.assertNotIn("docs/svc-a/architecture.md", text)
+        self.assertNotIn("docs/svc-b/architecture.md", text)
 
     def test_rendering_is_deterministic(self):
         compiled = compile_index(base_shards())

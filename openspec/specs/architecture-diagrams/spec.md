@@ -101,6 +101,13 @@ merge: the merge step always normalizes every repo's docs into the same `docs/{r
 under the instance repo's `docs/`), so the relative path from any repo's merged `architecture.md` up to
 the org diagram is always `../architecture.md`, identically for every repo.
 
+Because the org diagram document itself lives one level inside `docs/` (at `docs/architecture.md`, not at
+the instance repo root), every link it emits toward a child repo's own diagram SHALL use `{repo}/architecture.md`
+as the literal href — relative to the org diagram's own directory (`docs/`) — never `docs/{repo}/architecture.md`.
+The latter is a description of the resolved target's path from the instance repo root, not a literal href:
+using it as the href double-counts the `docs/` segment the org diagram file is already inside, and GitHub
+resolves it to the non-existent `docs/docs/{repo}/architecture.md`.
+
 A child repo's own local `## Architecture diagram` section back-link is therefore authored for its
 *post-merge* location in the instance repo, not its current location in the child repo's own checkout.
 The link SHALL NOT be expected to resolve when viewed directly in the child repo before that repo's docs
@@ -110,9 +117,11 @@ browsing individual child repos in isolation.
 
 #### Scenario: User navigates from the org diagram to a child repo's diagram
 
-- **WHEN** a user viewing the org diagram wants to see a specific repo's own component diagram
-- **THEN** a markdown link in that repo's table row or section leads to `docs/{repo}/architecture.md` in the
-  instance repo
+- **WHEN** a user viewing the org diagram (`docs/architecture.md`) wants to see a specific repo's own
+  component diagram
+- **THEN** a markdown link in that repo's table row or section uses the literal href `{repo}/architecture.md`
+  (no `docs/` prefix), which resolves relative to the org diagram's own directory to `docs/{repo}/architecture.md`
+  in the instance repo
 
 #### Scenario: User navigates from a child repo's diagram to the org diagram
 
