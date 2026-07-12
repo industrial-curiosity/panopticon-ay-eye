@@ -64,18 +64,29 @@ regardless of whether that prompt is also printed.
 
 ### Requirement: Recorded instance_default_branch is resolved deterministically, never guessed
 
-The finalization step SHALL resolve `instance_default_branch` by querying the instance repo's actual
-default branch via the GitHub API at finalization time, and SHALL NOT hardcode `"main"`, derive it from
-`workflow_ref`, or otherwise guess it. `workflow_ref` MAY reference an org-pinned tag or branch chosen
-independently of the instance repo's actual default branch (see "Default workflow ref requires no manual
-instance setup"), so conflating the two would silently produce a wrong value for anything built from
-`instance_default_branch` (the tooling-currency capability's org-diagram link script). This mirrors
-"Recorded workflow_ref matches the wired caller workflows"'s never-guess discipline, applied to this
-second, independently-resolved field on the same config file.
+`instance_default_branch` SHALL be resolved via the same GitHub API token/transport mechanism the
+bootstrap script already uses for every other instance-repo request (`GH_TOKEN`/`GITHUB_TOKEN`
+environment variables, falling back to `gh auth token` only to extract a token — never a direct `gh
+api` subprocess call, which depends on the separate, narrower precondition of `gh auth login` having
+been run interactively, and can fail even when the token-based mechanism the rest of bootstrap
+already relies on works fine). Resolution SHALL NOT hardcode `"main"`, derive the value from
+`workflow_ref`, or otherwise guess it. `workflow_ref` MAY reference an org-pinned tag or branch
+chosen independently of the instance repo's actual default branch (see "Default workflow ref
+requires no manual instance setup"), so conflating the two would silently produce a wrong value for
+anything built from `instance_default_branch` (the tooling-currency capability's org-diagram link
+script). This mirrors "Recorded workflow_ref matches the wired caller workflows"'s never-guess
+discipline, applied to this second, independently-resolved field on the same config file.
+
+Both the bootstrap script (see "Bootstrap script refreshes instance_default_branch on rerun") and
+the finalization step use this same resolution logic — sharing the mechanism, not the code path,
+since bootstrap.py and init_repo.py cannot import from each other (repo-initialization's existing
+CI/local module boundary: init_repo.py is vendored into child repos and cannot import bootstrap.py,
+which is CI-only and never vendored).
 
 #### Scenario: Instance's default branch is recorded as-is
 
-- **GIVEN** the instance repo's actual default branch is `main`
+- **GIVEN** the instance repo's actual default branch is `main`, and `GH_TOKEN` or `GITHUB_TOKEN` is
+  set (or `gh auth token` yields a valid token)
 - **WHEN** the finalization step runs and writes `panopticon/config.json`
 - **THEN** the `instance_default_branch` field is `main`
 
@@ -92,6 +103,49 @@ second, independently-resolved field on the same config file.
 - **WHEN** the finalization step runs and writes `panopticon/config.json`
 - **THEN** `workflow_ref` is `v2` and `instance_default_branch` is `main` — the two fields are never
   conflated or derived from one another
+
+#### Scenario: A working GH_TOKEN resolves the branch even when `gh auth login` was never run
+
+- **GIVEN** `GH_TOKEN` is set to a valid token, and the `gh` CLI is installed but has never had `gh
+  auth login` run (so `gh api ...` would fail with an authentication error if called directly)
+- **WHEN** the finalization step (or the bootstrap script, on a rerun of an already-initialized
+  repo) resolves `instance_default_branch`
+- **THEN** resolution succeeds, using `GH_TOKEN` directly rather than depending on `gh`'s own
+  separate credential store
+
+### Requirement: Bootstrap script refreshes instance_default_branch on rerun
+
+The bootstrap script SHALL, on an already-initialized repo (one whose `panopticon/config.json`
+already exists), re-resolve `instance_default_branch` (same mechanism and never-guess
+discipline as "Recorded instance_default_branch is resolved deterministically, never guessed") and
+update just that field in `panopticon/config.json` in place, leaving every other field untouched.
+This is a narrow, explicit exception to "Bootstrap installer script"'s general rule that the
+bootstrap script SHALL NOT write `panopticon/config.json`: that rule protects the file's *creation*
+(gated on the finalization step's validation passing, so the file's existence is a trustworthy signal
+of "initialization complete") — it was never a statement that the file can never be touched again.
+Re-running the bootstrap script is a low-friction, frequently-repeated operation (`PANOPTICON.md`
+itself says "Re-run install.py to update") — refreshing this one field there, rather than requiring a
+full re-run of finalization (which in turn requires re-running the AI agent), is the appropriate
+place for this specific fix to land quickly.
+
+The bootstrap script SHALL still never *create* `panopticon/config.json` — this exception applies
+only when the file already exists. On a repo's first bootstrap (config not yet created), resolution
+happens the first time via the finalization step, as already specified.
+
+#### Scenario: Rerun on an initialized repo updates only instance_default_branch
+
+- **GIVEN** an already-initialized child repo whose `panopticon/config.json` has
+  `instance_default_branch: null` or missing (e.g. finalization couldn't resolve it originally)
+- **WHEN** the bootstrap script is re-run and can now resolve the instance's default branch
+- **THEN** `panopticon/config.json`'s `instance_default_branch` field is updated in place, and every
+  other field (`repo`, `instance`, `workflow_ref`, `docs_location`) is unchanged
+
+#### Scenario: First bootstrap on an uninitialized repo does not create panopticon/config.json
+
+- **GIVEN** a child repo with no `panopticon/config.json` yet (never initialized)
+- **WHEN** the bootstrap script runs
+- **THEN** `panopticon/config.json` is still not created — only the finalization step, after
+  validation passes, creates it (see "Bootstrap installer script")
 
 ## MODIFIED Requirements
 
@@ -142,14 +196,20 @@ script SHALL:
    `PANOPTICON.md` (see "Getting-started guide vendored into child repo").
 5. Download the three caller workflow files from the instance repo and write them to the child repo's
    `.github/workflows/`, creating the directory if absent.
-6. Verify org-level CI prerequisites (secrets and variables) and report any missing items — report-only,
+6. If `panopticon/config.json` already exists (the repo was already initialized), re-resolve and
+   update its `instance_default_branch` field in place (see "Bootstrap script refreshes
+   instance_default_branch on rerun") — every other field is left untouched.
+7. Verify org-level CI prerequisites (secrets and variables) and report any missing items — report-only,
    never blocking.
-7. Output the exact prompts the user shall give their AI agent to complete the AI-dependent initialization
+8. Output the exact prompts the user shall give their AI agent to complete the AI-dependent initialization
    steps (see "Agent prompts output"), and the sync-workflow reference (see "Bootstrap output references
    the sync workflow and getting-started guide").
 
-The bootstrap script SHALL NOT write `panopticon/config.json`. The config file is the last artifact
-created, by the finalization step after the agent has completed its work.
+The bootstrap script SHALL NOT *create* `panopticon/config.json` — that remains the last artifact
+created, by the finalization step, only after the agent has completed its work and validation
+passes. Step 6 above is a narrow, explicit exception covering only an update to one field of an
+*already-existing* config file on rerun (see "Bootstrap script refreshes instance_default_branch on
+rerun"); it does not change when or how the file is first created.
 
 #### Self-bootstrapping when piped via curl
 

@@ -112,18 +112,29 @@
 
 ## 11. instance_default_branch and the org-diagram link script
 
-- [x] 11.1 Resolve the instance repo's actual default branch via the GitHub API in
-      `panopticon/init_repo.py`'s finalization step (never hardcode `"main"`, never derive from
-      `workflow_ref`) and persist it as `instance_default_branch` in `panopticon/config.json`
-      alongside `repo`/`instance`/`workflow_ref`/`docs_location`. Uses the same `gh api` pattern
-      already established by `verify_org_secrets` in this module (not raw `urllib`, since this
-      module is vendored/local-only). When unresolvable (no `gh` CLI, unauthenticated, or API
-      failure), the field is omitted rather than guessed, with a message explaining why.
-- [x] 11.2 Create `panopticon/org_diagram_link.py`: reads `panopticon/config.json`'s `instance`,
-      `instance_default_branch`, and `repo` fields and prints exactly
-      `https://github.com/{instance}/blob/{instance_default_branch}/docs/architecture.md#{repo}` — no
-      network call, no instance-repo clone. Fails loudly (never guesses a branch) when
-      `instance_default_branch` is missing from config.
+> Note: 11.1, 11.2, and 11.4 were cleared and reopened after a real-world usability report:
+> `_resolve_instance_default_branch`'s original implementation used `gh api ... ` as a subprocess,
+> which depends on `gh auth login` having been run interactively — a *different*, narrower
+> precondition than the token-based mechanism `bootstrap.py`/`sync.py` already use successfully for
+> every other instance-repo request. A user whose bootstrap run succeeded (proving their token-based
+> auth worked) still hit "gh CLI isn't authenticated" from finalization, and had no way to recover
+> without fixing `gh` specifically. See design.md D11. The code these tasks originally produced is
+> directly incompatible with the corrected spec and needs to change, not just be redescribed — hence
+> clearing rather than leaving checked.
+
+- [x] 11.1 Rewrite `panopticon/init_repo.py`'s `_resolve_instance_default_branch` to use the same
+      token/transport mechanism `bootstrap.py`/`sync.py` already use (`GH_TOKEN`/`GITHUB_TOKEN` env
+      vars, falling back to `gh auth token` only to extract a token — never a direct `gh api`
+      subprocess call), duplicating the needed primitives the same way `sync.py` already does (task
+      5.1's `ModuleNotFoundError` lesson: `init_repo.py` is vendored and cannot import
+      `bootstrap.py`). Still: never hardcode `"main"`, never derive from `workflow_ref`; omit the
+      field with an explanatory message when genuinely unresolvable.
+- [x] 11.2 Add the same corrected resolution logic to `panopticon/bootstrap.py`
+      (`fetch_instance_default_branch`, reusing its existing `_api_get`), and call it from `main()`
+      via `refresh_instance_default_branch`: when `panopticon/config.json` already exists (repo
+      already initialized), re-resolve `instance_default_branch` and update just that field in
+      place — every other field untouched. Bootstrap still never *creates*
+      `panopticon/config.json` (see "Bootstrap script refreshes instance_default_branch on rerun")
 - [x] 11.3 Add `org_diagram_link.py` to `LOCAL_TOOLING_MODULES` in `bootstrap.py` so it's vendored
       into any already-bootstrapped child repo. `panopticon/tooling_currency.py`'s drift check
       imports `LOCAL_TOOLING_MODULES` from `bootstrap.py` directly, so it picks this up
@@ -133,11 +144,27 @@
       `test_sync.py::TestSelfContained.test_local_tooling_modules_matches_bootstrap` (still passing).
       `panopticon/__init__.py`'s docstring updated too. All existing tests pass unchanged — the
       `_router()` stubs in test_install.py/test_sync.py iterate `LOCAL_TOOLING_MODULES` dynamically.
-- [x] 11.4 Unit tests: `instance_default_branch` resolution (reflects the instance's actual default
-      branch including a non-`main` name; never conflated with a `workflow_ref` pinned to a different
-      tag/branch) — `tests/test_init_repo.py`'s `TestResolveInstanceDefaultBranch` and
-      `TestInitializeWritesInstanceDefaultBranch`; `org_diagram_link.py`'s output (exact URL
-      construction, missing-field fails loudly rather than guessing, no network call made) —
-      new `tests/test_org_diagram_link.py`. Also fixed a pre-existing bug in `test_init_repo.py`
-      (`unittest.mock` used but never imported at module scope — worked only by accident when run
-      alongside other files that happened to import it first)
+      (Unaffected by the D11 rework — stays complete.)
+- [x] 11.4 Update `panopticon/org_diagram_link.py`: config field checked first as before (no network
+      call in the common case, `resolve_branch()`); when `instance_default_branch` is genuinely
+      absent, attempt a live GitHub API lookup (same token-based mechanism as 11.1, duplicated
+      again per the "each vendored module stands alone" precedent) before failing; if that also
+      fails, fail loudly with a message explaining both why (config gap + live lookup failure) and
+      how to fix it — never guessing a branch name. `build_link()`'s signature changed from
+      `build_link(repo_config)` to `build_link(instance, branch, repo)` to separate URL construction
+      from branch resolution.
+- [x] 11.5 Unit tests: `_resolve_instance_default_branch`'s corrected token-based resolution
+      (`GH_TOKEN`/`GITHUB_TOKEN` succeed without `gh auth login`; `gh auth token` fallback; still
+      returns `None`, never a guess, when nothing works) in both `init_repo.py` and `bootstrap.py`;
+      bootstrap's rerun-refresh (updates only `instance_default_branch`, leaves other fields
+      untouched, never creates `panopticon/config.json` on a first run — new
+      `TestFetchInstanceDefaultBranch`/`TestRefreshInstanceDefaultBranch` in `test_install.py`, plus
+      an end-to-end `main()` test for the rerun case); `org_diagram_link.py`'s live fallback
+      (succeeds via live lookup when config is missing the field; fails loudly, still no guessed
+      branch, when the live lookup also fails) — rewritten `tests/test_init_repo.py`,
+      `tests/test_install.py`, `tests/test_org_diagram_link.py`. Also fixed a pre-existing bug in
+      `test_init_repo.py` (`unittest.mock` used but never imported at module scope — worked only by
+      accident when run alongside other files that happened to import it first), and a
+      `ResourceWarning` from unclosed `HTTPError` objects in the three duplicated resolvers (fixed
+      to match `bootstrap.py`'s existing `_api_get`'s `with exc:` cleanup pattern). Full suite:
+      351/351 passing, including with `ResourceWarning` promoted to an error.

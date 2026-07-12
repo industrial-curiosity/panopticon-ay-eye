@@ -2,12 +2,21 @@
 
 ### Requirement: Org-diagram link script
 
-A child repo SHALL provide a local script, runnable with no instance-repo clone and no network call
-(`python3 -m panopticon.org_diagram_link` or equivalent), that prints exactly one line: a
-fully-qualified, directly resolvable GitHub URL to this repo's section of the org diagram —
-`{instance-repo-url}/blob/{instance_default_branch}/docs/architecture.md#{repo}` — built from
-`panopticon/config.json`'s `instance`, `instance_default_branch` (repo-initialization capability,
-"Recorded instance_default_branch is resolved deterministically, never guessed"), and `repo` fields.
+A child repo SHALL provide a local script (`python3 -m panopticon.org_diagram_link` or equivalent)
+that prints exactly one line: a fully-qualified, directly resolvable GitHub URL to this repo's
+section of the org diagram — `{instance-repo-url}/blob/{instance_default_branch}/docs/architecture.md#{repo}`
+— built from `panopticon/config.json`'s `instance`, `instance_default_branch`, and `repo` fields.
+
+`panopticon/config.json` SHALL always be consulted first, and is sufficient on its own whenever
+`instance_default_branch` is already populated there (repo-initialization capability, "Recorded
+instance_default_branch is resolved deterministically, never guessed"; kept current on every
+bootstrap rerun by "Bootstrap script refreshes instance_default_branch on rerun") — no network call
+needed in that case. Only when the field is genuinely absent from config SHALL the script fall back
+to resolving the instance's default branch live via a `gh api` call, so a developer isn't blocked by
+a config gap that a one-off local lookup can paper over. If that live fallback also fails (`gh`
+missing, unauthenticated, or the API call errors), the script SHALL fail loudly with a message
+explaining both why (config gap and the live lookup's own failure) and how to fix it — never guessing
+a branch name.
 
 This complements, rather than replaces, the relative link embedded in the repo's own
 `## Architecture diagram` section (see "Diagram navigation uses plain links, not in-diagram
@@ -16,19 +25,30 @@ instance repo. This script instead gives a developer sitting in the child repo's
 any merge, an immediately clickable link to the current org-wide picture — no waiting for the next
 merge, no need to already know the instance repo's URL or branch by heart.
 
-#### Scenario: Script prints a resolvable deep link
+#### Scenario: Script prints a resolvable deep link from config alone
 
 - **GIVEN** a child repo's `panopticon/config.json` has `instance: "acme/panopticon-instance"`,
   `instance_default_branch: "main"`, and `repo: "svc-a"`
 - **WHEN** the user runs the org-diagram link script
 - **THEN** it prints exactly `https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a`
+  by reading only local config — no GitHub API call, no instance-repo clone, no `PYTHONPATH`
+  configuration
 
-#### Scenario: Script requires no instance-repo clone or network call
+#### Scenario: Missing config field falls back to a live lookup
 
-- **GIVEN** a freshly bootstrapped and initialized child repo with no instance repo cloned locally
+- **GIVEN** a child repo's `panopticon/config.json` has `instance: "acme/panopticon-instance"` and
+  `repo: "svc-a"` but no `instance_default_branch` field, and `gh` is installed and authenticated
 - **WHEN** the user runs the org-diagram link script
-- **THEN** it prints the link successfully by reading only local config — no GitHub API call, no
-  instance-repo clone, no `PYTHONPATH` configuration
+- **THEN** it resolves the instance's default branch live via `gh api` and prints the resulting link,
+  without requiring the user to re-run bootstrap or finalization first
+
+#### Scenario: Missing config field and failed live lookup fails loudly
+
+- **GIVEN** a child repo's `panopticon/config.json` has no `instance_default_branch` field, and `gh`
+  is either not installed or not authenticated
+- **WHEN** the user runs the org-diagram link script
+- **THEN** it exits non-zero with a message explaining that the field is missing and the live lookup
+  also failed, and how to fix either — it SHALL NOT print a link built from a guessed branch name
 
 ## MODIFIED Requirements
 

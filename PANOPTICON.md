@@ -37,8 +37,10 @@ To get an immediately clickable link to the org diagram right now, before any me
 python3 -m panopticon.org_diagram_link
 ```
 
-This prints a single resolvable URL, reading only local config — no network call, no instance repo
-clone.
+This prints a single resolvable URL, reading `panopticon/config.json` first — no network call in
+the common case. If that config is missing the branch it needs, it falls back to a live lookup
+(using the same `GH_TOKEN`/`GITHUB_TOKEN`/`gh auth token` credentials the rest of this repo's
+tooling already uses) before giving up. No instance repo clone either way.
 
 ## Keeping this repo's skills and tooling current
 

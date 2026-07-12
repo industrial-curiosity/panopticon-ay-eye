@@ -45,14 +45,19 @@ built for `panopticon.diagram.config.json` to arbitrary, org-declared paths.
   diagram links (`panopticon/diagrams.py`'s `docs/{other}/architecture.md`) were already correct and
   are unchanged.
 - The child repo config (`panopticon/config.json`) gains a new `instance_default_branch` field —
-  resolved via the GitHub API at finalization time, never guessed, never derived from the
-  possibly-pinned-tag `workflow_ref` (design D10; this is a different need from the diagram-link fix
-  above, not a reintroduction of it). It powers a new local script,
-  `python3 -m panopticon.org_diagram_link`, vendored alongside `sync.py`, that a developer runs from
-  their child repo checkout — before any merge — to print an immediately clickable, fully-resolved
-  link to this repo's section of the org diagram
-  (`{instance-repo-url}/blob/{instance_default_branch}/docs/architecture.md#{repo}`). No network call:
-  it reads only local config.
+  resolved via the same GitHub token/transport mechanism the bootstrap script already uses for every
+  other request (never `gh api` as a subprocess, which depends on the separate, narrower precondition
+  of `gh auth login`; never guessed; never derived from the possibly-pinned-tag `workflow_ref`; design
+  D10/D11 — a different need from the diagram-link fix above, not a reintroduction of it). It powers a
+  new local script, `python3 -m panopticon.org_diagram_link`, vendored alongside `sync.py`, that a
+  developer runs from their child repo checkout — before any merge — to print an immediately
+  clickable, fully-resolved link to this repo's section of the org diagram
+  (`{instance-repo-url}/blob/{instance_default_branch}/docs/architecture.md#{repo}`). Config is always
+  checked first (no network call in the common case); the script falls back to a live `gh` lookup only
+  when the field is genuinely absent, and fails loudly (never guessing) if that also fails. The
+  bootstrap script also now refreshes this field in place on every rerun of an already-initialized
+  repo (design D11) — a narrow exception to its general "never write panopticon/config.json" rule,
+  scoped to updating one field of an already-existing file, never creating it.
 - `panopticon.config.json` gains a new org-declared `protected_paths` field — arbitrary paths
   (skills, tooling modules, future plugin content) an org has customized at the instance level.
   `sync-from-template.yml` gains a step, run before `git merge`, that writes these paths (each with
@@ -84,8 +89,12 @@ built for `panopticon.diagram.config.json` to arbitrary, org-declared paths.
   gains the new sync script so it's available in any already-bootstrapped child repo. Bootstrap also
   now vendors a static `PANOPTICON.md` getting-started guide and prints the sync command on every run
   (design D8). The finalization step gains a new `instance_default_branch` config field, resolved
-  deterministically via the GitHub API (design D10), and the local-tooling vendoring list gains the
-  new org-diagram-link script.
+  deterministically via the same token/transport mechanism the bootstrap script already uses, not
+  `gh api` as a subprocess (design D10/D11), and the local-tooling vendoring list gains the new
+  org-diagram-link script. The bootstrap script also gains a narrow, explicit exception to its "never
+  write panopticon/config.json" rule: on rerun of an already-initialized repo, it refreshes just the
+  `instance_default_branch` field in place (design D11) — never creating the file, only updating one
+  field of an already-existing one.
 - `architecture-diagrams`: the child-repo → org-diagram back-link is corrected from a malformed,
   non-resolving bare URL to a proper relative markdown link authored for its post-merge location in
   the instance repo (design D9) — a fix, not a new capability, since the link's *intent* ("navigate to

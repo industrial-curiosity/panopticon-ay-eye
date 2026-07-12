@@ -33,7 +33,9 @@ from panopticon.bootstrap import (
     download_getting_started_guide,
     download_local_tooling,
     download_skills,
+    fetch_instance_default_branch,
     manual_verification_steps,
+    refresh_instance_default_branch,
     resolve_instance,
     resolve_token,
     select_skills_location,
@@ -342,6 +344,85 @@ class TestSyncReminder(unittest.TestCase):
 
     def test_contains_check_updates_flag(self):
         self.assertIn("python3 -m panopticon.sync --check-updates", sync_reminder())
+
+
+# ── instance_default_branch refresh ─────────────────────────────────────────────
+
+def _make_repo_metadata_urlopen(default_branch="main", fail=False):
+    from urllib.error import HTTPError
+
+    def urlopen(request, timeout=30):
+        if fail:
+            raise HTTPError(request.full_url, 404, "Not Found", {}, BytesIO(b"{}"))
+        return BytesIO(json.dumps({"default_branch": default_branch}).encode())
+
+    return urlopen
+
+
+class TestFetchInstanceDefaultBranch(unittest.TestCase):
+    def test_returns_default_branch(self):
+        branch = fetch_instance_default_branch(
+            "acme", "instance", urlopen=_make_repo_metadata_urlopen("main")
+        )
+        self.assertEqual(branch, "main")
+
+    def test_non_main_branch_returned_verbatim(self):
+        branch = fetch_instance_default_branch(
+            "acme", "instance", urlopen=_make_repo_metadata_urlopen("trunk")
+        )
+        self.assertEqual(branch, "trunk")
+
+    def test_api_failure_returns_none(self):
+        branch = fetch_instance_default_branch(
+            "acme", "instance", urlopen=_make_repo_metadata_urlopen(fail=True)
+        )
+        self.assertIsNone(branch)
+
+
+class TestRefreshInstanceDefaultBranch(unittest.TestCase):
+    def test_no_config_file_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = refresh_instance_default_branch(
+                "acme", "instance", child_root=tmp, urlopen=_make_repo_metadata_urlopen("main")
+            )
+            config_exists = (Path(tmp) / "panopticon" / "config.json").exists()
+        self.assertIsNone(result)
+        self.assertFalse(config_exists)
+
+    def test_existing_config_updated_in_place(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "panopticon" / "config.json"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text(json.dumps({
+                "schema_version": 1, "repo": "svc-a", "instance": "acme/instance",
+                "workflow_ref": "v1", "docs_location": "docs",
+            }))
+            result = refresh_instance_default_branch(
+                "acme", "instance", child_root=tmp, urlopen=_make_repo_metadata_urlopen("main")
+            )
+            doc = json.loads(config_path.read_text())
+        self.assertEqual(result, "main")
+        self.assertEqual(doc["instance_default_branch"], "main")
+        # every other field is untouched
+        self.assertEqual(doc["repo"], "svc-a")
+        self.assertEqual(doc["workflow_ref"], "v1")
+        self.assertEqual(doc["docs_location"], "docs")
+
+    def test_failed_resolution_leaves_config_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "panopticon" / "config.json"
+            config_path.parent.mkdir(parents=True)
+            original = {
+                "schema_version": 1, "repo": "svc-a", "instance": "acme/instance",
+                "workflow_ref": "v1", "docs_location": "docs",
+            }
+            config_path.write_text(json.dumps(original))
+            result = refresh_instance_default_branch(
+                "acme", "instance", child_root=tmp, urlopen=_make_repo_metadata_urlopen(fail=True)
+            )
+            doc = json.loads(config_path.read_text())
+        self.assertIsNone(result)
+        self.assertEqual(doc, original)
 
 
 # ── Prerequisite check ────────────────────────────────────────────────────────
@@ -702,6 +783,8 @@ class TestMainSkillsLocationFlow(unittest.TestCase):
                 return BytesIO(json.dumps({"secrets": [{"name": n} for n in ORG_SECRETS]}).encode())
             if "actions/variables" in url:
                 return BytesIO(json.dumps({"variables": [{"name": n} for n in ORG_VARS]}).encode())
+            if url == "https://api.github.com/repos/acme/instance":
+                return BytesIO(json.dumps({"default_branch": "main"}).encode())
             raise AssertionError(f"unexpected url: {url}")
 
         return urlopen
@@ -812,6 +895,39 @@ class TestMainSkillsLocationFlow(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn(GETTING_STARTED_GUIDE, out.getvalue())
         self.assertIn("python3 -m panopticon.sync", out.getvalue())
+
+    def test_rerun_refreshes_instance_default_branch_in_existing_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "panopticon" / "config.json"
+            # Simulate a repo already initialized by finalization, without instance_default_branch
+            # (e.g. the user's exact report: it couldn't be resolved the first time).
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text(json.dumps({
+                "schema_version": 1, "repo": "svc-a", "instance": "acme/instance",
+                "workflow_ref": "v1", "docs_location": "docs",
+            }))
+            code = bootstrap_main(
+                env={"PANOPTICON_INSTANCE": "acme/instance", "GH_TOKEN": "tok",
+                     "PANOPTICON_SKILLS_LOCATION": ".claude/skills"},
+                child_root=tmp,
+                urlopen=self._router(),
+            )
+            doc = json.loads(config_path.read_text())
+        self.assertEqual(code, 0)
+        self.assertEqual(doc["instance_default_branch"], "main")
+        self.assertEqual(doc["repo"], "svc-a")  # other fields untouched
+
+    def test_first_bootstrap_never_creates_config_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code = bootstrap_main(
+                env={"PANOPTICON_INSTANCE": "acme/instance", "GH_TOKEN": "tok",
+                     "PANOPTICON_SKILLS_LOCATION": ".claude/skills"},
+                child_root=tmp,
+                urlopen=self._router(),
+            )
+            config_exists = (Path(tmp) / "panopticon" / "config.json").exists()
+        self.assertEqual(code, 0)
+        self.assertFalse(config_exists)
 
 
 # ── Agent prompts ─────────────────────────────────────────────────────────────

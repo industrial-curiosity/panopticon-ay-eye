@@ -240,8 +240,9 @@ clickable link, from your own checkout, before any merge:
 python3 -m panopticon.org_diagram_link
 ```
 
-This prints a single resolvable URL, e.g. `https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a`,
-reading only local config — no network call, no instance repo clone. It requires `panopticon/config.json`'s
-`instance_default_branch` field, resolved automatically during Phase 3 finalization (via the `gh`
-CLI); if that field is missing (e.g. `gh` wasn't installed/authenticated when you finalized), re-run
-`python3 -m panopticon.init_repo` with `gh` available to populate it.
+This prints a single resolvable URL, e.g. `https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a`.
+It reads `panopticon/config.json`'s `instance_default_branch` field first — no network call in that
+case — resolved automatically during Phase 3 finalization and refreshed on every bootstrap rerun
+(`GH_TOKEN`/`GITHUB_TOKEN`, or a token extracted via `gh auth token`; never requires `gh auth login`
+specifically). If that field is genuinely missing, the script attempts a live lookup itself before
+giving up, using the same token resolution — no separate command needed.

@@ -14,8 +14,11 @@ or::
 The installer determines a skills location (prompting for it — even when piped via curl, by
 reading from /dev/tty — before downloading anything), then runs the remaining deterministic
 steps: download skills to that location, wire workflows, check CI prerequisites, print the exact
-agent prompts that complete initialization. ``panopticon/config.json`` is never written here; it
-is the last artifact created by the finalization step after the agent has finished.
+agent prompts that complete initialization. ``panopticon/config.json`` is never *created* here; it
+is the last artifact created by the finalization step, only after the agent has finished and
+validation passes. The one narrow exception: on a rerun where that file already exists, this module
+refreshes its ``instance_default_branch`` field in place (see ``refresh_instance_default_branch``) —
+every other field, and the file's creation, remain finalization's job alone.
 """
 
 import base64
@@ -185,6 +188,42 @@ def fetch_org_config(owner, repo, ref, token=None, urlopen=urllib.request.urlope
         return json.loads(base64.b64decode(data["content"]))
     except Exception:
         return {}
+
+# ── instance_default_branch refresh (tooling-currency capability) ──────────────
+# A narrow, explicit exception to "the bootstrap script never writes panopticon/config.json": that
+# rule protects the file's *creation* (gated on the finalization step's validation passing); it was
+# never a statement the file can never be touched again. Re-running the bootstrap script is already
+# the documented, low-friction way to pick up tooling-currency fixes, so refreshing this one field
+# here — rather than requiring a full finalization re-run, which requires re-running the AI agent —
+# is the appropriate place for this fix to land quickly (design D11).
+
+def fetch_instance_default_branch(owner, repo, token=None, urlopen=urllib.request.urlopen):
+    """The instance repo's actual default branch, via the same GitHub API token/transport already
+    used for every other request here. Returns None on any failure — never guessed, never
+    hardcoded "main"."""
+    try:
+        data = _api_get(f"https://api.github.com/repos/{owner}/{repo}", token, urlopen)
+    except RuntimeError:
+        return None
+    return data.get("default_branch") or None
+
+
+def refresh_instance_default_branch(owner, repo, child_root=".", token=None,
+                                     urlopen=urllib.request.urlopen):
+    """If panopticon/config.json already exists (the repo was already initialized), re-resolve
+    instance_default_branch and update just that field in place — every other field untouched.
+    Never creates the file. Returns the resolved branch, or None if the file doesn't exist yet or
+    resolution failed."""
+    config_path = Path(child_root) / "panopticon" / "config.json"
+    if not config_path.is_file():
+        return None
+    branch = fetch_instance_default_branch(owner, repo, token, urlopen)
+    if not branch:
+        return None
+    doc = json.loads(config_path.read_text(encoding="utf-8"))
+    doc["instance_default_branch"] = branch
+    config_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return branch
 
 # ── Skills download ───────────────────────────────────────────────────────────
 
@@ -613,6 +652,12 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
     print("\nWiring GitHub Actions workflows...")
     wire_workflows(instance, ref, child_root, default_branch)
     print(f"  {len(CALLER_WORKFLOWS)} workflow(s) written → .github/workflows/")
+
+    # Refresh instance_default_branch in an already-existing panopticon/config.json (never creates
+    # it — that stays finalization's job alone). No-op, silently, on a first-time bootstrap.
+    refreshed = refresh_instance_default_branch(owner, repo, child_root, token, urlopen)
+    if refreshed:
+        print(f"\nRefreshed instance_default_branch → {refreshed}")
 
     # Check prerequisites (report-only, never blocks).
     print("\nChecking org CI prerequisites (report-only)...")

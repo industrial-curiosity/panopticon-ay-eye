@@ -19,10 +19,14 @@ Division of labor (repo-initialization spec):
 """
 
 import argparse
+import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from .config import load_repo_config, save_repo_config
@@ -147,25 +151,60 @@ def _check_gh_api_kind(org, runner, endpoint, collection_key, items, kind):
     ]
 
 
-def _resolve_instance_default_branch(instance, runner=subprocess.run):
-    """Query the instance repo's actual default branch via `gh api` (tooling-currency capability:
-    "Recorded instance_default_branch is resolved deterministically, never guessed"). Returns None
-    when it can't be resolved (gh CLI missing, unauthenticated, or the API call fails) — the field
-    is then omitted from panopticon/config.json rather than guessed (never hardcode "main", never
-    derive from workflow_ref, which may be a pinned tag unrelated to the instance's actual default
-    branch)."""
-    if shutil.which("gh") is None:
-        return None
+# GitHub token resolution and API GET, duplicated from bootstrap.py (design D11) rather than
+# imported: init_repo.py is vendored into every child repo and cannot import bootstrap.py, which is
+# CI-only and never vendored (same CI/local module boundary sync.py already documents; see task
+# 5.1's ModuleNotFoundError lesson). Deliberately NOT a `gh api` subprocess call, which depends on
+# the separate, narrower precondition of `gh auth login` having been run interactively — a real
+# usability gap: a user's `GH_TOKEN`/`GITHUB_TOKEN` can work for every other instance-repo request
+# (including the bootstrap script's own downloads) while `gh api` still fails.
+
+def _resolve_token(env=None):
+    """Mirrors bootstrap.py's resolve_token exactly."""
+    env = env if env is not None else os.environ
+    for key in ("GH_TOKEN", "GITHUB_TOKEN"):
+        if env.get(key):
+            return env[key]
+    if shutil.which("gh"):
+        try:
+            result = subprocess.run(
+                ["gh", "auth", "token"], capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except Exception:
+            pass
+    return None
+
+
+def _fetch_default_branch(instance, token=None, urlopen=urllib.request.urlopen):
+    """One GitHub API GET for the instance repo's metadata, reading `.default_branch`. Returns None
+    on any failure — never guessed."""
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(f"https://api.github.com/repos/{instance}", headers=headers)
     try:
-        result = runner(
-            ["gh", "api", f"repos/{instance}", "--jq", ".default_branch"],
-            capture_output=True, text=True, timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+        with urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        exc.close()
         return None
-    if result.returncode != 0:
+    except (urllib.error.URLError, OSError, ValueError):
         return None
-    return result.stdout.strip() or None
+    return data.get("default_branch") or None
+
+
+def _resolve_instance_default_branch(instance, env=None, urlopen=urllib.request.urlopen):
+    """Query the instance repo's actual default branch via the GitHub API, using the same
+    token/transport mechanism bootstrap.py/sync.py already use for every other instance-repo
+    request (tooling-currency capability: "Recorded instance_default_branch is resolved
+    deterministically, never guessed"). Returns None when it can't be resolved (no token available
+    and no `gh` CLI to extract one from, or the API call itself fails) — the field is then omitted
+    from panopticon/config.json rather than guessed (never hardcode "main", never derive from
+    workflow_ref, which may be a pinned tag unrelated to the instance's actual default branch)."""
+    token = _resolve_token(env)
+    return _fetch_default_branch(instance, token, urlopen)
 
 
 def verify_org_secrets(org, runner=subprocess.run):
@@ -185,7 +224,8 @@ def verify_org_secrets(org, runner=subprocess.run):
 
 
 def initialize(child_root, repo_name, instance, docs_location=None, workflow_ref=None,
-               skip_secret_check=False, prompt=input, runner=subprocess.run):
+               skip_secret_check=False, prompt=input, runner=subprocess.run, env=None,
+               urlopen=urllib.request.urlopen):
     """Finalization pass: validate agent output and write panopticon/config.json.
 
     `workflow_ref` defaults to None, meaning "derive it" — read from the ref bootstrap.py already
@@ -228,13 +268,15 @@ def initialize(child_root, repo_name, instance, docs_location=None, workflow_ref
         "workflow_ref": workflow_ref,
         "docs_location": docs_location,
     }
-    instance_default_branch = _resolve_instance_default_branch(instance, runner=runner)
+    instance_default_branch = _resolve_instance_default_branch(instance, env=env, urlopen=urlopen)
     if instance_default_branch:
         config["instance_default_branch"] = instance_default_branch
     else:
         messages.append(
-            "could not resolve instance_default_branch (gh CLI unavailable or unauthenticated) — "
-            "panopticon.org_diagram_link will need it added to panopticon/config.json manually"
+            "could not resolve instance_default_branch (no GH_TOKEN/GITHUB_TOKEN or gh auth token "
+            "available, or the GitHub API call failed) — re-run the bootstrap script once a token "
+            "is available to pick it up (it refreshes this field on every rerun), or "
+            "panopticon.org_diagram_link will attempt a live lookup itself when needed"
         )
 
     save_repo_config(config, repo_root=child_root)

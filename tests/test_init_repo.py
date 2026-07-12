@@ -1,5 +1,6 @@
 """Finalization step: validation gate, docs-location adoption, idempotent re-init."""
 
+import json
 import subprocess
 import unittest
 import unittest.mock
@@ -45,10 +46,8 @@ def make_valid_child(root, repo="svc-a", docs="docs"):
 
 
 def _stub_runner(returncode=0, stdout="main\n", stderr=""):
-    """A fake subprocess runner for `gh api` calls — never hits the network. Used as run_init()'s
-    default so tests stay hermetic regardless of whether `gh` happens to be installed on the
-    machine running the suite: if it is, this stub intercepts the call instead; if it isn't,
-    _resolve_instance_default_branch short-circuits to None before ever calling it."""
+    """A fake subprocess runner for `gh api`/`gh auth token` calls (used by `verify_org_secrets` and
+    as a `gh auth token` fallback in token resolution) — never hits the network."""
     class Result:
         def __init__(self):
             self.returncode = returncode
@@ -61,6 +60,20 @@ def _stub_runner(returncode=0, stdout="main\n", stderr=""):
     return runner
 
 
+def _make_repo_metadata_urlopen(default_branch="main", fail=False):
+    """Stub urlopen for the `GET /repos/{instance}` metadata call
+    `_fetch_default_branch`/`_resolve_instance_default_branch` make."""
+    from io import BytesIO
+    from urllib.error import HTTPError
+
+    def urlopen(request, timeout=30):
+        if fail:
+            raise HTTPError(request.full_url, 404, "Not Found", {}, BytesIO(b"{}"))
+        return BytesIO(json.dumps({"default_branch": default_branch}).encode())
+
+    return urlopen
+
+
 def run_init(tmp, **overrides):
     kwargs = {
         "child_root": tmp,
@@ -71,6 +84,11 @@ def run_init(tmp, **overrides):
         "skip_secret_check": True,
         "prompt": lambda _: "",
         "runner": _stub_runner(),
+        # Hermetic default for instance_default_branch resolution: no ambient token, and a stub
+        # urlopen that never hits the network — tests that don't care about this field simply get
+        # it omitted (fail=True), same as any environment with no working GitHub auth.
+        "env": {},
+        "urlopen": _make_repo_metadata_urlopen(fail=True),
     }
     kwargs.update(overrides)
     return initialize(**kwargs)
@@ -300,49 +318,64 @@ class TestSecretVerification(unittest.TestCase):
 
 
 class TestResolveInstanceDefaultBranch(unittest.TestCase):
-    def gh_stub(self, returncode=0, stdout="", stderr=""):
-        class Result:
-            pass
+    def test_resolves_via_gh_token_env_var(self):
+        branch = _resolve_instance_default_branch(
+            "acme/panopticon-instance", env={"GH_TOKEN": "tok"},
+            urlopen=_make_repo_metadata_urlopen("main"),
+        )
+        self.assertEqual(branch, "main")
 
-        result = Result()
-        result.returncode, result.stdout, result.stderr = returncode, stdout, stderr
-        return lambda *args, **kwargs: result
-
-    def test_returns_instance_default_branch(self):
-        with unittest.mock.patch("shutil.which", return_value="/usr/bin/gh"):
-            branch = _resolve_instance_default_branch(
-                "acme/panopticon-instance", runner=self.gh_stub(stdout="main\n")
-            )
+    def test_resolves_via_github_token_env_var(self):
+        branch = _resolve_instance_default_branch(
+            "acme/panopticon-instance", env={"GITHUB_TOKEN": "tok"},
+            urlopen=_make_repo_metadata_urlopen("main"),
+        )
         self.assertEqual(branch, "main")
 
     def test_non_main_branch_name_returned_as_is(self):
-        with unittest.mock.patch("shutil.which", return_value="/usr/bin/gh"):
-            branch = _resolve_instance_default_branch(
-                "acme/panopticon-instance", runner=self.gh_stub(stdout="trunk\n")
-            )
+        branch = _resolve_instance_default_branch(
+            "acme/panopticon-instance", env={"GH_TOKEN": "tok"},
+            urlopen=_make_repo_metadata_urlopen("trunk"),
+        )
         self.assertEqual(branch, "trunk")
 
-    def test_gh_not_installed_returns_none(self):
-        with unittest.mock.patch("shutil.which", return_value=None):
-            branch = _resolve_instance_default_branch(
-                "acme/panopticon-instance", runner=self.gh_stub(stdout="main\n")
-            )
-        self.assertIsNone(branch)
-
-    def test_gh_failure_returns_none(self):
+    def test_works_with_env_token_even_when_gh_auth_login_was_never_run(self):
+        """Regression test: the original implementation shelled out to `gh api`, which depends on
+        `gh auth login` having been run interactively — a different, narrower precondition than
+        GH_TOKEN/GITHUB_TOKEN, which bootstrap.py's own downloads already rely on successfully. A
+        user can have a working GH_TOKEN and an installed-but-never-`gh auth login`-ed `gh` CLI at
+        the same time; resolution must succeed via the token, never depending on `gh`'s own
+        credential store."""
         with unittest.mock.patch("shutil.which", return_value="/usr/bin/gh"):
             branch = _resolve_instance_default_branch(
-                "acme/panopticon-instance", runner=self.gh_stub(returncode=1, stderr="HTTP 403")
+                "acme/panopticon-instance", env={"GH_TOKEN": "tok"},
+                urlopen=_make_repo_metadata_urlopen("main"),
             )
+        self.assertEqual(branch, "main")
+
+    def test_api_failure_returns_none(self):
+        branch = _resolve_instance_default_branch(
+            "acme/panopticon-instance", env={"GH_TOKEN": "tok"},
+            urlopen=_make_repo_metadata_urlopen(fail=True),
+        )
         self.assertIsNone(branch)
+
+    def test_no_token_still_attempts_unauthenticated_call(self):
+        with unittest.mock.patch("shutil.which", return_value=None):
+            branch = _resolve_instance_default_branch(
+                "acme/panopticon-instance", env={},
+                urlopen=_make_repo_metadata_urlopen("main"),
+            )
+        self.assertEqual(branch, "main")
 
 
 class TestInitializeWritesInstanceDefaultBranch(unittest.TestCase):
     def test_resolved_branch_is_persisted(self):
         with tempfile.TemporaryDirectory() as tmp:
             make_valid_child(tmp)
-            with unittest.mock.patch("shutil.which", return_value="/usr/bin/gh"):
-                code, messages = run_init(tmp, runner=_stub_runner(stdout="main\n"))
+            code, messages = run_init(
+                tmp, env={"GH_TOKEN": "tok"}, urlopen=_make_repo_metadata_urlopen("main")
+            )
             self.assertEqual(code, 0, messages)
             config = load_repo_config(tmp)
         self.assertEqual(config["instance_default_branch"], "main")
@@ -350,8 +383,9 @@ class TestInitializeWritesInstanceDefaultBranch(unittest.TestCase):
     def test_unresolvable_branch_is_omitted_not_guessed(self):
         with tempfile.TemporaryDirectory() as tmp:
             make_valid_child(tmp)
-            with unittest.mock.patch("shutil.which", return_value=None):
-                code, messages = run_init(tmp, runner=_stub_runner(stdout="main\n"))
+            code, messages = run_init(
+                tmp, env={}, urlopen=_make_repo_metadata_urlopen(fail=True)
+            )
             self.assertEqual(code, 0, messages)
             config = load_repo_config(tmp)
         self.assertNotIn("instance_default_branch", config)
@@ -362,10 +396,10 @@ class TestInitializeWritesInstanceDefaultBranch(unittest.TestCase):
         must never be derived from it."""
         with tempfile.TemporaryDirectory() as tmp:
             make_valid_child(tmp)
-            with unittest.mock.patch("shutil.which", return_value="/usr/bin/gh"):
-                code, messages = run_init(
-                    tmp, workflow_ref="v2", runner=_stub_runner(stdout="main\n")
-                )
+            code, messages = run_init(
+                tmp, workflow_ref="v2", env={"GH_TOKEN": "tok"},
+                urlopen=_make_repo_metadata_urlopen("main"),
+            )
             self.assertEqual(code, 0, messages)
             config = load_repo_config(tmp)
         self.assertEqual(config["workflow_ref"], "v2")

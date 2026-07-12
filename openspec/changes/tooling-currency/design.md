@@ -286,6 +286,42 @@ API, not `workflow_ref`, not hardcoded `"main"`) is unchanged from the original 
 for the same reason as before — `workflow_ref` may be a pinned tag, which would point the script's
 output at a historical snapshot rather than the live org diagram.
 
+### D11: instance_default_branch resolution moved off `gh api` subprocess onto the shared token mechanism; bootstrap refreshes it on rerun
+
+**Decision**: caught by user report, running against a real environment. `_resolve_instance_default_branch`
+(D10) called `gh api repos/{instance} --jq .default_branch` as a subprocess — this depends on `gh
+auth login` having been run interactively, a *different*, narrower precondition than the token
+resolution `install.py`/`bootstrap.py` already use successfully for every other instance-repo request
+(`GH_TOKEN`/`GITHUB_TOKEN` env vars, falling back to `gh auth token` only to extract a token, never
+`gh` as the transport itself). The user's bootstrap run succeeded — proving their token-based auth
+already worked — but finalization's `gh api` call still failed, because it was checking a completely
+different credential path. Fixed by switching `instance_default_branch` resolution to the same
+token/transport mechanism as everything else in this codebase already uses (duplicated into
+init_repo.py the same way sync.py duplicates bootstrap.py's primitives — see task 5.1's
+`ModuleNotFoundError` lesson — since init_repo.py is vendored and cannot import bootstrap.py).
+
+Separately, the bootstrap script now also re-resolves and updates `instance_default_branch` in place
+on every rerun of an *already-initialized* repo (new requirement, "Bootstrap script refreshes
+instance_default_branch on rerun") — a narrow, explicit exception to "bootstrap SHALL NOT write
+panopticon/config.json." That rule protects the file's *creation* (gated on finalization's validation
+passing); it was never a statement that the file can never be touched again. Re-running bootstrap is
+already the documented, low-friction way to pick up tooling-currency fixes (`PANOPTICON.md` itself
+says so) — requiring a full finalization re-run (which requires re-running the AI agent) just to
+retry one field would be needlessly heavyweight for what is, once the auth-mechanism bug above is
+fixed, usually a one-shot resolution anyway.
+
+Finally, `org_diagram_link.py` itself gains a live fallback: config is always checked first (no
+network call in the common case), but if `instance_default_branch` is genuinely absent, the script
+now attempts a live `gh api` lookup before failing — since a working `gh` CLI at the moment the
+script runs is a real, useful signal even if it wasn't available earlier when finalization or
+bootstrap last ran.
+
+*Alternative considered*: only fix the auth mechanism, leave bootstrap non-writing and the script
+network-free. Rejected per explicit user direction — the auth fix alone would have prevented *this*
+specific failure but not a future one (e.g., a token that's since expired), and the low-friction
+"just re-run install.py" recovery path is valuable independent of why resolution failed the first
+time.
+
 ## Risks / Trade-offs
 
 - **[Risk]** `.git/info/attributes` is per-checkout: the regeneration step and `git merge` must run
