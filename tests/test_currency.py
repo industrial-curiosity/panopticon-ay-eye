@@ -43,6 +43,17 @@ class TestCheckCurrency(unittest.TestCase):
         with self.assertRaises(LLMResponseError):
             check_currency("diff", load_fixture("local_svc_a.json"), client, skill_root=REPO_ROOT)
 
+    def test_prose_first_response_recovers_on_retry(self):
+        client = FakeClient([
+            "Let me examine the diff and the index to figure out...",
+            json.dumps(STALE_VERDICT),
+        ])
+        verdict = check_currency(
+            "+ topic config", load_fixture("local_svc_a.json"), client, skill_root=REPO_ROOT
+        )
+        self.assertEqual(verdict, STALE_VERDICT)
+        self.assertEqual(len(client.chat_calls), 2)
+
 
 class TestReport(unittest.TestCase):
     def test_stale_report_names_updates(self):

@@ -72,7 +72,12 @@ stopgaps.
 - **Provider-agnostic agents** — CI agent steps are configured via `PANOPTICON_LLM_API_KEY` and
   `PANOPTICON_LLM_ENDPOINT` secrets; litellm-compatible endpoints are supported first. Local flows
   (initialization, doc updates) run the same skills in the user's preferred AI agent harness and need no LLM
-  secrets.
+  secrets. Every CI check that requires a structured JSON response (doc-drift, index-currency, interface
+  extraction) goes through one shared, hardened runtime method (`LLMClient.complete_json`) that retries with a
+  corrective message — never relaxed validation — when a model doesn't comply with a skill's JSON-only response
+  contract on the first attempt, before failing loudly. No provider-specific request parameters (e.g.
+  `response_format`) are used, so this works across "a wide variety of LLMs" without narrowing which
+  litellm-compatible endpoints are supported.
 - **Minimal Python requirements** — stdlib-first, checkout-and-run on a bare CI runner, every dependency justified
   and pinned.
 - **Cross-repo auth** — an org-level `PANOPTICON_INSTANCE_TOKEN` secret grants read/write access to the private

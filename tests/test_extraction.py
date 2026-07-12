@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from panopticon.index import KIND_LOCAL, validate_index
-from panopticon.llm import LLMResponseError
+from panopticon.llm import LLMClient, LLMResponseError
 from panopticon.naming import UnresolvableNameError
 from panopticon.extraction import (
     candidates_to_index,
@@ -21,15 +21,37 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class FakeClient:
-    """Stands in for LLMClient; returns a canned completion and records the prompt."""
+    """Stands in for LLMClient. `response` is a single canned completion (repeated on every
+    `chat()` call, matching the old behavior) or a list of completions consumed in order — the
+    last one repeats once exhausted, mirroring `test_llm.py`'s `StubLLMServer` convention, so
+    retry-then-succeed and retry-exhausted scenarios can be exercised.
+
+    `complete_with_skill`/`complete_json` delegate to the real `LLMClient` implementations bound
+    to this fake (only `chat()`, the transport, is faked) — so tests exercise the actual
+    retry/parse/validate logic, never a duplicated reimplementation of it."""
 
     def __init__(self, response):
-        self.response = response
-        self.calls = []
+        self.responses = [response] if isinstance(response, str) else list(response)
+        self.calls = []       # (skill_text, user_content) — one entry per top-level invocation
+        self.chat_calls = []  # every underlying chat() call's messages list, in order
+
+    def chat(self, messages, temperature=0):
+        self.chat_calls.append(messages)
+        idx = min(len(self.chat_calls), len(self.responses)) - 1
+        return self.responses[idx]
 
     def complete_with_skill(self, skill_text, user_content, temperature=0):
         self.calls.append((skill_text, user_content))
-        return self.response
+        return LLMClient.complete_with_skill(self, skill_text, user_content, temperature=temperature)
+
+    def complete_json(self, skill_text, user_content, validate, *, response_label,
+                       expected_shape="object", temperature=0, max_correction_attempts=2):
+        self.calls.append((skill_text, user_content))
+        return LLMClient.complete_json(
+            self, skill_text, user_content, validate, response_label=response_label,
+            expected_shape=expected_shape, temperature=temperature,
+            max_correction_attempts=max_correction_attempts,
+        )
 
 
 class TestCandidatesToIndex(unittest.TestCase):
@@ -113,6 +135,30 @@ class TestLLMFallback(unittest.TestCase):
 
     def test_malformed_response_fails_loudly(self):
         client = FakeClient("I found some interfaces!")
+        with self.assertRaises(LLMResponseError):
+            llm_extract(client, SAMPLE_REPO, ["config/topics.yaml"], skill_root=REPO_ROOT)
+
+    def test_prose_first_response_recovers_on_retry(self):
+        client = FakeClient([
+            "Looking at these files, I can identify the following interfaces...",
+            json.dumps(self.llm_candidates()),
+        ])
+        candidates = llm_extract(client, SAMPLE_REPO, ["config/topics.yaml"], skill_root=REPO_ROOT)
+        self.assertEqual(candidates[0]["raw_name"], "invoice_queue")
+        self.assertEqual(len(client.chat_calls), 2)
+
+    def test_item_missing_required_field_recovers_on_retry(self):
+        """Previously: a malformed item crashed with an uncaught KeyError outside any
+        try/except. Now shape-validated the same way as a top-level parse failure."""
+        malformed = [{"type": "sqs", "source_file": "config/queues.json"}]  # raw_name missing
+        client = FakeClient([json.dumps(malformed), json.dumps(self.llm_candidates())])
+        candidates = llm_extract(client, SAMPLE_REPO, ["config/topics.yaml"], skill_root=REPO_ROOT)
+        self.assertEqual(candidates[0]["raw_name"], "invoice_queue")
+        self.assertEqual(len(client.chat_calls), 2)
+
+    def test_item_missing_field_eventually_fails_loudly(self):
+        malformed = [{"type": "sqs", "source_file": "config/queues.json"}]
+        client = FakeClient(json.dumps(malformed))
         with self.assertRaises(LLMResponseError):
             llm_extract(client, SAMPLE_REPO, ["config/topics.yaml"], skill_root=REPO_ROOT)
 

@@ -46,6 +46,18 @@ class TestCheckDrift(unittest.TestCase):
         with self.assertRaises(LLMResponseError):
             check_drift("diff", {}, client, skill_root=REPO_ROOT)
 
+    def test_prose_first_response_recovers_on_retry(self):
+        """Regression test for the real CI failure this change fixes: a model reasoning aloud
+        ("Looking at this PR diff carefully...") instead of responding with JSON on the first
+        attempt no longer crashes the check outright."""
+        client = FakeClient([
+            "Looking at this PR diff carefully, I need to determine whether...",
+            json.dumps(STALE_VERDICT),
+        ])
+        verdict = check_drift("+ new code", {"docs/architecture.md": "# arch"}, client, skill_root=REPO_ROOT)
+        self.assertEqual(verdict, STALE_VERDICT)
+        self.assertEqual(len(client.chat_calls), 2)
+
 
 class TestReport(unittest.TestCase):
     def test_stale_report_names_docs_and_remediation(self):

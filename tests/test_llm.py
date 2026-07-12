@@ -160,6 +160,127 @@ class TestDegradationPaths(unittest.TestCase):
                 client_for(stub).chat([{"role": "user", "content": "hi"}])
 
 
+def _validate_stale_shape(parsed):
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("stale"), bool):
+        raise ValueError("'stale' must be a boolean")
+
+
+class TestCompleteJson(unittest.TestCase):
+    def test_first_attempt_success_no_retry(self):
+        with StubLLMServer() as stub:
+            stub.responses = [(200, completion(json.dumps({"stale": True})))]
+            result = client_for(stub).complete_json(
+                "skill text", "user content", _validate_stale_shape, response_label="drift verdict",
+            )
+        self.assertEqual(result, {"stale": True})
+        self.assertEqual(len(stub.requests), 1)
+
+    def test_malformed_first_response_corrected_on_retry(self):
+        with StubLLMServer() as stub:
+            stub.responses = [
+                (200, completion("Looking at this diff carefully, I need to determine...")),
+                (200, completion(json.dumps({"stale": False}))),
+            ]
+            result = client_for(stub).complete_json(
+                "skill text", "user content", _validate_stale_shape, response_label="drift verdict",
+            )
+        self.assertEqual(result, {"stale": False})
+        self.assertEqual(len(stub.requests), 2)
+
+    def test_validator_failure_is_corrected_on_retry_same_as_parse_failure(self):
+        with StubLLMServer() as stub:
+            stub.responses = [
+                (200, completion(json.dumps({"stale": "not-a-bool"}))),
+                (200, completion(json.dumps({"stale": True}))),
+            ]
+            result = client_for(stub).complete_json(
+                "skill text", "user content", _validate_stale_shape, response_label="drift verdict",
+            )
+        self.assertEqual(result, {"stale": True})
+        self.assertEqual(len(stub.requests), 2)
+
+    def test_corrective_message_names_the_specific_validation_error(self):
+        with StubLLMServer() as stub:
+            stub.responses = [
+                (200, completion(json.dumps({"stale": "not-a-bool"}))),
+                (200, completion(json.dumps({"stale": True}))),
+            ]
+            client_for(stub).complete_json(
+                "skill text", "user content", _validate_stale_shape, response_label="drift verdict",
+            )
+            second_request_messages = stub.requests[1]["body"]["messages"]
+        correction = second_request_messages[-1]
+        self.assertEqual(correction["role"], "user")
+        self.assertIn("'stale' must be a boolean", correction["content"])
+        self.assertIn("ONLY the JSON", correction["content"])
+
+    def test_conversation_grows_with_the_failed_attempt_and_correction(self):
+        with StubLLMServer() as stub:
+            stub.responses = [
+                (200, completion("prose, not json")),
+                (200, completion(json.dumps({"stale": True}))),
+            ]
+            client_for(stub).complete_json(
+                "skill text", "user content", _validate_stale_shape, response_label="drift verdict",
+            )
+            second_request_messages = stub.requests[1]["body"]["messages"]
+        self.assertEqual(len(second_request_messages), 4)
+        self.assertEqual(second_request_messages[0]["role"], "system")
+        self.assertEqual(second_request_messages[1]["role"], "user")
+        self.assertEqual(second_request_messages[2], {"role": "assistant", "content": "prose, not json"})
+        self.assertEqual(second_request_messages[3]["role"], "user")
+
+    def test_retries_exhausted_raises_llm_response_error_naming_the_label(self):
+        with StubLLMServer() as stub:
+            stub.responses = [(200, completion("never valid json"))]
+            with self.assertRaises(LLMResponseError) as ctx:
+                client_for(stub).complete_json(
+                    "skill text", "user content", _validate_stale_shape,
+                    response_label="drift verdict", max_correction_attempts=1,
+                )
+        self.assertEqual(len(stub.requests), 2)  # initial + 1 correction attempt
+        self.assertIn("drift verdict", str(ctx.exception))
+        self.assertIn("2 attempt(s)", str(ctx.exception))
+
+    def test_expected_shape_named_in_corrective_message(self):
+        def validate_array(parsed):
+            if not isinstance(parsed, list):
+                raise ValueError("expected a JSON array")
+
+        with StubLLMServer() as stub:
+            stub.responses = [
+                (200, completion("not an array")),
+                (200, completion(json.dumps([]))),
+            ]
+            client_for(stub).complete_json(
+                "skill text", "user content", validate_array, response_label="extraction response",
+                expected_shape="array",
+            )
+            correction = stub.requests[1]["body"]["messages"][-1]["content"]
+        self.assertIn("ONLY the JSON array", correction)
+
+    def test_no_response_format_or_other_provider_specific_field_added(self):
+        with StubLLMServer() as stub:
+            stub.responses = [
+                (200, completion("not json")),
+                (200, completion(json.dumps({"stale": True}))),
+            ]
+            client_for(stub).complete_json(
+                "skill text", "user content", _validate_stale_shape, response_label="drift verdict",
+            )
+        for request in stub.requests:
+            self.assertEqual(set(request["body"].keys()), {"model", "messages", "temperature"})
+
+    def test_code_fenced_response_still_parses(self):
+        with StubLLMServer() as stub:
+            stub.responses = [(200, completion('```json\n{"stale": true}\n```'))]
+            result = client_for(stub).complete_json(
+                "skill text", "user content", _validate_stale_shape, response_label="drift verdict",
+            )
+        self.assertEqual(result, {"stale": True})
+        self.assertEqual(len(stub.requests), 1)
+
+
 class TestSkillLoading(unittest.TestCase):
     def test_frontmatter_is_stripped(self):
         text = "---\nname: x\ndescription: y\n---\n\n# Body\n\ninstructions\n"

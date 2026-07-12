@@ -76,6 +76,18 @@ class LLMResponseError(Exception):
     """The endpoint answered, but not with a usable chat completion."""
 
 
+def _strip_code_fence(text):
+    """Strip a wrapping markdown code fence (```...```) if the whole response is fenced. Shared by
+    every structured-response call site (design D1) — previously duplicated identically in
+    drift.py/currency.py/extraction.py."""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines[-1].strip().startswith("```"):
+            return "\n".join(lines[1:-1])
+    return text
+
+
 class LLMClient:
     def __init__(self, endpoint, api_key, model=DEFAULT_MODEL, timeout=60, max_attempts=3, sleep=time.sleep):
         missing = [name for name, value in ((ENDPOINT_VAR, endpoint), (API_KEY_VAR, api_key)) if not value]
@@ -153,6 +165,51 @@ class LLMClient:
                 {"role": "user", "content": user_content},
             ],
             temperature=temperature,
+        )
+
+    def complete_json(self, skill_text, user_content, validate, *, response_label,
+                       expected_shape="object", temperature=0, max_correction_attempts=2):
+        """Chat with a skill file's content as the system prompt, expecting a strict JSON response
+        (agent-runtime spec: "Structured-response retry for non-compliant model output").
+
+        ``validate(parsed)`` SHALL raise ``ValueError`` (with a message naming the specific
+        problem) if ``parsed`` doesn't match the caller's expected shape; otherwise it returns
+        None and ``parsed`` is returned as-is. On a parse failure (not valid JSON, possibly wrapped
+        in a markdown code fence) or a ``validate`` failure, the model's non-compliant response is
+        appended to the conversation as an assistant turn, followed by a corrective user turn
+        naming the specific error and restating the response contract, and the whole conversation
+        is retried — up to ``max_correction_attempts`` additional times — before raising
+        ``LLMResponseError`` naming ``response_label``. This never relaxes validation: a response
+        that fails ``validate`` is corrected via retry, never silently accepted.
+        """
+        messages = [
+            {"role": "system", "content": skill_text},
+            {"role": "user", "content": user_content},
+        ]
+        last_error = None
+        last_response = None
+        for attempt in range(max_correction_attempts + 1):
+            response = self.chat(messages, temperature=temperature)
+            last_response = response
+            try:
+                parsed = json.loads(_strip_code_fence(response))
+                validate(parsed)
+                return parsed
+            except (json.JSONDecodeError, ValueError) as exc:
+                last_error = exc
+                if attempt < max_correction_attempts:
+                    messages.append({"role": "assistant", "content": response})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            f"Your previous response was not valid JSON matching the required "
+                            f"shape ({exc}). Respond with ONLY the JSON {expected_shape} — no "
+                            f"prose, no code fences, no explanation."
+                        ),
+                    })
+        raise LLMResponseError(
+            f"{response_label} is not the expected JSON shape after "
+            f"{max_correction_attempts + 1} attempt(s) ({last_error}): {last_response[:500]!r}"
         )
 
 

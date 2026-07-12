@@ -27,33 +27,23 @@ from .skills import load_skill
 CURRENCY_SKILL = "panopticon-index-currency"
 
 
+def _validate_currency_verdict(verdict):
+    if not isinstance(verdict, dict) or not isinstance(verdict.get("current"), bool):
+        raise ValueError("'current' must be a boolean")
+    if not isinstance(verdict.get("reasons", []), list):
+        raise ValueError("'reasons' must be a list")
+
+
 def check_currency(diff_text, index_doc, client, skill_root="."):
     """Judge whether the committed local index reflects the diff's interface impact."""
     user_content = (
         "## PR diff\n```diff\n" + diff_text + "\n```\n\n## Committed local index "
         "(panopticon/index.json)\n```json\n" + dumps_index(index_doc) + "```"
     )
-    response = client.complete_with_skill(load_skill(CURRENCY_SKILL, root=skill_root), user_content)
-    try:
-        verdict = json.loads(_strip_code_fence(response))
-        current = verdict["current"]
-        reasons = verdict.get("reasons", [])
-        if not isinstance(current, bool) or not isinstance(reasons, list):
-            raise ValueError("bad field types")
-    except (json.JSONDecodeError, KeyError, ValueError) as exc:
-        raise LLMResponseError(
-            f"index-currency verdict is not the expected JSON shape ({exc}): {response[:500]!r}"
-        )
-    return verdict
-
-
-def _strip_code_fence(text):
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines[-1].strip().startswith("```"):
-            return "\n".join(lines[1:-1])
-    return text
+    return client.complete_json(
+        load_skill(CURRENCY_SKILL, root=skill_root), user_content, _validate_currency_verdict,
+        response_label="index-currency verdict",
+    )
 
 
 def format_report(verdict):

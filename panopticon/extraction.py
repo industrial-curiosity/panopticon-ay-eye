@@ -22,7 +22,6 @@ import sys
 from pathlib import Path
 
 from .index import KIND_LOCAL, empty_index, save_index, sorted_doc, validate_index
-from .llm import LLMResponseError
 from .naming import resolve_name
 from .parsers import EXCLUDED_DIRS, iter_files, relative_posix, run_parsers
 from .skills import load_skill
@@ -84,6 +83,17 @@ def fallback_candidate_files(repo_root, covered_files, changed_files=None):
     return selected
 
 
+def _validate_extraction_response(raw):
+    if not isinstance(raw, list):
+        raise ValueError("expected a JSON array")
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise ValueError(f"item {i} is not a JSON object")
+        missing = [f for f in ("raw_name", "type", "source_file") if f not in item]
+        if missing:
+            raise ValueError(f"item {i} is missing required field(s): {missing}")
+
+
 def llm_extract(client, repo_root, candidate_files, skill_root="."):
     """Ask the runtime for interface candidates in the given files; returns tagged candidates.
 
@@ -97,16 +107,13 @@ def llm_extract(client, repo_root, candidate_files, skill_root="."):
     for rel in candidate_files:
         text = (repo_root / rel).read_text(encoding="utf-8", errors="replace")
         sections.append(f"### {rel}\n```\n{text}\n```")
-    response = client.complete_with_skill(
+    raw = client.complete_json(
         load_skill(EXTRACTION_SKILL, root=skill_root),
         "Identify service interfaces in these files.\n\n" + "\n\n".join(sections),
+        _validate_extraction_response,
+        response_label="extraction response",
+        expected_shape="array",
     )
-    try:
-        raw = json.loads(_strip_code_fence(response))
-        if not isinstance(raw, list):
-            raise ValueError("expected a JSON array")
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise LLMResponseError(f"extraction response is not the expected JSON array ({exc}): {response[:500]!r}")
     candidates = []
     for item in raw:
         candidates.append(
@@ -122,15 +129,6 @@ def llm_extract(client, repo_root, candidate_files, skill_root="."):
             }
         )
     return candidates
-
-
-def _strip_code_fence(text):
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines[-1].strip().startswith("```"):
-            return "\n".join(lines[1:-1])
-    return text
 
 
 def parser_gap_recommendations(candidates):

@@ -27,6 +27,13 @@ DRIFT_SKILL = "panopticon-doc-drift"
 MAX_DOC_BYTES = 200_000
 
 
+def _validate_drift_verdict(verdict):
+    if not isinstance(verdict, dict) or not isinstance(verdict.get("stale"), bool):
+        raise ValueError("'stale' must be a boolean")
+    if not isinstance(verdict.get("reasons", []), list):
+        raise ValueError("'reasons' must be a list")
+
+
 def check_drift(diff_text, docs, client, skill_root="."):
     """Judge whether the docs require updates for this diff. ``docs`` is ``{path: text}``."""
     doc_sections = [f"### {path}\n```markdown\n{text}\n```" for path, text in sorted(docs.items())]
@@ -34,27 +41,10 @@ def check_drift(diff_text, docs, client, skill_root="."):
         "## PR diff\n```diff\n" + diff_text + "\n```\n\n## Current documentation\n\n"
         + "\n\n".join(doc_sections)
     )
-    response = client.complete_with_skill(load_skill(DRIFT_SKILL, root=skill_root), user_content)
-    try:
-        verdict = json.loads(_strip_code_fence(response))
-        stale = verdict["stale"]
-        reasons = verdict.get("reasons", [])
-        if not isinstance(stale, bool) or not isinstance(reasons, list):
-            raise ValueError("bad field types")
-    except (json.JSONDecodeError, KeyError, ValueError) as exc:
-        raise LLMResponseError(
-            f"drift verdict is not the expected JSON shape ({exc}): {response[:500]!r}"
-        )
-    return verdict
-
-
-def _strip_code_fence(text):
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines[-1].strip().startswith("```"):
-            return "\n".join(lines[1:-1])
-    return text
+    return client.complete_json(
+        load_skill(DRIFT_SKILL, root=skill_root), user_content, _validate_drift_verdict,
+        response_label="drift verdict",
+    )
 
 
 # interfaces.md is deterministically rendered from the index (see doc-generation spec's "Interface
