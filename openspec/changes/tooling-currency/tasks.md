@@ -45,9 +45,16 @@
 ## 5. Local sync script
 
 - [x] 5.1 Create `panopticon/sync.py`: default behavior fetches the instance repo's current
-      default-branch skills and vendored tooling (reusing `bootstrap.py`'s `download_skills`/
-      `download_local_tooling`) and overwrites the child repo's copies unconditionally — no
-      per-file protection at the child layer
+      default-branch skills and vendored tooling and overwrites the child repo's copies
+      unconditionally — no per-file protection at the child layer. Duplicates (rather than
+      imports) bootstrap.py's `download_skills`/`download_local_tooling`/GitHub-API helpers: since
+      sync.py is itself vendored into the child repo but bootstrap.py is explicitly CI-only and
+      never vendored, `from .bootstrap import ...` raised `ModuleNotFoundError` the moment sync.py
+      actually ran from a real child repo (caught post-implementation, running the vendored script
+      by hand) — fixed by making sync.py self-contained, mirroring this codebase's existing
+      `ORG_SECRETS`/`ORG_VARS` duplication precedent across the same CI/local module boundary in
+      `init_repo.py`. `test_sync.py::TestSelfContained` guards against the duplicated constants
+      drifting from bootstrap.py's copies.
 - [x] 5.2 Add `--check-updates`: a pure dry run using a git-blob-sha comparison (GitHub tree API's
       per-file `sha` vs. a locally computed `sha1(f"blob {len(data)}\0".encode() + data)`, verified
       to reproduce `git hash-object`'s output) — reports which files would change, writes nothing
@@ -73,3 +80,31 @@
       introduced by this change (this repo has no `docs/spec.md`; README.md is the closest
       architecture doc and was updated, along with `docs/setup-guide.md` and `docs/testing.md` per
       the proposal's explicit documentation requirement)
+
+## 9. Getting-started guide (`PANOPTICON.md`)
+
+- [ ] 9.1 Author `PANOPTICON.md` at the template repo root: concise, static content covering the
+      three repo roles/lifecycle, where architecture diagrams live (this repo's own diagram section
+      and the instance repo's org-wide `docs/architecture.md`), and the literal
+      `python3 -m panopticon.sync` / `--check-updates` commands
+- [ ] 9.2 Add a download step to `panopticon/bootstrap.py`'s `main()` that fetches `PANOPTICON.md`
+      from the instance repo and writes it to the child repo's root, overwritten idempotently on
+      re-run (same trust model as skills/tooling)
+- [ ] 9.3 Update `bootstrap.py`'s printed output so every run (first bootstrap and re-run alike)
+      names `PANOPTICON.md`'s location and the literal `python3 -m panopticon.sync` command,
+      independent of the `/panopticon-init` agent prompt
+- [ ] 9.4 Unit tests: `PANOPTICON.md` is downloaded on first run and overwritten (not duplicated) on
+      re-run; bootstrap's printed output contains both the guide's location and the sync command on
+      both first-run and re-run
+
+## 10. Cross-repo diagram link fix
+
+- [ ] 10.1 Fix `.agents/skills/panopticon-doc-generation/SKILL.md` and
+      `assets/architecture-template.md`'s org-diagram back-link instructions: replace the malformed
+      bare-URL prose with the relative markdown link `[org diagram](../architecture.md#{repo})`
+      (`{repo}` from `panopticon/config.json`'s existing `repo` field — no new config field needed),
+      and note explicitly that this link resolves once the file is merged into the instance repo at
+      `docs/{repo}/architecture.md`, not when viewed directly in the child repo
+- [ ] 10.2 Verify the already-relative same-repo diagram links in `panopticon/diagrams.py`
+      (`docs/{other}/architecture.md`, `docs/{repo}/architecture.md`) remain unchanged and correct —
+      no code change expected here, confirm via existing `tests/test_diagrams.py` coverage

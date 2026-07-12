@@ -1,11 +1,164 @@
+## ADDED Requirements
+
+### Requirement: Getting-started guide vendored into child repo
+
+The bootstrap script SHALL download a single, concise getting-started guide from the instance repo and
+write it to the child repo's root as `PANOPTICON.md`, so a maintainer opening the repo sees it
+immediately without navigating into `docs/` or `.agents/skills/`. The guide's content SHALL be static and
+template-authored — downloaded verbatim, identical across every child repo of a given instance, never
+per-repo generated or agent-written — mirroring how skills and vendored tooling modules are downloaded
+as-is rather than templated. Re-running the bootstrap script SHALL overwrite `PANOPTICON.md` in place,
+the same idempotent-overwrite trust model already used for skills and vendored tooling.
+
+The guide SHALL, at minimum, describe: (1) the three repo roles (template, instance, child) and the
+pull-request/merge lifecycle in brief, so a new maintainer has the same orientation the setup guide gives
+an org owner; (2) where architecture diagrams live — this repo's own `## Architecture diagram` section
+in its `architecture.md`, and the org-wide diagram at the instance repo's `docs/architecture.md`; and
+(3) exactly how to keep this repo's skills and vendored tooling current — the literal
+`python3 -m panopticon.sync` and `python3 -m panopticon.sync --check-updates` commands (tooling-currency
+capability).
+
+#### Scenario: Getting-started guide is downloaded on first bootstrap
+
+- **WHEN** the bootstrap script runs in a child repo for the first time
+- **THEN** the child repo's root contains `PANOPTICON.md`, downloaded from the instance repo
+
+#### Scenario: Getting-started guide is refreshed on re-run
+
+- **WHEN** the bootstrap script runs again on an already-bootstrapped repo
+- **THEN** `PANOPTICON.md` is overwritten in place with the instance repo's current content, and no
+  duplicate file is created
+
+#### Scenario: Guide documents the sync command
+
+- **WHEN** a maintainer reads `PANOPTICON.md`
+- **THEN** it contains the literal command `python3 -m panopticon.sync` and explains that it pulls the
+  instance repo's current skills and vendored tooling into this repo
+
+#### Scenario: Guide points to both diagram locations
+
+- **WHEN** a maintainer reads `PANOPTICON.md` looking for architecture diagrams
+- **THEN** it names both this repo's own `## Architecture diagram` section and the instance repo's
+  org-wide `docs/architecture.md`
+
+### Requirement: Bootstrap output references the sync workflow and getting-started guide
+
+The bootstrap script's printed output SHALL, on every run — first bootstrap and idempotent re-run
+alike — explicitly name `PANOPTICON.md`'s location and the literal `python3 -m panopticon.sync` command
+(including its `--check-updates` dry-run flag), so a maintainer discovers the sync workflow directly from
+the terminal output without first having to know `PANOPTICON.md` exists or read source code. This output
+is distinct from the `/panopticon-init` agent prompt (see "Agent prompts output") — it SHALL be present
+regardless of whether that prompt is also printed.
+
+#### Scenario: First run prints the sync command and guide location
+
+- **WHEN** the bootstrap script completes a first-time run
+- **THEN** its output contains both `PANOPTICON.md` and the literal text `python3 -m panopticon.sync`
+
+#### Scenario: Re-run also prints the sync command and guide location
+
+- **WHEN** the bootstrap script is run again on an already-bootstrapped repo
+- **THEN** its output still contains both `PANOPTICON.md` and `python3 -m panopticon.sync` — this is not
+  gated behind "first run only", since a maintainer re-running the script specifically to pick up a
+  tooling-currency fix needs to see it every time
+
 ## MODIFIED Requirements
 
-### Requirement: Template update workflow
+### Requirement: Bootstrap installer script
 
-> Note: this requirement's baseline already reflects the `architecture-diagrams` change's
-> protected-config mechanism (points 5–6 below), which is implemented and complete but not yet
-> archived into `openspec/specs/` at the time this delta was written. This delta's full content
-> below is accurate to the actual current behavior of `sync-from-template.yml`.
+The template repo SHALL include a Python bootstrap script that can be run directly from a child repo
+without cloning the instance repo locally, invoked via:
+
+```
+curl -fsSL https://raw.githubusercontent.com/<instance>/main/install.py | python3
+```
+
+or equivalently by downloading and running it. The script SHALL read the instance org/repo slug from the
+`PANOPTICON_INSTANCE` environment variable, falling back to an interactive prompt when the variable is not
+set and stdin is a terminal. Using only Python stdlib and the GitHub API (no additional dependencies), the
+script SHALL:
+
+1. Determine the child repo's skills location (see "Skills location selection") — this SHALL happen
+   before any skill files are downloaded.
+2. Download only skills whose directory name begins with `panopticon-` from the instance repo's
+   `.agents/skills/` directory and write them to the chosen skills location in the child repo, creating
+   the directory if absent. Skills at other name prefixes (org-internal skills, tooling skills, etc.)
+   SHALL NOT be written to the child repo.
+3. Download the local-tooling subset of the `panopticon` Python package into the child repo's
+   `panopticon/` directory (see "Local tooling package vendored into child repo").
+4. Download the getting-started guide from the instance repo and write it to the child repo's root as
+   `PANOPTICON.md` (see "Getting-started guide vendored into child repo").
+5. Download the three caller workflow files from the instance repo and write them to the child repo's
+   `.github/workflows/`, creating the directory if absent.
+6. Verify org-level CI prerequisites (secrets and variables) and report any missing items — report-only,
+   never blocking.
+7. Output the exact prompts the user shall give their AI agent to complete the AI-dependent initialization
+   steps (see "Agent prompts output"), and the sync-workflow reference (see "Bootstrap output references
+   the sync workflow and getting-started guide").
+
+The bootstrap script SHALL NOT write `panopticon/config.json`. The config file is the last artifact
+created, by the finalization step after the agent has completed its work.
+
+#### Self-bootstrapping when piped via curl
+
+When `install.py` is piped from the instance repo via `curl | python3`, it runs outside the instance repo
+directory and cannot import the `panopticon` package locally. The script SHALL detect this condition
+(import failure at startup) and self-bootstrap by downloading `panopticon/__init__.py` and
+`panopticon/bootstrap.py` from the instance repo via the GitHub API, installing them into `sys.modules`
+in-process, then continuing with the normal import flow — without requiring any local clone of the
+instance repo.
+
+Token discovery for GitHub API calls SHALL follow the same precedence used by bootstrap.py: `GH_TOKEN`
+env var, then `GITHUB_TOKEN` env var, then `gh auth token` if the `gh` CLI is available. When no token is
+found the API call is made unauthenticated (suitable for public instance repos; private repos will receive
+a 404 and the script SHALL exit with a clear error).
+
+#### Scenario: Only panopticon-prefixed skills are installed
+
+- **GIVEN** the instance repo's `.agents/skills/` contains both `panopticon-doc-generation/` and
+  `openspec-apply-change/` (an org-internal skill), and the chosen skills location is `.agents/skills/`
+  (the default)
+- **WHEN** the bootstrap script runs
+- **THEN** `.agents/skills/panopticon-doc-generation/` is written to the child repo and
+  `.agents/skills/openspec-apply-change/` is not
+
+#### Scenario: First run in an uninitialised repo
+
+- **WHEN** the bootstrap script runs in a child repo with `PANOPTICON_INSTANCE=acme/panopticon-instance`
+  set (or entered at the prompt), and the skills location prompt is accepted at its `.agents/skills/`
+  default
+- **THEN** the child repo's `.agents/skills/` contains the instance skills, `.github/workflows/` contains
+  the three Panopticon caller workflows, the repo root contains `PANOPTICON.md`, and the terminal prints
+  the `/panopticon-init` prompt — without creating `panopticon/config.json`
+
+#### Scenario: Piped curl execution with panopticon package unavailable
+
+- **GIVEN** the user runs `curl -fsSL https://raw.githubusercontent.com/<instance>/main/install.py | python3`
+  from a child repo that does not contain the `panopticon` package
+- **WHEN** the initial import of `panopticon.bootstrap` fails with `ModuleNotFoundError`
+- **THEN** the script downloads `panopticon/__init__.py` and `panopticon/bootstrap.py` from the instance
+  repo, installs them in-process, and proceeds identically to a local run with no error surfaced to the
+  user
+
+#### Scenario: Piped curl execution with PANOPTICON_INSTANCE unset
+
+- **GIVEN** the user pipes `install.py` via curl without setting `PANOPTICON_INSTANCE`
+- **WHEN** stdin is not a terminal (no interactive prompt possible)
+- **THEN** the script exits with a non-zero code and a message that names the missing env var and shows
+  the correct export-and-pipe command
+
+#### Scenario: Instance slug not configured in interactive mode
+
+- **WHEN** the bootstrap script runs with no `PANOPTICON_INSTANCE` env var and stdin is a terminal
+- **THEN** the script prompts for the slug and proceeds using the entered value, identical to supplying
+  the env var
+
+#### Scenario: Re-run on an already-bootstrapped repo
+
+- **WHEN** the bootstrap script is run again on a repo whose skills and workflows are already installed
+- **THEN** all files are updated in place and nothing is duplicated
+
+### Requirement: Template update workflow
 
 The template repo SHALL ship a `sync-from-template.yml` workflow that instance repo owners can trigger
 manually to pull upstream template changes. The workflow SHALL:
@@ -46,6 +199,11 @@ DO exist in the template (each with a template-shipped default), which is exactl
 protection rather than relying on case 2's "doesn't exist upstream" reasoning. Org-declared paths (cases
 7–8) may or may not exist in the template — the mechanism protects them either way, since the org, not
 the template, decides what belongs in `protected_paths`.
+
+> Note: this requirement's baseline already reflects the `architecture-diagrams` change's
+> protected-config mechanism (points 5–6 above), which is implemented and complete but not yet
+> archived into `openspec/specs/` at the time this delta was written. This delta's full content
+> above is accurate to the actual current behavior of `sync-from-template.yml`.
 
 #### Scenario: First-time sync after "Use this template"
 

@@ -137,6 +137,20 @@ afterward). `--check-updates` makes the *entire* run a dry run: it reports which
 change (via git-blob-sha comparison — confirmed `sha1(f"blob {len(data)}\0".encode() + data)`
 reproduces `git hash-object`'s output exactly) and writes nothing at all.
 
+**Implementation correction (caught post-implementation, running the vendored script from a real
+child repo):** sync.py must be self-contained, not import `download_skills`/`download_local_tooling`/
+the GitHub-API helpers from `.bootstrap`. sync.py is itself vendored (it's in
+`LOCAL_TOOLING_MODULES`), but bootstrap.py is explicitly CI-only and is never vendored — a child
+repo's copy of sync.py has no `panopticon.bootstrap` to import, so `from .bootstrap import ...`
+raised `ModuleNotFoundError` on every real invocation outside this repo's own test suite (which
+happens to have bootstrap.py sitting right next to sync.py, masking the bug locally). Fixed by
+duplicating the needed primitives directly into sync.py, mirroring this codebase's existing
+`ORG_SECRETS`/`ORG_VARS` duplication across the same CI/local boundary in `init_repo.py`; a new
+`test_sync.py::TestSelfContained` asserts sync.py's copies of `LOCAL_TOOLING_MODULES`,
+`SKILLS_PREFIX`, `DEFAULT_SKILLS_LOCATION`, `DEFAULT_BRANCH`, and `TOOL_LOCATIONS` match
+bootstrap.py's, and that sync.py imports nothing from `.bootstrap` at all, so this can't silently
+regress.
+
 *Alternative considered*: protect customized files at the child layer too (mirroring the
 instance-level protection in D6). Rejected per explicit direction — customization is meant to
 happen once, at the instance level; child repos are meant to be uniform, disposable mirrors of
@@ -190,6 +204,65 @@ Deferred — adds real complexity (glob-to-`.gitattributes`-pattern translation,
 patterns already support directory prefixes natively via trailing-slash conventions, so this may be
 closer to "just document how to write the pattern" than "build glob matching") for a need not yet
 confirmed. Flagged as an open question rather than decided outright.
+
+### D8: Getting-started guide is a static, template-authored file, not agent-generated
+
+**Decision**: `PANOPTICON.md`, downloaded verbatim to the child repo's root on every bootstrap run
+(idempotent overwrite, same as skills/tooling), is authored once in the template repo and never
+per-repo templated or LLM-generated. Its content (repo roles/lifecycle, where diagrams live, the sync
+commands) is identical for every child repo of a given instance and needs no repo-specific values — a
+maintainer reading it learns *how the system works*, not *this repo's specific interfaces* (that's what
+the agent-generated `architecture.md`/`interfaces.md`/`operations.md` are for). Placed at repo root
+(`PANOPTICON.md`, not `docs/getting-started.md`) for maximum visibility — a maintainer opening the repo
+sees it immediately, mirroring `README.md`/`CONTRIBUTING.md` convention, directly addressing "easy to
+locate."
+
+*Alternative considered*: templated per-repo content (interpolating `docs_location`, `instance`, etc.,
+the way the agent-authored `architecture.md` back-link does). Rejected — the guide's job is orienting a
+human to the *system*, which is identical across repos; the one place a repo-specific value would matter
+(the org-diagram back-link) already lives in agent-generated `architecture.md`, not this guide, so there
+was no remaining need for templating.
+
+### D9: Cross-repo diagram back-link is a relative link authored for its post-merge location, not an absolute URL
+
+**Decision**: the child-repo → org-diagram back-link (`architecture-diagrams` capability, currently
+implemented only as agent-authored prose per the `panopticon-doc-generation` skill/template, not
+deterministic Python) is corrected from the malformed `{instance-repo-url}/docs/architecture.md#{repo}` —
+missing GitHub's required `/blob/<ref>/` path segment, so it 404s on GitHub as written — to the plain
+relative link `../architecture.md#{repo}`.
+
+This correction went through two iterations. The first pass (superseded) treated this as a genuinely
+cross-repo link needing a correctly-formed *absolute* GitHub URL, which in turn required knowing the
+instance repo's actual default branch — a value nothing in this codebase persisted anywhere, prompting a
+new `instance_default_branch` config field resolved via the GitHub API. Corrected on user review: the
+premise was wrong. Every child repo's docs are merged into the instance repo at `docs/{repo}/` on every
+push (master-sync capability; `panopticon/diagrams.py`'s `ORG_DIAGRAM_PATH` is `docs/architecture.md` at
+the instance root), so once merged, the org diagram and every repo's own diagram section live in the
+*same* tree. The link only ever needs to resolve in that merged, post-merge context — architecture
+diagrams are reviewed in the instance repo, not by browsing individual child repos — so an ordinary
+relative link works, is simpler, and needs no new config field, no branch resolution, and no absolute
+URL construction at all. `instance_default_branch` was accordingly dropped entirely; it solved a problem
+that didn't exist once the premise was corrected.
+
+The relative path is always exactly `../architecture.md` regardless of a repo's own `docs_location`,
+because the merge step normalizes every repo's docs into the same `docs/{repo}/` layout (one level under
+the instance repo's `docs/`) regardless of where the file lived in the source repo. Only the `#{repo}`
+anchor varies, from `panopticon/config.json`'s existing `repo` field.
+
+A necessary consequence, called out explicitly in the spec: this link will not resolve when a child
+repo's `architecture.md` is viewed directly in that child repo, before its docs have been merged into the
+instance. This is intentional, not a defect — the link is authored for where the file ends up, not where
+it currently sits.
+
+*Alternative considered*: an absolute `{instance-repo-url}/blob/{branch}/...` URL (the first-pass
+approach). Rejected once the merge-target insight above was surfaced — same-repo relative links are
+strictly simpler, need no new persisted field, and are correct precisely because the "cross-repo" framing
+was the wrong model for where this link actually needs to work.
+
+*Alternative considered*: leave the link untouched and only fix genuinely-relative, same-repo links.
+Rejected — the malformed link is a live 404 for every existing child repo's `architecture.md` today (once
+merged into the instance), not a hypothetical; fixing it is in scope for the same "make diagram links work
+correctly" ask.
 
 ## Risks / Trade-offs
 

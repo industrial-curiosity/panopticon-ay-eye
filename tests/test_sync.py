@@ -11,6 +11,8 @@ import unittest
 from io import BytesIO, StringIO
 from pathlib import Path
 
+from panopticon import bootstrap
+from panopticon import sync as sync_module
 from panopticon.bootstrap import LOCAL_TOOLING_MODULES, SKILLS_PREFIX
 from panopticon.config import save_repo_config
 from panopticon.sync import check_updates, git_blob_sha, main
@@ -43,6 +45,42 @@ def _init_repo_config(child_root, instance="acme/instance"):
         {"repo": "svc-a", "instance": instance, "workflow_ref": "main", "docs_location": "docs"},
         repo_root=child_root,
     )
+
+
+class TestSelfContained(unittest.TestCase):
+    """sync.py must never import from bootstrap.py: bootstrap.py is CI-only and is never vendored
+    into a child repo, so `from .bootstrap import ...` breaks with `ModuleNotFoundError` the
+    moment sync.py actually runs from its only real deployment target — a child repo that has only
+    the vendored LOCAL_TOOLING_MODULES subset, not bootstrap.py (regression test: this exact
+    failure was hit running `python3 -m panopticon.sync` in a bootstrapped child repo). sync.py
+    duplicates the primitives it needs instead (module docstring); these tests guard against that
+    duplication drifting from bootstrap.py's copies."""
+
+    def test_does_not_import_bootstrap(self):
+        import ast
+
+        self.assertNotIn("bootstrap", sync_module.__dict__)
+        tree = ast.parse(Path(sync_module.__file__).read_text(encoding="utf-8"))
+        imported_modules = {
+            node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+        }
+        self.assertNotIn("bootstrap", imported_modules)
+        self.assertNotIn("panopticon.bootstrap", imported_modules)
+
+    def test_local_tooling_modules_matches_bootstrap(self):
+        self.assertEqual(sync_module.LOCAL_TOOLING_MODULES, bootstrap.LOCAL_TOOLING_MODULES)
+
+    def test_skills_prefix_matches_bootstrap(self):
+        self.assertEqual(sync_module.SKILLS_PREFIX, bootstrap.SKILLS_PREFIX)
+
+    def test_default_skills_location_matches_bootstrap(self):
+        self.assertEqual(sync_module.DEFAULT_SKILLS_LOCATION, bootstrap.DEFAULT_SKILLS_LOCATION)
+
+    def test_default_branch_matches_bootstrap(self):
+        self.assertEqual(sync_module.DEFAULT_BRANCH, bootstrap.DEFAULT_BRANCH)
+
+    def test_tool_locations_matches_bootstrap(self):
+        self.assertEqual(sync_module.TOOL_LOCATIONS, bootstrap.TOOL_LOCATIONS)
 
 
 class TestGitBlobSha(unittest.TestCase):

@@ -6,6 +6,16 @@ immediately after Phase 1 bootstrap with no instance-repo clone and no ``PYTHONP
 same "no local instance clone required" constraint every other local-tooling module already
 satisfies (design D2).
 
+This module is deliberately self-contained rather than importing from ``.bootstrap``: bootstrap.py
+is CI-only and is never vendored into a child repo (repo-initialization spec: "CI-only modules...
+SHALL NOT be written to the child repo"), so a child-repo copy of this file has no `panopticon.bootstrap`
+to import — `from .bootstrap import ...` fails with `ModuleNotFoundError` the moment this file is
+actually run from a vendored child repo, its only real deployment target. The GitHub-API/download
+primitives below are therefore duplicated from bootstrap.py rather than shared by import, mirroring
+this codebase's existing precedent for the same CI/local module boundary (`init_repo.py`'s own
+`ORG_SECRETS`/`ORG_VARS` duplicating bootstrap.py's). `test_sync.py` asserts these stay in sync with
+bootstrap.py's copies as a drift guard.
+
 Default behavior overwrites the child's skills and vendored tooling unconditionally from the
 instance's current default branch — no per-file protection at the child layer (design D5): the
 user's own review of the resulting ``git diff``/``git status`` before committing is the safety net,
@@ -17,25 +27,157 @@ and writes nothing.
 """
 
 import argparse
+import base64
 import hashlib
+import json
 import os
+import shutil
+import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .bootstrap import (
-    DEFAULT_BRANCH,
-    DEFAULT_SKILLS_LOCATION,
-    LOCAL_TOOLING_MODULES,
-    SKILLS_PREFIX,
-    _detect_existing_location,
-    _fetch_tree,
-    download_local_tooling,
-    download_skills,
-    resolve_token,
-)
 from .config import load_repo_config
 
+DEFAULT_BRANCH = "main"
+SKILLS_PREFIX = ".agents/skills/"
+DEFAULT_SKILLS_LOCATION = ".agents/skills"
+
+# Mirrors bootstrap.py's TOOL_LOCATIONS exactly (test_sync.py asserts this; source of truth:
+# docs/agentskills-support.md) — needed here only for _detect_existing_location's search order,
+# not the interactive prompt/menu, which has no role in this already-bootstrapped-repo script.
+TOOL_LOCATIONS = {
+    "vscode": ("VS Code (GitHub Copilot)", (".agents/skills", ".github/skills", ".claude/skills")),
+    "visual-studio": ("Visual Studio 2026", (".agents/skills", ".github/skills", ".claude/skills")),
+    "cursor": ("Cursor", (".agents/skills", ".cursor/skills")),
+    "jetbrains": ("JetBrains IDEs (AI Assistant)", (".agents/skills", ".claude/skills", ".codex/skills")),
+    "claude-code": ("Claude Code", (".claude/skills",)),
+    "google-antigravity": ("Google Antigravity", (".agents/skills",)),
+    "openai-codex": ("OpenAI Codex", (".agents/skills",)),
+    "opencode": ("opencode", (".agents/skills", ".opencode/skills", ".claude/skills")),
+    "pi": ("Pi", (".agents/skills", ".pi/skills")),
+}
+
+# Mirrors bootstrap.py's LOCAL_TOOLING_MODULES exactly (test_sync.py asserts this).
+LOCAL_TOOLING_MODULES = ("__init__.py", "config.py", "docs.py", "index.py", "init_repo.py", "sync.py")
+
+
+def candidate_locations():
+    locations = [DEFAULT_SKILLS_LOCATION]
+    for _, tool_locations in TOOL_LOCATIONS.values():
+        for loc in tool_locations:
+            if loc not in locations:
+                locations.append(loc)
+    return locations
+
+
+def _detect_existing_location(child_root="."):
+    for loc in candidate_locations():
+        d = Path(child_root) / loc
+        if d.is_dir() and any(p.name.startswith("panopticon-") for p in d.iterdir()):
+            return loc
+    return None
+
+
+# ── GitHub API helpers (duplicated from bootstrap.py; see module docstring) ────────────────────
+
+def _api_headers(token=None):
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+def _api_get(url, token=None, urlopen=urllib.request.urlopen, max_attempts=3, sleep=time.sleep):
+    req = urllib.request.Request(url, headers=_api_headers(token))
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            with exc:
+                body = exc.read().decode("utf-8", "replace")[:400]
+            last_error = f"GitHub API {exc.code} for {url}: {body}"
+            if exc.code not in _RETRYABLE_STATUS:
+                raise RuntimeError(last_error)
+        except urllib.error.URLError as exc:
+            last_error = f"GitHub API request failed for {url}: {exc.reason}"
+        if attempt < max_attempts:
+            sleep(2 ** (attempt - 1))
+    raise RuntimeError(last_error)
+
+
+def _fetch_tree(owner, repo, ref, token=None, urlopen=urllib.request.urlopen):
+    url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{ref}?recursive=1"
+    data = _api_get(url, token, urlopen)
+    if data.get("truncated"):
+        print("  warning: repository tree was truncated; some skills may be missing")
+    return data.get("tree", [])
+
+
+def _fetch_file_bytes(owner, repo, path, ref, token=None, urlopen=urllib.request.urlopen):
+    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={ref}"
+    data = _api_get(url, token, urlopen)
+    encoding = data.get("encoding", "")
+    if encoding == "base64":
+        return base64.b64decode(data["content"])
+    raise RuntimeError(f"Unexpected file encoding {encoding!r} for {path}")
+
+
+def resolve_token(env=None):
+    env = env if env is not None else os.environ
+    for key in ("GH_TOKEN", "GITHUB_TOKEN"):
+        if env.get(key):
+            return env[key]
+    if shutil.which("gh"):
+        try:
+            result = subprocess.run(
+                ["gh", "auth", "token"], capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except Exception:
+            pass
+    return None
+
+
+def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_location=None,
+                    urlopen=urllib.request.urlopen):
+    dest_location = dest_location if dest_location is not None else DEFAULT_SKILLS_LOCATION
+    blobs = [
+        item for item in tree
+        if item["type"] == "blob"
+        and item["path"].startswith(SKILLS_PREFIX + "panopticon-")
+    ]
+    count = 0
+    for item in blobs:
+        path = item["path"]
+        relative = path[len(SKILLS_PREFIX):]
+        local = Path(child_root) / dest_location / relative
+        local.parent.mkdir(parents=True, exist_ok=True)
+        content = _fetch_file_bytes(owner, repo, path, ref, token, urlopen)
+        local.write_bytes(content)
+        count += 1
+    return count
+
+
+def download_local_tooling(owner, repo, ref, token=None, child_root=".",
+                           urlopen=urllib.request.urlopen):
+    dest_dir = Path(child_root) / "panopticon"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for name in LOCAL_TOOLING_MODULES:
+        content = _fetch_file_bytes(owner, repo, f"panopticon/{name}", ref, token, urlopen)
+        (dest_dir / name).write_bytes(content)
+    return len(LOCAL_TOOLING_MODULES)
+
+
+# ── Sync-specific logic ──────────────────────────────────────────────────────────────────────
 
 def git_blob_sha(data):
     """The git blob sha1 for `data`'s exact bytes — matches `git hash-object`'s output."""
