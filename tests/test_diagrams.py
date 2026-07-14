@@ -1,10 +1,13 @@
 """Org-wide diagram rendering from the compiled index: internal-only exclusion, alphabetical
-ordering, per-interface (non-deduplicated) edges, navigation links."""
+ordering, per-interface (non-deduplicated) edges, navigation links, and (dependency-indexing
+capability) combined interface+dependency rendering with kind-based visual distinction and
+linked-pair deduplication."""
 
 import unittest
 
 from panopticon.diagrams import relationships_for_repo, render_org_diagram, repo_set
 from panopticon.merge import compile_index
+from panopticon.dependency_merge import compile_index as compile_dependency_index
 
 from .helpers import load_fixture
 
@@ -13,6 +16,13 @@ def base_shards():
     return {
         "svc-a": load_fixture("local_svc_a.json"),
         "svc-b": load_fixture("local_svc_b.json"),
+    }
+
+
+def base_dependency_shards():
+    return {
+        "svc-a": load_fixture("local_dep_svc_a.json"),
+        "svc-b": load_fixture("local_dep_svc_b.json"),
     }
 
 
@@ -87,7 +97,7 @@ class TestRenderOrgDiagram(unittest.TestCase):
         compiled = compile_index(shards)
         text = render_org_diagram(compiled)
         self.assertNotIn("## svc-a", text)
-        self.assertIn("No cross-repo interface relationships yet.", text)
+        self.assertIn("No cross-repo interface or dependency relationships yet.", text)
 
     def test_diagram_format_tags_the_fenced_block(self):
         compiled = compile_index(base_shards())
@@ -119,6 +129,76 @@ class TestRenderOrgDiagram(unittest.TestCase):
         compiled = compile_index(base_shards())
         text = render_org_diagram(compiled)
         self.assertNotIn("click ", text)
+
+
+class TestCombinedInterfaceAndDependencyRendering(unittest.TestCase):
+    """architecture-diagrams spec (dependency-indexing capability delta): dependency edges
+    rendered alongside interface edges, visually distinguished, combined into one section."""
+
+    def test_dependency_only_repo_gets_a_section(self):
+        # No interface relationships at all — only a compiled dependency index.
+        dep_compiled = compile_dependency_index(base_dependency_shards())
+        text = render_org_diagram({}, dep_compiled)
+        self.assertIn("## svc-a", text)
+        self.assertIn("## svc-b", text)
+        self.assertIn("github.com/acme/svc-a", text)
+
+    def test_repo_with_both_gets_one_combined_section_not_two(self):
+        iface_compiled = compile_index(base_shards())
+        dep_compiled = compile_dependency_index(base_dependency_shards())
+        text = render_org_diagram(iface_compiled, dep_compiled)
+        self.assertEqual(text.count("## svc-a"), 1)
+        self.assertEqual(text.count("## svc-b"), 1)
+        # Both an interface name and a dependency name appear under the same svc-a section.
+        section = text[text.index("## svc-a"):text.index("## svc-b")]
+        self.assertIn("order-events", section)
+        self.assertIn("github.com/acme/svc-a", section)
+
+    def test_single_repo_dependency_excluded(self):
+        shards = {"svc-a": load_fixture("local_dep_svc_a.json")}
+        # svc-a's own local dependency index only mentions itself (self-registration, no
+        # consumer) — compiling alone has no cross-repo entries.
+        dep_compiled = compile_dependency_index(shards)
+        text = render_org_diagram({}, dep_compiled)
+        self.assertNotIn("## svc-a", text)
+
+    def test_interface_edge_is_dashed_dependency_edge_is_solid(self):
+        iface_compiled = compile_index(base_shards())
+        dep_compiled = compile_dependency_index(base_dependency_shards())
+        rows = relationships_for_repo(iface_compiled, "svc-a", dep_compiled)
+        from panopticon.diagrams import _mermaid_graph
+
+        graph = _mermaid_graph("svc-a", rows)
+        self.assertIn("-.->|order-events|", graph)
+        self.assertIn("-->|github.com/acme/svc-a|", graph)
+
+    def test_linked_dependency_and_interface_collapse_to_one_edge(self):
+        iface_compiled = compile_index(base_shards())
+        dep_shards = base_dependency_shards()
+        # svc-b's dependency on svc-a's package is explicitly linked to svc-a's "orders-api"
+        # interface (both relate svc-a <-> svc-b) via a panopticon-dependency-of hint.
+        dep_shards["svc-b"]["dependencies"]["github.com/acme/svc-a"][0]["links_to_interface"] = {
+            "name": "orders-api", "type": "rest",
+        }
+        dep_compiled = compile_dependency_index(dep_shards)
+        rows = relationships_for_repo(iface_compiled, "svc-b", dep_compiled)
+        orders_api_rows = [r for r in rows if r["other_repo"] == "svc-a" and "orders-api" in r["name"]]
+        self.assertEqual(len(orders_api_rows), 1)
+        self.assertEqual(orders_api_rows[0]["kind"], "linked")
+        self.assertIn("orders-api", orders_api_rows[0]["name"])
+        self.assertIn("github.com/acme/svc-a", orders_api_rows[0]["name"])
+        text = render_org_diagram(iface_compiled, dep_compiled)
+        self.assertIn("==>", text)  # thick/double edge for the linked pair
+
+    def test_unlinked_dependency_and_interface_render_separately(self):
+        # Same two repos have both a real interface (order-events, orders-api) and a real
+        # dependency relationship, but no panopticon-dependency-of hint links them — no guessing.
+        iface_compiled = compile_index(base_shards())
+        dep_compiled = compile_dependency_index(base_dependency_shards())
+        rows = relationships_for_repo(iface_compiled, "svc-b", dep_compiled)
+        kinds = {r["kind"] for r in rows if r["other_repo"] == "svc-a"}
+        self.assertEqual(kinds, {"interface", "dependency"})
+        self.assertNotIn("linked", kinds)
 
 
 if __name__ == "__main__":

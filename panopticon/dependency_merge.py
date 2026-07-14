@@ -1,29 +1,26 @@
-"""Shard replace, compiled-index rebuild, conflict detection, and merge simulation.
+"""Dependency-indexing capability: shard replace, compiled-index rebuild, conflict detection, and
+merge simulation — mirroring panopticon/merge.py's shape for the dependency schema
+(panopticon/dependencies.py), entirely independent of the interface merge path (own files,
+``dependencies/`` in the instance repo, never touching ``interfaces/``).
 
-The real merge and the pre-merge simulation share one code path (design D4):
+Conflict detection differs from the interface capability in one structural way: a dependency has
+exactly one producer *role* (self-registration), so there is no dependency equivalent of
+``owner-attribution-mismatch`` (interfaces: repos disagreeing about a *third party's* ownership).
+Nothing in this codebase's extraction path (parsers, LLM fallback skill) ever sets a dependency
+shard's ``owner`` to a repo other than the shard's own — see ``dependency_extraction.py`` and the
+panopticon-dependency-extraction skill, both of which only set ``owned``/``owner`` from a
+self-registering producer. Owner resolution below therefore only reconciles *self*-claims
+(``ownership-dispute``: two or more repos each claim themselves); a non-self claim, if one somehow
+existed in a hand-edited shard, is intentionally ignored rather than invented into a third conflict
+category. The dependency-specific ``unregistered-producer`` reason instead comes directly from the
+folded ``producer`` list being empty after union — no repo has self-registered — independent of
+owner-claim resolution.
 
-- real merge: read shards from ``interfaces/`` in an instance-repo checkout, replace the merging
-  repo's shard wholesale, ``compile_index`` over all shards, write the compiled index.
-- simulation: derive per-repo pseudo-shards from the compiled index alone
-  (``shards_from_compiled`` — the compiled index plus its ``claims``-bearing conflict entries
-  carry full provenance, so the derivation is lossless), replace the repo's shard in memory, and
-  run the same ``compile_index``.
-
-Both paths end in ``diff_compiled`` producing the same report structure, so what PRs predict is
-what merges do.
-
-Conflict entries are recomputed deterministically on every rebuild and exist only in the compiled
-index. Two reasons are detected:
-
-- ``ownership-dispute`` — two or more repos claim themselves as owner of one interface object.
-- ``owner-attribution-mismatch`` — repos attribute ownership to different repos (no dispute
-  between self-claims, but the org's picture of who owns the interface disagrees).
-
-``merge_into_instance`` also rebuilds the org-wide diagram (``panopticon.diagrams``) immediately
-after ``compile_index`` produces the new compiled state, in the same commit as the compiled index
-(architecture-diagrams capability design D3) — purely derived from the compiled index, no LLM
-involvement, so it can never disagree with it. Simulation never touches the org diagram; it's a
-real-merge-only side effect.
+``merge_into_instance`` below also rebuilds the org diagram, the same way
+``merge.merge_into_instance`` does (design D3) — both merge paths call the same
+``diagrams.write_org_diagram(instance_root, ...)``, which reads *both* compiled indices fresh from
+disk rather than accepting an in-memory doc from whichever path triggered it, so either merge path
+always renders the other index's current state too, never a stale one.
 """
 
 import argparse
@@ -33,8 +30,10 @@ from pathlib import Path
 from . import SCHEMA_VERSION
 from .config import ConfigError, load_diagram_config, require_supported_diagram_format
 from .diagrams import write_org_diagram
-from .index import (
-    IndexValidationError,
+from .dependencies import (
+    CONFLICT_REASON_OWNERSHIP_DISPUTE,
+    CONFLICT_REASON_UNREGISTERED_PRODUCER,
+    DependencyIndexValidationError,
     KIND_COMPILED,
     KIND_LOCAL,
     KIND_SHARD,
@@ -48,11 +47,12 @@ from .index import (
 from .report import format_operational_failure
 
 COMPILED_BASENAME = "index.json"
-INTERFACES_DIR = "interfaces"
+DEPENDENCIES_DIR = "dependencies"
 
 
 def _fold_repo_objects(target, additions):
-    """Union repo objects into target, merging source-file lists per repo."""
+    """Union repo objects into target, merging source-file (and, for consumers, apis) lists per
+    repo. Mirrors merge.py's ``_fold_repo_objects`` exactly, plus the ``apis`` union."""
     by_repo = {robj["repo"]: dict(robj) for robj in target}
     for robj in additions:
         existing = by_repo.get(robj["repo"])
@@ -60,19 +60,21 @@ def _fold_repo_objects(target, additions):
             by_repo[robj["repo"]] = dict(robj)
         else:
             existing["source_files"] = sorted(set(existing["source_files"]) | set(robj["source_files"]))
+            if "apis" in robj or "apis" in existing:
+                existing["apis"] = sorted(set(existing.get("apis", [])) | set(robj.get("apis", [])))
             if robj.get("extracted_by"):
                 existing["extracted_by"] = robj["extracted_by"]
     return [by_repo[name] for name in sorted(by_repo)]
 
 
 def _owner_key(owner):
-    return (owner["repo"], owner["component"]) if owner else None
+    return (owner["repo"], owner.get("component")) if owner else None
 
 
-def _conflict(name, iface_type, reason, claims, details):
+def _conflict(name, ecosystem, reason, claims, details):
     return {
         "name": name,
-        "type": iface_type,
+        "ecosystem": ecosystem,
         "reason": reason,
         "claims": [
             {"claimed_by": repo, "owner": owner}
@@ -82,66 +84,40 @@ def _conflict(name, iface_type, reason, claims, details):
     }
 
 
-def _resolve_owner(name, iface_type, claims):
-    """Resolve one interface object's owner from per-repo claims; returns (owner, conflicts)."""
+def _resolve_owner(name, ecosystem, claims):
+    """Resolve one dependency object's owner from per-repo claims; returns (owner, conflicts).
+
+    Only self-claims (a repo claiming itself) are reconciled — see the module docstring for why a
+    dependency has no attribution-mismatch category. A non-self claim is ignored, not surfaced.
+    """
     self_claims = {repo: owner for repo, owner in claims.items() if owner and owner["repo"] == repo}
-    non_null = {repo: owner for repo, owner in claims.items() if owner}
-    conflicts = []
     if len(self_claims) > 1:
-        conflicts.append(
-            _conflict(
-                name,
-                iface_type,
-                "ownership-dispute",
-                self_claims,
-                f"repos {sorted(self_claims)} each claim ownership of '{name}' ({iface_type})",
-            )
+        conflict = _conflict(
+            name,
+            ecosystem,
+            CONFLICT_REASON_OWNERSHIP_DISPUTE,
+            self_claims,
+            f"repos {sorted(self_claims)} each claim ownership of '{name}' ({ecosystem})",
         )
-        return None, conflicts
+        return None, [conflict]
     if len(self_claims) == 1:
-        ((owner_repo, owner),) = self_claims.items()
-        disagreeing = {r: o for r, o in non_null.items() if _owner_key(o) != _owner_key(owner)}
-        if disagreeing:
-            claimants = {**disagreeing, owner_repo: owner}
-            conflicts.append(
-                _conflict(
-                    name,
-                    iface_type,
-                    "owner-attribution-mismatch",
-                    claimants,
-                    f"repos {sorted(disagreeing)} attribute '{name}' ({iface_type}) differently "
-                    f"from its owner '{owner['repo']}'",
-                )
-            )
-        return owner, conflicts
-    distinct = {_owner_key(o): o for o in non_null.values()}
-    if len(distinct) == 1:
-        return next(iter(distinct.values())), conflicts
-    if len(distinct) > 1:
-        conflicts.append(
-            _conflict(
-                name,
-                iface_type,
-                "owner-attribution-mismatch",
-                non_null,
-                f"repos {sorted(non_null)} attribute ownership of '{name}' ({iface_type}) to "
-                "different owners",
-            )
-        )
-    return None, conflicts
+        ((_, owner),) = self_claims.items()
+        return owner, []
+    return None, []
 
 
 def compile_index(shards):
-    """Deterministically rebuild the compiled index from ``{repo_name: shard_doc}``. LLM-free."""
+    """Deterministically rebuild the compiled dependency index from ``{repo_name: shard_doc}``.
+    LLM-free, mirroring merge.py's ``compile_index``."""
     folded = {}
     claims = {}
     for repo in sorted(shards):
         shard = shards[repo]
-        for name, entries in shard.get("interfaces", {}).items():
+        for name, entries in shard.get("dependencies", {}).items():
             for entry in entries:
-                ident = (name, entry["type"])
+                ident = (name, entry["ecosystem"])
                 target = folded.setdefault(
-                    ident, {"type": entry["type"], "consumer": [], "producer": []}
+                    ident, {"ecosystem": entry["ecosystem"], "consumer": [], "producer": []}
                 )
                 for role in ("consumer", "producer"):
                     additions = entry[role]
@@ -150,14 +126,31 @@ def compile_index(shards):
                             {**robj, "extracted_by": entry["extracted_by"]} for robj in additions
                         ]
                     target[role] = _fold_repo_objects(target[role], additions)
+                if entry.get("links_to_interface"):
+                    target.setdefault("_links_to_interface_claims", []).append(entry["links_to_interface"])
                 claims.setdefault(ident, {})[repo] = entry.get("owner")
     compiled = empty_index(KIND_COMPILED)
-    for (name, iface_type), entry in folded.items():
+    for (name, ecosystem), entry in folded.items():
         if not entry["consumer"] and not entry["producer"]:
             continue
-        owner, conflicts = _resolve_owner(name, iface_type, claims[(name, iface_type)])
+        owner, conflicts = _resolve_owner(name, ecosystem, claims[(name, ecosystem)])
         entry["owner"] = owner
-        compiled["interfaces"].setdefault(name, []).append(entry)
+        link_claims = entry.pop("_links_to_interface_claims", [])
+        if link_claims:
+            # All repos linking the same dependency name are expected to agree; the first-seen,
+            # deterministically-sorted claim wins rather than treating disagreement as a new
+            # conflict category not scoped for this change (open question, design.md).
+            entry["links_to_interface"] = sorted(
+                link_claims, key=lambda link: (link["name"], link["type"])
+            )[0]
+        if not entry["producer"]:
+            conflicts.append(
+                _conflict(
+                    name, ecosystem, CONFLICT_REASON_UNREGISTERED_PRODUCER, {},
+                    f"'{name}' ({ecosystem}) has consumer(s) but no repo has self-registered as its producer",
+                )
+            )
+        compiled["dependencies"].setdefault(name, []).append(entry)
         compiled["conflicts"].extend(conflicts)
     compiled = sorted_doc(compiled)
     validate_index(compiled, kind=KIND_COMPILED)
@@ -165,52 +158,50 @@ def compile_index(shards):
 
 
 def shards_from_compiled(compiled):
-    """Derive per-repo shard documents from a compiled index (inverse of compile_index).
-
-    Owner claims are reconstructed from the resolved owner for clean objects and from conflict
-    entries' ``claims`` for disputed/mismatched ones, so ``compile_index(shards_from_compiled(c))``
-    reproduces ``c`` byte-identically — the property that keeps simulation on the merge code path.
-    """
+    """Derive per-repo shard documents from a compiled dependency index (inverse of
+    ``compile_index``), mirroring merge.py's ``shards_from_compiled``."""
     conflict_claims = {}
     for conflict in compiled.get("conflicts", []):
-        ident = (conflict["name"], conflict["type"])
+        if conflict["reason"] != CONFLICT_REASON_OWNERSHIP_DISPUTE:
+            continue
+        ident = (conflict["name"], conflict["ecosystem"])
         for claim in conflict["claims"]:
             conflict_claims.setdefault(ident, {})[claim["claimed_by"]] = claim["owner"]
     shards = {}
-    for name, entries in compiled.get("interfaces", {}).items():
+    for name, entries in compiled.get("dependencies", {}).items():
         for entry in entries:
-            ident = (name, entry["type"])
+            ident = (name, entry["ecosystem"])
             repos = {}
             for role in ("consumer", "producer"):
                 for robj in entry[role]:
-                    repos.setdefault(robj["repo"], {"consumer": [], "producer": []})[role].append(
-                        {"repo": robj["repo"], "source_files": list(robj["source_files"])}
-                    )
+                    shard_robj = {"repo": robj["repo"], "source_files": list(robj["source_files"])}
+                    if "apis" in robj:
+                        shard_robj["apis"] = list(robj["apis"])
+                    repos.setdefault(robj["repo"], {"consumer": [], "producer": []})[role].append(shard_robj)
                     if robj.get("extracted_by"):
                         repos[robj["repo"]]["extracted_by"] = robj["extracted_by"]
             for repo, roles in repos.items():
                 overrides = conflict_claims.get(ident, {})
-                if repo in overrides:
-                    owner = overrides[repo]
-                else:
-                    owner = entry.get("owner")
+                owner = overrides[repo] if repo in overrides else entry.get("owner")
                 shard_entry = {
                     "owner": owner,
-                    "type": entry["type"],
+                    "ecosystem": entry["ecosystem"],
                     "consumer": roles["consumer"],
                     "producer": roles["producer"],
                 }
+                if entry.get("links_to_interface"):
+                    shard_entry["links_to_interface"] = entry["links_to_interface"]
                 if roles.get("extracted_by"):
                     shard_entry["extracted_by"] = roles["extracted_by"]
                 shard = shards.setdefault(repo, empty_index(KIND_SHARD))
-                shard["interfaces"].setdefault(name, []).append(shard_entry)
+                shard["dependencies"].setdefault(name, []).append(shard_entry)
     return {repo: sorted_doc(doc) for repo, doc in shards.items()}
 
 
 def replace_shard(shards, repo, local_doc):
     """Whole-shard replace: the repo re-asserts everything it knows; an empty index removes it."""
     new_shards = {name: doc for name, doc in shards.items() if name != repo}
-    if local_doc.get("interfaces"):
+    if local_doc.get("dependencies"):
         validate_index(local_doc, kind=KIND_SHARD, repo=repo)
         new_shards[repo] = sorted_doc(local_doc)
     return new_shards
@@ -218,23 +209,23 @@ def replace_shard(shards, repo, local_doc):
 
 def _object_map(doc):
     return {
-        (name, entry["type"]): entry
-        for name, entries in doc.get("interfaces", {}).items()
+        (name, entry["ecosystem"]): entry
+        for name, entries in doc.get("dependencies", {}).items()
         for entry in entries
     }
 
 
 def _conflict_ids(doc):
-    return {(c["name"], c["type"], c["reason"]): c for c in doc.get("conflicts", [])}
+    return {(c["name"], c["ecosystem"], c["reason"]): c for c in doc.get("conflicts", [])}
 
 
 def diff_compiled(before, after, repo):
-    """Report structure shared by merge and simulation."""
+    """Report structure shared by merge and simulation, mirroring merge.py's ``diff_compiled``."""
     before_objects, after_objects = _object_map(before), _object_map(after)
     before_conflicts, after_conflicts = _conflict_ids(before), _conflict_ids(after)
 
     def idents(keys):
-        return [{"name": name, "type": iface_type} for name, iface_type in sorted(keys)]
+        return [{"name": name, "ecosystem": ecosystem} for name, ecosystem in sorted(keys)]
 
     changed = [
         ident
@@ -256,16 +247,18 @@ def diff_compiled(before, after, repo):
 
 
 def simulate_merge(local_doc, compiled_doc, repo):
-    """Dry-run of the merge over two JSON documents; returns the merge report (design D4)."""
+    """Dry-run of the merge over two JSON documents; returns the merge report."""
     validate_index(compiled_doc, kind=KIND_COMPILED)
     shards = replace_shard(shards_from_compiled(compiled_doc), repo, local_doc)
     return diff_compiled(compiled_doc, compile_index(shards), repo)
 
 
 def load_shards(instance_root):
-    interfaces_dir = Path(instance_root) / INTERFACES_DIR
+    dependencies_dir = Path(instance_root) / DEPENDENCIES_DIR
     shards = {}
-    for path in sorted(interfaces_dir.glob("*.json")):
+    if not dependencies_dir.is_dir():
+        return shards
+    for path in sorted(dependencies_dir.glob("*.json")):
         if path.name == COMPILED_BASENAME:
             continue
         repo = path.stem
@@ -274,26 +267,24 @@ def load_shards(instance_root):
 
 
 def merge_into_instance(instance_root, repo, local_doc):
-    """Replace the repo's shard on disk, rebuild the compiled index, rebuild the org diagram
-    (design D3: same commit as the compiled index, immediately after compile_index — reads both
-    compiled indices fresh from disk, so it also picks up the current dependency-index state
-    regardless of which merge path last ran; see diagrams.write_org_diagram), and return the merge
-    report."""
+    """Replace the repo's dependency shard on disk, rebuild the compiled dependency index, rebuild
+    the org diagram (module docstring — shared with merge.merge_into_instance), and return the
+    merge report."""
     instance_root = Path(instance_root)
-    interfaces_dir = instance_root / INTERFACES_DIR
-    compiled_path = interfaces_dir / COMPILED_BASENAME
+    dependencies_dir = instance_root / DEPENDENCIES_DIR
+    compiled_path = dependencies_dir / COMPILED_BASENAME
     if compiled_path.exists():
         before = load_index(compiled_path, kind=KIND_COMPILED)
     else:
         before = empty_index(KIND_COMPILED)
     shards = replace_shard(load_shards(instance_root), repo, local_doc)
     after = compile_index(shards)
-    shard_path = interfaces_dir / f"{repo}.json"
+    shard_path = dependencies_dir / f"{repo}.json"
     if repo in shards:
         save_index(shards[repo], shard_path, kind=KIND_SHARD, repo=repo)
     elif shard_path.exists():
         shard_path.unlink()
-    interfaces_dir.mkdir(parents=True, exist_ok=True)
+    dependencies_dir.mkdir(parents=True, exist_ok=True)
     compiled_path.write_text(dumps_index(after), encoding="utf-8")
     diagram_format = load_diagram_config(instance_root)["format"]
     require_supported_diagram_format(diagram_format)
@@ -306,9 +297,9 @@ def _format_conflict(conflict):
         f"`{claim['claimed_by']}` → "
         + (f"{claim['owner']['repo']}/{claim['owner']['component']}" if claim["owner"] else "null")
         for claim in conflict["claims"]
-    )
+    ) or "none"
     return (
-        f"- **`{conflict['name']}` ({conflict['type']})** — {conflict['reason']}: "
+        f"- **`{conflict['name']}` ({conflict['ecosystem']})** — {conflict['reason']}: "
         f"{conflict['details']} (claims: {claims})"
     )
 
@@ -316,22 +307,22 @@ def _format_conflict(conflict):
 def format_report(report, simulated=True):
     """Markdown rendering of a merge/simulation report for PR comments and CI summaries."""
     verb = "would create" if simulated else "created"
-    title = "Panopticon pre-merge simulation" if simulated else "Panopticon merge"
+    title = "Panopticon dependency pre-merge simulation" if simulated else "Panopticon dependency merge"
     new_conflicts = report["conflicts"]["new"]
     unchanged = report["conflicts"]["unchanged"]
     resolved = report["conflicts"]["resolved"]
     lines = []
     if new_conflicts:
-        lines.append(f"⚠️ **{title}: this change {verb} {len(new_conflicts)} interface conflict(s).**")
+        lines.append(f"⚠️ **{title}: this change {verb} {len(new_conflicts)} dependency conflict(s).**")
         lines.append("")
         lines.extend(_format_conflict(c) for c in new_conflicts)
         lines.append("")
         lines.append(
-            "Resolve by agreeing canonical names/ownership with the other repo(s) and adding "
-            "`panopticon-interface` hints where naming is ambiguous (panopticon-interface-naming skill)."
+            "Resolve by adding `panopticon-dependency` hints where internality/naming is ambiguous, or "
+            "confirming the producer repo has self-registered (panopticon-dependency-naming skill)."
         )
     else:
-        lines.append(f"✅ **{title}: no new interface conflicts.**")
+        lines.append(f"✅ **{title}: no new dependency conflicts.**")
     if resolved:
         lines.append("")
         lines.append(f"Resolves {len(resolved)} existing conflict(s): " + ", ".join(f"`{c['name']}`" for c in resolved))
@@ -341,7 +332,7 @@ def format_report(report, simulated=True):
     changes = []
     for label in ("added", "removed", "changed"):
         if report[label]:
-            changes.append(f"{label}: " + ", ".join(f"`{i['name']}` ({i['type']})" for i in report[label]))
+            changes.append(f"{label}: " + ", ".join(f"`{i['name']}` ({i['ecosystem']})" for i in report[label]))
     if changes:
         lines.append("")
         lines.append("Index impact — " + "; ".join(changes))
@@ -370,29 +361,23 @@ def _write_report(report, args, simulated):
         Path(args.json_report).write_text(_json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if args.actions_file:
         Path(args.actions_file).write_text(_json.dumps(collect_actions(report)), encoding="utf-8")
-    # exit 2 distinguishes "new conflicts" from operational errors (1); gating decides blocking
     return 2 if report["conflicts"]["new"] else 0
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Panopticon shard merge and pre-merge simulation.")
+    parser = argparse.ArgumentParser(description="Panopticon dependency shard merge and pre-merge simulation.")
     sub = parser.add_subparsers(dest="command", required=True)
     for name, help_text in (("simulate", "dry-run merge report"), ("merge", "replace shard and rebuild")):
         cmd = sub.add_parser(name, help=help_text)
-        cmd.add_argument("--local", required=True, help="child repo local index (panopticon/index.json)")
+        cmd.add_argument("--local", required=True, help="child repo local dependency index (panopticon/dependencies.json)")
         cmd.add_argument("--repo", required=True, help="child repo name")
         cmd.add_argument("--report-file", help="write the markdown report here")
         cmd.add_argument("--json-report", help="write the raw report JSON here")
         cmd.add_argument("--actions-file", help="write the structured TL;DR actions JSON here")
-    sub.choices["simulate"].add_argument("--compiled", required=True, help="instance compiled index")
+    sub.choices["simulate"].add_argument("--compiled", required=True, help="instance compiled dependency index")
     sub.choices["merge"].add_argument("--instance-root", required=True, help="instance repo checkout")
     args = parser.parse_args(argv)
 
-    # Same exit-code contract as drift.py/currency.py (pr-evaluation spec: "Checks run
-    # independently regardless of earlier failures; gating decides at the end"): an operational
-    # failure here must not go unreported, and 0/2 are both already spoken for (clean/conflicts),
-    # so any exception here already lands outside those two codes without needing reassignment —
-    # this just makes sure it doesn't crash bare with no diagnostic and no report-file written.
     try:
         local_doc = load_index(args.local, kind=KIND_LOCAL, repo=args.repo)
         if args.command == "simulate":
@@ -400,8 +385,8 @@ def main(argv=None):
             report = simulate_merge(local_doc, compiled, args.repo)
         else:
             report = merge_into_instance(args.instance_root, args.repo, local_doc)
-    except (IndexValidationError, ConfigError) as exc:
-        label = "pre-merge simulation" if args.command == "simulate" else "merge"
+    except (DependencyIndexValidationError, ConfigError) as exc:
+        label = "dependency pre-merge simulation" if args.command == "simulate" else "dependency merge"
         print(f"::error::Panopticon {label} could not run: {exc}")
         if args.report_file:
             Path(args.report_file).write_text(format_operational_failure(label, str(exc)) + "\n",

@@ -46,6 +46,17 @@ are org-declared and open-ended rather than template-declared and fixed:
     {"protected_paths": [".agents/skills/panopticon-doc-generation/SKILL.md"]}
 
 Defaults to an empty list when omitted.
+
+``internal_registries`` (dependency-indexing capability) is an org-declared array of host/URL
+substring strings identifying the org's own private package registry/registries (e.g. an Artifactory
+or Nexus host). A dependency resolved from a manifest against a matching host is treated as internal
+(same-org) rather than third-party. The same field drives both consumer-side detection and
+producer-side self-registration — an org configures its registry identity once, reused in both
+directions:
+
+    {"internal_registries": ["packages.example.com"]}
+
+Defaults to an empty list when omitted, validated the same way as ``protected_paths``.
 """
 
 import json
@@ -117,11 +128,17 @@ def load_org_config(instance_root="."):
         isinstance(p, str) and p for p in protected_paths
     ):
         raise ConfigError("org config: 'protected_paths' must be a list of non-empty path strings")
+    internal_registries = doc.get("internal_registries", [])
+    if not isinstance(internal_registries, list) or not all(
+        isinstance(r, str) and r for r in internal_registries
+    ):
+        raise ConfigError("org config: 'internal_registries' must be a list of non-empty host/URL strings")
     return {
         "schema_version": doc.get("schema_version", SCHEMA_VERSION),
         "gating": gating,
         "workflow_ref": doc.get("workflow_ref"),
         "protected_paths": protected_paths,
+        "internal_registries": internal_registries,
     }
 
 

@@ -258,16 +258,21 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
 # The exact transitive import closure of `python3 -m panopticon.init_repo` and the
 # `python3 -m panopticon.docs` commands panopticon-doc-generation/SKILL.md invokes directly, plus
 # `sync.py` (tooling-currency capability) so an already-bootstrapped child repo can pull the
-# instance's current skills/tooling on demand via `python3 -m panopticon.sync`, and
+# instance's current skills/tooling on demand via `python3 -m panopticon.sync`,
 # `org_diagram_link.py` (architecture-diagrams capability) so a developer can print a resolvable
-# link to the org diagram via `python3 -m panopticon.org_diagram_link` — confirmed by reading each
-# module's imports. All stdlib-only. Everything else in panopticon/ (llm.py, drift.py, currency.py,
-# merge.py, extraction.py, skills.py, bootstrap.py, tooling_currency.py, parsers/) is used only by
-# the reusable GitHub Actions workflows that check out the instance repo directly, and has no role
-# in local Phase 2/3 work — it SHALL NOT be vendored into child repos.
+# link to the org diagram via `python3 -m panopticon.org_diagram_link`, and `dependencies.py`
+# (dependency-indexing capability) so the local agent — guided by the panopticon-dependency-naming
+# skill, mirroring how panopticon-interface-naming guides interface judgment with no dedicated
+# vendored matching code — can validate and save a local `panopticon/dependencies.json` the same
+# way `index.py` already lets it save `panopticon/index.json` — confirmed by reading each module's
+# imports. All stdlib-only. Everything else in panopticon/ (llm.py, drift.py, currency.py,
+# merge.py, extraction.py, dependency_extraction.py, dependency_lookup.py, skills.py, bootstrap.py,
+# tooling_currency.py, parsers/) is used only by the reusable GitHub Actions workflows that check
+# out the instance repo directly, and has no role in local Phase 2/3 work — it SHALL NOT be
+# vendored into child repos.
 LOCAL_TOOLING_MODULES = (
-    "__init__.py", "config.py", "docs.py", "index.py", "init_repo.py", "sync.py",
-    "org_diagram_link.py",
+    "__init__.py", "config.py", "dependencies.py", "docs.py", "index.py", "init_repo.py",
+    "sync.py", "org_diagram_link.py",
 )
 
 

@@ -45,6 +45,16 @@ the decisions below:
 - A second parser for every ecosystem in this change. Go ships as the deterministic proof of concept; other
   ecosystems fall back to LLM extraction with parser-gap reporting until contributed, same as interfaces
   today.
+- **CI workflow YAML wiring** (`.github/workflows/panopticon-pr.yml`/`panopticon-merge.yml` gaining steps
+  that actually invoke `dependency_merge simulate`/`merge`, and an org-config `dependency-conflict` gating
+  check type alongside the existing `interface-conflict`). Confirmed during implementation (group 7) that
+  this genuinely isn't needed for the tooling itself to be usable: exactly like `extraction.py`, no CI
+  workflow invokes `panopticon.extraction` either — full-repo extraction is local-only, and CI only
+  consumes an already-committed local index via `panopticon.merge`. `dependency_extraction.py`/
+  `dependency_merge.py` are built to the same contract and are usable identically (local extraction,
+  `python3 -m panopticon.dependency_merge simulate`/`merge` from a checkout) — but nothing in this change
+  wires that invocation into the shared reusable workflows yet. Tracked as explicit follow-up work, not
+  silently dropped; see the proposal's Impact section, which never listed workflow YAML as affected.
 
 ## Decisions
 
@@ -81,13 +91,19 @@ name"):
    `[]`). A manifest resolving its dependency from a declared host is internal. This single field is reused
    for both consumer-side detection (does this look like ours) and producer-side self-registration (does our
    own publish step target one of these hosts) — one thing for an org to configure, not two.
-3. **Cross-reference the instance repo, no checkout required** — for candidates layers 1–2 don't resolve,
-   read the instance repo's compiled dependency index for a matching self-registered producer. In CI, this
-   reuses the existing `PANOPTICON_INSTANCE_TOKEN` (already scoped for instance-repo read/write per the
-   settled auth architecture) to do a single-file API read — no new auth mechanism. Locally, the agent
-   best-effort attempts the same read (via an authenticated `gh`, or a local instance checkout if present)
-   and, consistent with the existing tolerance for diagram-config reads with no local instance checkout,
-   silently falls through to layer 4 rather than blocking when unavailable.
+3. **Cross-reference the instance repo** — for candidates layers 1–2 don't resolve, read the instance
+   repo's compiled dependency index for a matching self-registered producer. **Corrected during
+   implementation** (group 5): CI does not need a live API read at all — `panopticon-pr.yml` already runs a
+   full `actions/checkout` of the instance repo (using `PANOPTICON_INSTANCE_TOKEN` at the git level) before
+   any check runs, exactly the same pattern every other CI-side instance-repo read in this codebase already
+   relies on (`load_org_config`, `load_shards`, the compiled interface index — none of them make a live API
+   call). So in CI, this layer is a plain filesystem read of `dependencies/index.json` from the already
+   checked-out instance root, no network code, no new auth mechanism. The live-API fallback (mirroring
+   `org_diagram_link.py`'s `_resolve_token`/`_fetch_default_branch`: `GH_TOKEN`/`GITHUB_TOKEN` env vars, then
+   `gh auth token`, a single GET, `None` on any failure — never a guess) is needed only for the local-agent
+   case, where no instance checkout is guaranteed to exist. Locally, the agent best-effort attempts a
+   checkout-or-API read and, consistent with the existing tolerance for diagram-config reads with no local
+   instance checkout, silently falls through to layer 4 rather than blocking when unavailable.
 4. **Hint / LLM fallback** — reuses the existing hint-comment and LLM-extraction-with-parser-gap-reporting
    contract verbatim, just applied to dependency candidates instead of interface names. CI fails loudly with
    "add a hint" instructions when nothing resolves, matching the existing interface-indexing scenario.
@@ -118,10 +134,11 @@ recomputed on every compiled-index rebuild, advisory by default, visible in the 
 
 **Diagram rendering: dependency edges alongside interface edges, deduplicated when linked.**
 `architecture-diagrams`'s org diagram gains dependency edges rendered with the same repo-relationship-diagram
-shape already used for interfaces, visually distinguished (e.g. dashed vs. solid — exact rendering left to
-the diagram-format renderer, matching how the existing spec leaves Mermaid-vs-other-format specifics to the
-renderer). When a dependency carries `links_to_interface` matching an interface entry between the same two
-repos, the two collapse into one edge in the render, labeled as both — mechanical once the hint exists, not
+shape already used for interfaces, visually distinguished — **interfaces dashed, dependencies solid**
+(corrected during a later pass; the exact line style is otherwise left to the diagram-format renderer,
+matching how the existing spec leaves Mermaid-vs-other-format specifics to the renderer). When a dependency
+carries `links_to_interface` matching an interface entry between the same two repos, the two collapse into
+one edge in the render, labeled as both — mechanical once the hint exists, not
 a runtime guess.
 
 ## Risks / Trade-offs
@@ -162,3 +179,9 @@ the new extraction step, no coordinated cutover required.
 - Exact rendering treatment for a dependency `links_to_interface` pointing at an interface name that no
   longer exists (interface removed, hint gone stale) — likely a conflict-detection case similar to existing
   stale-reference handling, but not fully specified here.
+- **Implemented as a known simplification, not a full design** (group 7): when two or more repos'
+  shards carry *disagreeing* `links_to_interface` claims for the same compiled dependency object (an
+  edge case — normally all repos linking the same dependency name agree, since the hint names a single
+  real interface), `compile_index` deterministically picks the first claim in sorted `(name, type)`
+  order rather than raising a new conflict category. No shipped scenario exercises disagreement today;
+  revisit if it turns out to matter in practice.

@@ -90,6 +90,38 @@ class TestOrgConfig(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_org_config(tmp)
 
+    def test_internal_registries_defaults_to_empty_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_org_config(tmp)
+        self.assertEqual(config["internal_registries"], [])
+
+    def test_internal_registries_round_trip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, {"internal_registries": ["packages.example.com", "npm.example.com"]})
+            config = load_org_config(tmp)
+        self.assertEqual(
+            config["internal_registries"],
+            ["packages.example.com", "npm.example.com"],
+        )
+
+    def test_internal_registries_rejects_non_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, {"internal_registries": "not-a-list"})
+            with self.assertRaises(ConfigError):
+                load_org_config(tmp)
+
+    def test_internal_registries_rejects_empty_string_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, {"internal_registries": [""]})
+            with self.assertRaises(ConfigError):
+                load_org_config(tmp)
+
+    def test_internal_registries_rejects_non_string_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, {"internal_registries": [123]})
+            with self.assertRaises(ConfigError):
+                load_org_config(tmp)
+
     def test_unknown_check_type_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.write_config(tmp, {"gating": {"linting": "blocking"}})

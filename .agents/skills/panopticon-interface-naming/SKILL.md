@@ -9,6 +9,10 @@ description: >-
 
 # Panopticon interface naming and matching
 
+See `docs/hint-reference.md` for the full hint syntax reference (every `panopticon-<hint>` form,
+placement rules, exact behavior) — this skill covers the judgment behind `panopticon-interface`
+specifically, not the general hint mechanism.
+
 Canonical names make the whole index work: two entries are the same interface only when their
 canonical names and `type` agree. Judgment layers strictly in this order:
 

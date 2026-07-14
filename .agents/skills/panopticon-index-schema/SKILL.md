@@ -10,6 +10,13 @@ description: >-
 
 # Interface index schema rules
 
+This skill covers the **interface index** only (`panopticon/index.py`, `interfaces/` in the instance
+repo — runtime protocols like Kafka/REST/gRPC/S3). Internal (same-org) library/package dependencies
+are a separate relationship with their own schema and files (`panopticon/dependencies.py`,
+`dependencies/` in the instance repo) — a dependency has exactly one self-registered publisher and
+many importers, and importer entries record which modules they import, which this schema has no field
+for. Do not conflate the two: a dependency is never recorded as an interface `type`.
+
 ## Code state, not deployment state
 
 The index describes the state declared by code. **Branches are a first-class

@@ -5,6 +5,19 @@ fallback tags entries `"extracted_by": "llm"`, the workflow summary recommends c
 for that interface type — this guide is the follow-through. Parsers born inside an org's instance
 repo should be contributed upstream to this template so every org benefits.
 
+This guide covers **interface parsers** (`INTERFACE_TYPE`, registered in `panopticon.parsers.REGISTRY`).
+**Dependency parsers** (dependency-indexing capability — internal same-org library/package
+dependencies, e.g. `panopticon/parsers/go_mod.py`) follow the same self-contained
+`detect(repo_root)`/`extract(repo_root)` shape and the same rules below, but emit `DEPENDENCY_ECOSYSTEM`
+instead of `INTERFACE_TYPE` and a differently-shaped candidate (see `go_mod.py`'s module docstring),
+registered in `panopticon.dependency_extraction.DEPENDENCY_REGISTRY` (a separate registry from
+interfaces') rather than in `REGISTRY` above. The LLM fallback and parser-gap reporting exist
+end-to-end for dependencies too — `panopticon.dependency_extraction.llm_extract`, guided by the
+`panopticon-dependency-extraction` skill, tags entries `"extracted_by": "llm"` the same way the
+interface fallback does. This section is deliberately a summary, not the full contract table below
+(candidate field names differ — see `go_mod.py`'s module docstring for the authoritative shape);
+expanding it into its own full section is tracked, not yet done.
+
 ## The contract
 
 A parser is **one self-contained Python module** in `panopticon/parsers/`, registered in

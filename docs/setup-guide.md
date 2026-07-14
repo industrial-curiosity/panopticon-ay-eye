@@ -88,7 +88,8 @@ index updates — run in each developer's own AI agent harness and need none of 
     "interface-conflict": "advisory",
     "diagram-missing": "advisory"
   },
-  "protected_paths": [".agents/skills/panopticon-doc-generation/references/custom.md"]
+  "protected_paths": [".agents/skills/panopticon-doc-generation/references/custom.md"],
+  "internal_registries": ["packages.example.com"]
 }
 ```
 
@@ -110,6 +111,15 @@ index updates — run in each developer's own AI agent harness and need none of 
   a commit, never the tracked `.gitattributes`), so it's invisible in the tracked tree; each sync run's
   GitHub Actions step summary lists which paths were protected that run as the audit trail. Entries
   are exact file paths, not directory globs — list each customized file individually.
+- **`internal_registries`** *(optional, default `[]`)* — host or URL substrings identifying your org's
+  own private package registry/registries (e.g. an Artifactory or Nexus host). Dependency-indexing uses
+  this to recognize that a repo's dependency resolves from your org's own infrastructure rather than a
+  third-party one — the same field covers both a consumer repo installing an internal package and a
+  producer repo publishing one, so you configure your registry identity once, not per ecosystem.
+  Ecosystems whose dependency declarations already embed your org's identity (e.g. Go module paths
+  under your org's GitHub organization) need no entry here at all. When a dependency or interface
+  can't be resolved automatically, developers pin it with a hint comment — see
+  `docs/hint-reference.md` for every hint form and exactly how each one behaves.
 
 ## 4. Initialize a child repo
 

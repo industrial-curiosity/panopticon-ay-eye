@@ -73,20 +73,24 @@ self-registration (see "Self-registration"), so an org configures its registry i
 - **WHEN** org config omits `internal_registries`
 - **THEN** it defaults to an empty list and registry-host detection contributes no matches, without error
 
-### Requirement: Cross-reference the instance without a local checkout
+### Requirement: Cross-reference the instance repo
 
 For dependency candidates not resolved by structural or registry-host detection, extraction SHALL check
 whether the candidate's canonical name is already self-registered as a producer in the instance repo's
-compiled dependency index, read live (a single-file read, not a full checkout). In CI, this SHALL reuse the
-existing `PANOPTICON_INSTANCE_TOKEN` used for other instance-repo read/write operations — no new
-authentication mechanism. Locally, the agent SHALL attempt the same read on a best-effort basis and, when
-unavailable (no authenticated access and no local instance checkout), SHALL fall through to hint/LLM
-resolution rather than blocking.
+compiled dependency index. In CI, this SHALL be a plain filesystem read of the already-checked-out instance
+repo — `panopticon-pr.yml`/`panopticon-merge.yml` already run a full `actions/checkout` of the instance repo
+before any check runs, the same precondition every other CI-side instance-repo read in this codebase
+(`load_org_config`, the compiled interface index) already relies on — so no live API call and no new
+authentication mechanism are needed there. Locally, where no instance checkout is guaranteed, the agent
+SHALL attempt the same read on a best-effort basis (a local checkout if present, otherwise a live GitHub API
+read using the same token-resolution precedent as `org_diagram_link.py`) and, when unavailable, SHALL fall
+through to hint/LLM resolution rather than blocking.
 
 #### Scenario: Candidate matches an already-registered producer
 
 - **WHEN** a consumer's dependency candidate isn't resolved by layers 1–2, and the instance repo's compiled
-  dependency index already has a producer entry for that canonical name
+  dependency index (read from an available checkout, local or CI) already has a producer entry for that
+  canonical name
 - **THEN** extraction records the consumer against that entry without requiring a hint
 
 #### Scenario: Local check unavailable falls through gracefully

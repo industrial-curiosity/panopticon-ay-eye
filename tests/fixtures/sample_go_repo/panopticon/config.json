@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "repo": "svc-b",
+  "instance": "acme/panopticon-instance",
+  "docs_location": "docs"
+}

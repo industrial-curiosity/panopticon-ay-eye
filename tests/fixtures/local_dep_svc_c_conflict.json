@@ -1,0 +1,23 @@
+{
+  "dependencies": {
+    "github.com/acme/svc-a": [
+      {
+        "consumer": [],
+        "ecosystem": "go",
+        "owner": {
+          "component": null,
+          "repo": "svc-c"
+        },
+        "producer": [
+          {
+            "repo": "svc-c",
+            "source_files": [
+              "go.mod"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "schema_version": 1
+}

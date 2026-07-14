@@ -6,8 +6,8 @@ The org diagram (rendered deterministically from the compiled index by the maste
 single document at the instance repo root containing one section per repo that has at least one external
 interface or dependency, ordered alphabetically by repo name. Each section SHALL contain a relationship
 diagram (this repo as the center node, one node per other repo it relates to, edges labeled by interface or
-dependency name and visually distinguished by kind — e.g. dashed edges for dependencies, solid edges for
-interfaces) followed by a table listing each external interface or dependency: kind (interface or
+dependency name and visually distinguished by kind — dashed edges for interfaces, solid edges for
+dependencies) followed by a table listing each external interface or dependency: kind (interface or
 dependency), name, type or ecosystem, direction relative to this repo, the other repo, and that repo's role
 (owner, producer, or consumer).
 
