@@ -74,7 +74,28 @@ components that no longer exist.
    repo, not by browsing child repos in isolation. No node-level click-through inside the diagram —
    GitHub's Mermaid renderer does not reliably support `click`-to-URL navigation; the back-link is a
    plain markdown link, not a diagram directive.
-8. **Resolve drift against docs you find, don't just flag it.** If existing documentation — this
+8. **Write the README architecture links.** At the top of `README.md`, write or refresh two markdown
+   links, own-repo diagram directly above the org diagram, both labeled with the repo name (never a
+   bare "architecture" — ambiguous once two links sit stacked):
+
+   ```markdown
+   [{repo} architecture]({docs_location}/architecture.md)
+   [org architecture](<output of the command below>)
+   ```
+
+   The first is a relative link built from `panopticon/config.json`'s `repo` and `docs_location`
+   fields; like the diagram-section back-link (rule 7), it resolves once this repo's docs are merged
+   into the instance repo, not necessarily before. The second is a fully-qualified GitHub URL — run:
+
+   ```bash
+   python3 -m panopticon.org_diagram_link
+   ```
+
+   and use its printed line verbatim. Do not re-derive the URL or its fallback behavior yourself: the
+   script already implements the correct config-first, live-lookup-fallback, fail-loudly-never-guess
+   logic (architecture-diagrams capability, "Org-diagram link script"). If the script exits non-zero,
+   stop and report the error it printed rather than writing a partial or guessed link.
+9. **Resolve drift against docs you find, don't just flag it.** If existing documentation — this
    repo's own docs, or a reference/fixture doc committed elsewhere in the repo — describes code,
    configuration, or interfaces that no longer match the repo's actual current state, revise the
    documentation to match reality rather than leaving it stale or merely noting the mismatch in a

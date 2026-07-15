@@ -24,6 +24,9 @@ org-wide architecture diagram is rebuilt from the fresh compiled index.
 
 ## Where to find architecture diagrams
 
+- **This repo's own `README.md`** — links to both diagrams at the top: this repo's own (relative,
+  resolves once merged into the instance) and the org diagram (a fully-qualified GitHub URL, clickable
+  immediately, kept current by doc generation).
 - **This repo's own diagram** — the `## Architecture diagram` section in this repo's own
   `architecture.md`.
 - **The org-wide diagram** — `docs/architecture.md` at the instance repo's root, rebuilt on every
@@ -31,7 +34,7 @@ org-wide architecture diagram is rebuilt from the fresh compiled index.
   place in that org-wide picture once this repo's docs have been merged into the instance — that
   link only resolves *after* the merge, not before.
 
-To get an immediately clickable link to the org diagram right now, before any merge:
+To regenerate an immediately clickable link to the org diagram yourself, before any merge:
 
 ```bash
 python3 -m panopticon.org_diagram_link

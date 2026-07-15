@@ -32,9 +32,31 @@ _GENERATED_HEADER = (
 
 _MERMAID_ID_RE = re.compile(r"[^A-Za-z0-9_]")
 
+# Empty-state placeholder (architecture-diagrams spec, "Org diagram renders an explicit
+# empty-state placeholder"): shown before any child repo has merged a cross-repo interface or
+# dependency. Six `?`-labeled nodes in a ring — deliberately uniform, unlike any real diagram, so
+# it can never be mistaken for actual data.
+#
+# Relative to docs/architecture.md's own directory (docs/), not the instance repo root — same
+# double-"docs/" pitfall as the child-repo navigation links above (see the architecture-diagrams
+# spec's "Diagram navigation uses plain links" requirement): "docs/setup-guide.md" would resolve
+# to the non-existent docs/docs/setup-guide.md.
+_SETUP_GUIDE_LINK = "setup-guide.md#4-initialize-a-child-repo"
+_HEXAGON_NODE_IDS = ("n1", "n2", "n3", "n4", "n5", "n6")
+
 
 def _mermaid_id(repo):
     return "repo_" + _MERMAID_ID_RE.sub("_", repo)
+
+
+def _empty_state_hexagon():
+    """Six `?` nodes connected into a ring — the only implemented renderer is Mermaid (see
+    render_org_diagram's docstring), so this always emits Mermaid graph syntax regardless of the
+    caller's requested `fmt`, same as the rest of this module today."""
+    lines = ["graph LR"] + [f'    {node}(("?"))' for node in _HEXAGON_NODE_IDS]
+    for a, b in zip(_HEXAGON_NODE_IDS, _HEXAGON_NODE_IDS[1:] + _HEXAGON_NODE_IDS[:1]):
+        lines.append(f"    {a} --- {b}")
+    return "\n".join(lines)
 
 
 def repo_set(entry):
@@ -209,7 +231,15 @@ def render_org_diagram(interfaces_compiled, dependencies_compiled=None, diagram_
             "",
         ]
     if not any_section:
-        lines += ["No cross-repo interface or dependency relationships yet.", ""]
+        lines += [
+            f"No cross-repo interface or dependency relationships yet — see [initializing a child "
+            f"repo]({_SETUP_GUIDE_LINK}).",
+            "",
+            f"```{fmt}",
+            _empty_state_hexagon(),
+            "```",
+            "",
+        ]
     return "\n".join(lines)
 
 

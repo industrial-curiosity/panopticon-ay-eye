@@ -39,12 +39,16 @@ different derivation problem:
 
 ## Decisions
 
-**Child README org link reuses `org_diagram_link`'s derivation, not its process.** The script prints one line
-for a human running it locally; the README needs the same URL embedded as static text at doc-generation time.
-Rather than shelling out to the script from the doc-generation skill, the skill applies the same rule directly
-(config first, live `gh api` fallback, fail loudly): duplicating a five-line derivation rule in prose is
-cheaper than adding a subprocess dependency into an agent skill, and it doesn't create two sources of truth
-for the URL *format* — both read the same three config fields.
+**Child README org link invokes `org_diagram_link`'s process directly, rather than duplicating its
+derivation in prose.** Initially planned to have the skill re-derive the URL itself (config first, then a
+described fallback). Reversed during implementation: `org_diagram_link.py`'s actual fallback is more
+specific than a generic description captures — it resolves a token from `GH_TOKEN`/`GITHUB_TOKEN` or `gh
+auth token`, then makes a live GitHub API GET, explicitly *not* a `gh api` subprocess call (see the
+module's own docstring, design D11) — so restating it in a skill instruction risks drifting from the real
+behavior, as an earlier draft of this change's own artifacts already did once. `panopticon-doc-generation`
+already shells out to other `panopticon.*` modules for other rules (`panopticon.docs render`,
+`panopticon.docs validate`); running `python3 -m panopticon.org_diagram_link` and using its printed line is
+the same pattern, and guarantees the README's URL and the script's URL can never disagree.
 
 **README link block is agent-authored, not deterministic tooling.** Considered making it a deterministic write
 (like `interfaces.md`) with a drift check, since the block is fully derivable from config with zero judgment.

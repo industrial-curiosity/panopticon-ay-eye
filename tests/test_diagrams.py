@@ -97,7 +97,14 @@ class TestRenderOrgDiagram(unittest.TestCase):
         compiled = compile_index(shards)
         text = render_org_diagram(compiled)
         self.assertNotIn("## svc-a", text)
-        self.assertIn("No cross-repo interface or dependency relationships yet.", text)
+        self.assertIn("setup-guide.md#4-initialize-a-child-repo", text)
+        self.assertEqual(text.count('("?")'), 6)
+
+    def test_populated_index_has_no_placeholder_content(self):
+        compiled = compile_index(base_shards())
+        text = render_org_diagram(compiled)
+        self.assertNotIn("setup-guide.md#4-initialize-a-child-repo", text)
+        self.assertNotIn('("?")', text)
 
     def test_diagram_format_tags_the_fenced_block(self):
         compiled = compile_index(base_shards())

@@ -241,10 +241,12 @@ unconditionally by design); `protected_paths` only protects the *instance* repo'
 
 ## 7. Finding the org-wide architecture diagram from a child repo
 
-A child repo's own `## Architecture diagram` section links back to the org diagram, but that link is
-relative and only resolves once this repo's docs have been merged into the instance repo (see the
-architecture-diagrams capability) — it won't work if you click it before then. For an immediately
-clickable link, from your own checkout, before any merge:
+A child repo's `README.md` already links to both diagrams at the top — its own (relative, resolves once
+merged into the instance) and the org diagram (a fully-qualified GitHub URL, clickable immediately). The
+`## Architecture diagram` section's own back-link is relative too, and only resolves once this repo's docs
+have been merged into the instance repo (see the architecture-diagrams capability) — it won't work if you
+click it before then. To regenerate the immediately-clickable org link yourself, from your own checkout,
+before any merge:
 
 ```bash
 python3 -m panopticon.org_diagram_link

@@ -14,10 +14,11 @@ The own-repo link SHALL be a relative markdown link to this repo's `architecture
 diagram-section back-link: it resolves once this repo's docs are merged into the instance repo, not
 necessarily before.
 
-The org link SHALL be a fully-qualified GitHub URL, derived using the same inputs and fallback order as the
-`org_diagram_link` script (`panopticon/config.json`'s `instance`, `instance_default_branch`, and `repo`
-fields; a live `gh api` fallback when `instance_default_branch` is absent; a loud failure, never a guessed
-branch name, when both are unavailable) — so it resolves immediately, without waiting for a merge.
+The org link SHALL be a fully-qualified GitHub URL, obtained by running `python3 -m
+panopticon.org_diagram_link` and using its printed output verbatim — not by re-deriving the URL or its
+fallback behavior in the skill itself, since the script already implements the correct config-first,
+live-lookup-fallback, fail-loudly-never-guess logic (architecture-diagrams capability, "Org-diagram link
+script") and restating it elsewhere risks the two drifting apart.
 
 #### Scenario: Doc generation writes both links in the correct order
 
@@ -26,22 +27,17 @@ branch name, when both are unavailable) — so it resolves immediately, without 
 - **WHEN** `panopticon-doc-generation` produces or refreshes `README.md`
 - **THEN** the top of the file contains `[svc-a architecture](docs/architecture.md)` immediately followed by
   `[org architecture](https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a)`, in
-  that order
+  that order — the second line matching exactly what `python3 -m panopticon.org_diagram_link` prints for
+  this config
 
-#### Scenario: Org link falls back to a live lookup when instance_default_branch is absent
+#### Scenario: Org diagram link script's own fallback and failure behavior applies unchanged
 
-- **GIVEN** a child repo's `panopticon/config.json` has `instance` and `repo` but no
-  `instance_default_branch`, and `gh` is installed and authenticated
-- **WHEN** `panopticon-doc-generation` writes the README org link
-- **THEN** it resolves the instance's default branch live via `gh api` and writes the resulting URL, the same
-  fallback behavior as the `org_diagram_link` script
-
-#### Scenario: Missing config and failed live lookup fails loudly rather than guessing
-
-- **GIVEN** a child repo's `panopticon/config.json` has no `instance_default_branch`, and `gh` is either not
-  installed or not authenticated
-- **WHEN** `panopticon-doc-generation` attempts to write the README org link
-- **THEN** it stops and reports the gap rather than writing a link built from a guessed branch name
+- **GIVEN** a child repo's `panopticon/config.json` has no `instance_default_branch`
+- **WHEN** `panopticon-doc-generation` runs `python3 -m panopticon.org_diagram_link` to obtain the README org
+  link
+- **THEN** the script's own existing fallback (live lookup) and failure (loud error, never a guessed branch)
+  behavior determines the outcome; if the script exits non-zero, doc generation stops and reports the gap
+  rather than writing a partial or guessed link
 
 ### Requirement: Instance repo README links to the org diagram only
 
@@ -59,7 +55,7 @@ the org diagram itself already enumerates every repo with an external interface 
 When the compiled index (interfaces and dependencies combined) contains zero repo sections, `write_org_diagram`
 SHALL write a placeholder `docs/architecture.md` rather than an empty or minimal document: a diagram depicting
 six nodes labeled `?`, connected to form a hexagon with no meaningful edge labels, preceded by a markdown link
-to `docs/setup-guide.md#4-initialize-a-child-repo`. This placeholder SHALL be produced by the same
+to `setup-guide.md#4-initialize-a-child-repo`. This placeholder SHALL be produced by the same
 deterministic render path every time `write_org_diagram` runs against a zero-repo compiled index — not written
 once and left stale — so it stays current if the org config or diagram format changes before the first child
 repo merges.
@@ -68,7 +64,7 @@ repo merges.
 
 - **GIVEN** a compiled interface index and compiled dependency index that together contain zero repo sections
 - **WHEN** `write_org_diagram` runs
-- **THEN** it writes `docs/architecture.md` containing the link to `docs/setup-guide.md#4-initialize-a-child-repo`
+- **THEN** it writes `docs/architecture.md` containing the link to `setup-guide.md#4-initialize-a-child-repo`
   followed by a diagram of six `?`-labeled nodes forming a hexagon
 
 #### Scenario: First real merge replaces the placeholder
