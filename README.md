@@ -8,11 +8,11 @@ at an individual repository level, as well as a database and index for an organi
 to review the full system architecture, inter-service interfaces, and internal (same-org) library/package
 dependencies, and avoid breaking changes and incompatibilities.
 
-**Getting started:** see the [org-owner setup guide](docs/setup-guide.md).
-
 <p align="center">
   <img src="https://industrialcuriosity.com/images/panopticon/panopticon-logo-chip.png" alt="Panopticon logo" />
 </p>
+
+**Getting started:** see the [org-owner setup guide](docs/setup-guide.md).
 
 ## How it works
 
