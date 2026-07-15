@@ -2,6 +2,48 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [0.1.2] - 2026-07-14
+
+Internal (same-org) library/package dependency tracking, as a relationship distinct from runtime
+interfaces, with its own schema, parsers, merge/conflict detection, and combined org-diagram
+rendering. Established across `openspec/changes/track-internal-dependencies`.
+
+### Added
+
+**Dependency indexing** (`dependency-indexing`, new capability)
+- Separate JSON index schema (`dependencies/{repo}.json` shards, `dependencies/index.json`
+  compiled) — own files, never recorded as an interface `type` — with `owner`/`producer`/`consumer`
+  and, on consumer repo objects, `apis`: a deduplicated, sorted list of the specific modules the
+  consumer imports (import-level granularity, not call-site).
+- Layered internality detection, most portable first: zero-configuration structural resolution for
+  ecosystems whose declarations embed the org's own GitHub identity (Go module paths under
+  `github.com/{org}/...`, the first deterministic parser); an org-declared `internal_registries`
+  config field, reused for both consumer-side detection and producer self-registration; a
+  no-checkout instance cross-reference (a plain filesystem read in CI, since the shared workflows
+  already check out the instance repo; a best-effort live GitHub API read locally); and a
+  `panopticon-dependency` hint / LLM fallback for anything else, with the same parser-gap
+  reporting contract as interfaces.
+- `panopticon-dependency-of <interface-name>` hint: links a dependency that's really a
+  packaged/generated client for an interface this org already tracks — never inferred from naming
+  conventions, only set explicitly.
+- Shard replace, deterministic compiled-index rebuild, and conflict detection
+  (`ownership-dispute`, and the dependency-specific `unregistered-producer`: an internal candidate
+  with consumers but no self-registered producer anywhere).
+- `docs/hint-reference.md`: syntax, placement, and effect for every hint form in the tooling
+  (`panopticon-interface`, `panopticon-dependency`, `panopticon-dependency-of`).
+
+**Architecture diagrams** (`architecture-diagrams`)
+- The org diagram now renders dependency edges alongside interface edges in one combined section
+  per repo — dashed for interfaces, solid for dependencies — and collapses a dependency linked to
+  an interface via `panopticon-dependency-of` into a single edge instead of two.
+
+### Notes
+
+- CI workflow wiring (the shared `panopticon-pr.yml`/`panopticon-merge.yml` invoking the new
+  extraction/merge tooling automatically) is not yet included — local/manual use of
+  `python3 -m panopticon.dependency_extraction` / `dependency_merge` is fully supported today,
+  matching the existing precedent that full-repo interface extraction is also local-only.
+
 ## [0.1.1] - 2026-07-12
 
 Tooling-currency detection for child repos, plus robustness fixes surfaced by exercising the
@@ -172,5 +214,6 @@ gating for pull requests. Established across `openspec/changes/establish-panopti
 - Exit-code collision where an uncaught check exception and a genuine "stale" verdict produced the
   same exit code, causing crashes to be silently misreported as business verdicts.
 
+[0.1.2]: https://github.com/industrial-curiosity/panopticon-ay-eye/releases/tag/v0.1.2
 [0.1.1]: https://github.com/industrial-curiosity/panopticon-ay-eye/releases/tag/v0.1.1
 [0.1.0]: https://github.com/industrial-curiosity/panopticon-ay-eye/releases/tag/v0.1.0

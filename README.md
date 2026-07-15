@@ -10,6 +10,10 @@ dependencies, and avoid breaking changes and incompatibilities.
 
 **Getting started:** see the [org-owner setup guide](docs/setup-guide.md).
 
+<p align="center">
+  <img src="https://industrialcuriosity.com/images/panopticon/panopticon-logo-chip.png" alt="Panopticon logo" />
+</p>
+
 ## How it works
 
 There are three repository roles:
