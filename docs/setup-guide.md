@@ -160,9 +160,9 @@ Once a location is chosen, the script will:
 ### Phase 2 — Agent (follow the printed prompt)
 
 Give your AI agent (Claude Code, Cursor, or whichever tool you configured) the printed prompt — a single
-skill that sequences interface indexing, documentation generation, and finalization on its own, with a
-resumable checkpoint if your agent session gets interrupted partway through. Each of the underlying
-skills also works standalone if you'd rather run a step by itself.
+skill that sequences interface indexing, dependency indexing, documentation generation, and finalization
+on its own, with a resumable checkpoint if your agent session gets interrupted partway through. Each of
+the underlying skills also works standalone if you'd rather run a step by itself.
 
 No `PANOPTICON_LLM_*` secrets or variables are needed locally — the agent uses its own harness.
 

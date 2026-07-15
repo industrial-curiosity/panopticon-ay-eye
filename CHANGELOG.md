@@ -2,6 +2,30 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [0.1.4] - 2026-07-15
+
+`panopticon-init` now wires dependency indexing into the standard initialization flow, so every
+newly initialized repo gets a populated dependency index alongside its interface index instead of
+requiring dependency indexing as a separate, easy-to-forget manual step. Established across
+`openspec/changes/init-dependency-steps`.
+
+### Added
+
+**Repo initialization** (`repo-initialization`)
+- `panopticon-init`'s orchestration grows from four steps to six: `panopticon-dependency-naming`
+  and `panopticon-dependency-extraction` now run between interface extraction and doc generation,
+  so a `panopticon-dependency-of` hint can reference an already-built interface index and
+  generated docs include dependency edges from the first `/panopticon-init` run.
+- The checkpoint log (`panopticon/.init-log.json`) tracks the two new steps, preserving resumable
+  init across an interrupted agent session.
+
+### Notes
+
+- End-to-end verification of a full `/panopticon-init` run against a real repo with genuine
+  internal dependencies is deferred to the next real initialization — no fixture child+instance
+  repo pair with a real cross-repo dependency exists in this workspace, and the orchestration is
+  agent-followed skill instructions with no Python test harness to simulate it.
+
 ## [0.1.3] - 2026-07-15
 
 Discoverable architecture-diagram links at the top of every instance and child repo README, and a

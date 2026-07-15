@@ -164,6 +164,6 @@ concept. Other ecosystems fall back to LLM extraction until a parser is contribu
 - `openspec/` — spec-driven change management ([OpenSpec](https://github.com/Fission-AI/OpenSpec))
 - `.agents/skills/` — agent skills: project ground rules (`panopticon-architecture`, `panopticon-index-schema`,
   `panopticon-python-tooling`), the bundled Panopticon skills shared by local agents and CI
-  (`panopticon-init` orchestrates `panopticon-doc-generation`, `panopticon-interface-naming`,
-  `panopticon-interface-extraction`; plus `panopticon-doc-drift`, `panopticon-index-currency`,
-  `panopticon-dependency-naming`, `panopticon-dependency-extraction`), and OpenSpec workflow skills
+  (`panopticon-init` orchestrates `panopticon-interface-naming`, `panopticon-interface-extraction`,
+  `panopticon-dependency-naming`, `panopticon-dependency-extraction`, and `panopticon-doc-generation`;
+  plus `panopticon-doc-drift`, `panopticon-index-currency`), and OpenSpec workflow skills
