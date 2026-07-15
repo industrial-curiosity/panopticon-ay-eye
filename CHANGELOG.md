@@ -2,6 +2,31 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [0.1.3] - 2026-07-15
+
+Discoverable architecture-diagram links at the top of every instance and child repo README, and a
+non-dead placeholder org diagram for a freshly created instance. Established across
+`openspec/changes/readme-architecture-links`.
+
+### Added
+
+**Architecture diagrams** (`architecture-diagrams`)
+- Child repo `README.md` now links to both diagrams at the top, own-repo above org: a relative link to
+  this repo's own `architecture.md`, and a fully-qualified GitHub URL to the org diagram — obtained by
+  running `python3 -m panopticon.org_diagram_link` and using its printed output verbatim, so the two can
+  never disagree — written by `panopticon-doc-generation` as part of its normal architecture-overview
+  pass.
+- Instance repo `README.md` now links to the org diagram at the top (`docs/architecture.md`) only — no
+  per-child-repo links, since the org diagram itself already enumerates every repo.
+- `write_org_diagram` renders an explicit empty-state placeholder — a link to initializing a child repo
+  plus a hexagon of six `?` nodes — in place of a bare "no relationships yet" line, produced by the same
+  deterministic render path every run rather than written once and left stale.
+- The template repo ships that placeholder `docs/architecture.md` directly, so a freshly created
+  instance repo's architecture link is never dead even before any child repo has merged; its own
+  `README.md` Overview section now carries org-agnostic instance-appropriate text plus a maintainer note,
+  replacing template self-description that no longer applies once copied into an instance repo via "Use
+  this template."
+
 ## [0.1.2] - 2026-07-14
 
 Internal (same-org) library/package dependency tracking, as a relationship distinct from runtime
@@ -214,6 +239,7 @@ gating for pull requests. Established across `openspec/changes/establish-panopti
 - Exit-code collision where an uncaught check exception and a genuine "stale" verdict produced the
   same exit code, causing crashes to be silently misreported as business verdicts.
 
+[0.1.3]: https://github.com/industrial-curiosity/panopticon-ay-eye/releases/tag/v0.1.3
 [0.1.2]: https://github.com/industrial-curiosity/panopticon-ay-eye/releases/tag/v0.1.2
 [0.1.1]: https://github.com/industrial-curiosity/panopticon-ay-eye/releases/tag/v0.1.1
 [0.1.0]: https://github.com/industrial-curiosity/panopticon-ay-eye/releases/tag/v0.1.0
