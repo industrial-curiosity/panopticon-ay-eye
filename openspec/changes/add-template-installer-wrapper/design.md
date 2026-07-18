@@ -64,6 +64,10 @@ Raw authenticated error bodies are not printed. Diagnostics report the repositor
 operation, and HTTP status using controlled text. This prevents a customized endpoint or unexpected
 response from reflecting sensitive input into logs.
 
+The GitHub contents API may line-wrap its base64 `content` field. Both the public launcher and the
+template-derived payload remove transport whitespace before applying strict base64 and UTF-8 validation.
+This accepts the API's representation without weakening rejection of malformed executable content.
+
 ### Default branch resolution precedes payload retrieval
 
 When `PANOPTICON_INSTANCE_REF` is absent, the launcher queries repository metadata and uses
@@ -109,8 +113,8 @@ custom instances to add, remove, or replace parameters and installation steps.
 
 ## Migration Plan
 
-1. Add launcher-focused unit and subprocess tests, including controlling-terminal and secret-redaction
-   cases.
+1. Add launcher-focused unit and subprocess tests, including controlling-terminal, secret-redaction, and
+   GitHub-style line-wrapped base64 cases.
 2. Convert the template `install.py` into the launcher/payload entry point while retaining the existing
    uncustomized instance bootstrap path behind the boundary marker.
 3. Update public documentation to publish the single template URL and list optional environment variables.

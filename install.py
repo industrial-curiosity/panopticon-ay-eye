@@ -165,7 +165,8 @@ def fetch_instance_installer(instance, ref, token=None, urlopen=urllib.request.u
     if document.get("encoding") != "base64" or not isinstance(document.get("content"), str):
         raise LauncherError(f"GitHub returned an invalid install.py response for {instance} at {ref}")
     try:
-        return base64.b64decode(document["content"], validate=True).decode("utf-8")
+        encoded_content = "".join(document["content"].split())
+        return base64.b64decode(encoded_content, validate=True).decode("utf-8")
     except (ValueError, UnicodeDecodeError) as exc:
         raise LauncherError(f"GitHub returned an invalid install.py payload for {instance} at {ref}") from exc
 
@@ -241,9 +242,12 @@ def _load_default_payload_from_github(instance, ref=None):
         )
         document = _api_json(url, token)
         try:
-            if document.get("encoding") != "base64":
+            if document.get("encoding") != "base64" or not isinstance(
+                document.get("content"), str
+            ):
                 raise KeyError("encoding")
-            return base64.b64decode(document["content"], validate=True).decode("utf-8")
+            encoded_content = "".join(document["content"].split())
+            return base64.b64decode(encoded_content, validate=True).decode("utf-8")
         except (KeyError, ValueError, UnicodeDecodeError) as exc:
             raise LauncherError(
                 f"GitHub returned an invalid {path} payload for {instance} at {ref}"

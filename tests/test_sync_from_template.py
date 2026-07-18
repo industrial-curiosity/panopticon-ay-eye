@@ -1,12 +1,10 @@
-"""Integration tests (real git repos via subprocess/tempfile, not mocked) for the org-declared
-``protected_paths`` regeneration mechanism ``sync-from-template.yml`` runs before its merge step
-(tooling-currency capability, design D6) — the same three scenarios design.md's spike verified
-empirically: routine sync where the incoming side also touches the protected path, first-sync
-(``-X theirs``, ``--allow-unrelated-histories``), and first-sync with a genuine same-path conflict.
-Exercises the actual git behavior the workflow step relies on; the `.git/info/attributes` write
-itself is the same three-line logic the workflow's "Register org-declared protected paths" step
-runs (design D6: this file is per-checkout state, never tracked, so there's nothing importable to
-call directly — the point of this test is the git merge behavior, not a Python API)."""
+"""Real-git integration tests for sync-from-template.yml's runtime merge attributes.
+
+The tests cover two distinct classifications written to ``.git/info/attributes`` before a merge:
+the template-declared, instance-owned generated org diagram and org-declared ``protected_paths``.
+The point is Git's real add/add, modify/modify, unrelated-history, and one-sided-add behavior, so
+the repository operations intentionally use subprocesses rather than mocks.
+"""
 
 import subprocess
 import tempfile
@@ -35,13 +33,18 @@ def _commit_all(path, message):
     _git(["commit", "-q", "-m", message], path)
 
 
-def _register_protection(instance_root, protected_paths):
-    """Replicates sync-from-template.yml's two steps: register the `ours` merge driver, then
-    write each protected path (never the tracked .gitattributes) to .git/info/attributes."""
+GENERATED_PATHS = ("docs/architecture.md",)
+
+
+def _register_runtime_attributes(instance_root, protected_paths=()):
+    """Reproduce the workflow's fixed and dynamic runtime attribute registration."""
     _git(["config", "merge.ours.driver", "true"], instance_root)
     attrs = Path(instance_root) / ".git" / "info" / "attributes"
     attrs.parent.mkdir(parents=True, exist_ok=True)
-    attrs.write_text("".join(f"{p} merge=ours\n" for p in protected_paths), encoding="utf-8")
+    attributed_paths = dict.fromkeys((*GENERATED_PATHS, *protected_paths))
+    attrs.write_text(
+        "".join(f"{path} merge=ours\n" for path in attributed_paths), encoding="utf-8"
+    )
 
 
 class TestRoutineSyncProtection(unittest.TestCase):
@@ -70,7 +73,7 @@ class TestRoutineSyncProtection(unittest.TestCase):
             _git(["remote", "add", "template", str(template)], instance)
             _git(["fetch", "-q", "template", "main"], instance)
 
-            _register_protection(instance, ["skill.md"])
+            _register_runtime_attributes(instance, ["skill.md"])
 
             merge = _git(["merge", "template/main", "--no-edit"], instance, check=False)
 
@@ -102,7 +105,7 @@ class TestFirstSyncProtection(unittest.TestCase):
             _git(["remote", "add", "template", str(template)], instance)
             _git(["fetch", "-q", "template", "main"], instance)
 
-            _register_protection(instance, ["skill.md"])
+            _register_runtime_attributes(instance, ["skill.md"])
 
             merge = _git(
                 ["merge", "template/main", "--no-edit", "--allow-unrelated-histories", "-X", "theirs"],
@@ -130,7 +133,7 @@ class TestFirstSyncProtection(unittest.TestCase):
             _git(["remote", "add", "template", str(template)], instance)
             _git(["fetch", "-q", "template", "main"], instance)
 
-            _register_protection(instance, ["skill.md"])
+            _register_runtime_attributes(instance, ["skill.md"])
 
             merge = _git(
                 ["merge", "template/main", "--no-edit", "--allow-unrelated-histories", "-X", "theirs"],
@@ -139,6 +142,124 @@ class TestFirstSyncProtection(unittest.TestCase):
 
             self.assertEqual(merge.returncode, 0, merge.stdout + merge.stderr)
             self.assertEqual((instance / "skill.md").read_text(), "org customized before first sync")
+
+
+class TestGeneratedOrgDiagramSync(unittest.TestCase):
+    def test_routine_sync_both_sides_independently_add_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            template = Path(tmp) / "template"
+            instance = Path(tmp) / "instance"
+            _init_repo(template)
+            (template / "README.md").write_text("shared base")
+            _commit_all(template, "shared base")
+
+            _git(["clone", "-q", str(template), str(instance)], tmp)
+            _git(["config", "user.email", "a@b.c"], instance)
+            _git(["config", "user.name", "a"], instance)
+
+            (instance / "docs").mkdir()
+            (instance / "docs" / "architecture.md").write_text("instance generated")
+            _commit_all(instance, "instance adds generated diagram")
+
+            (template / "docs").mkdir()
+            (template / "docs" / "architecture.md").write_text("template placeholder")
+            _commit_all(template, "template adds placeholder")
+
+            _git(["remote", "add", "template", str(template)], instance)
+            _git(["fetch", "-q", "template", "main"], instance)
+            _register_runtime_attributes(instance)
+
+            merge = _git(["merge", "template/main", "--no-edit"], instance, check=False)
+
+            self.assertEqual(merge.returncode, 0, merge.stdout + merge.stderr)
+            self.assertEqual(
+                (instance / "docs" / "architecture.md").read_text(), "instance generated"
+            )
+
+    def test_routine_sync_both_sides_modify_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            template = Path(tmp) / "template"
+            instance = Path(tmp) / "instance"
+            _init_repo(template)
+            (template / "docs").mkdir()
+            (template / "docs" / "architecture.md").write_text("shared placeholder")
+            _commit_all(template, "shared placeholder")
+
+            _git(["clone", "-q", str(template), str(instance)], tmp)
+            _git(["config", "user.email", "a@b.c"], instance)
+            _git(["config", "user.name", "a"], instance)
+
+            (instance / "docs" / "architecture.md").write_text("instance generated")
+            _commit_all(instance, "instance generates diagram")
+            (template / "docs" / "architecture.md").write_text("template placeholder update")
+            _commit_all(template, "template updates placeholder")
+
+            _git(["remote", "add", "template", str(template)], instance)
+            _git(["fetch", "-q", "template", "main"], instance)
+            _register_runtime_attributes(instance)
+
+            merge = _git(["merge", "template/main", "--no-edit"], instance, check=False)
+
+            self.assertEqual(merge.returncode, 0, merge.stdout + merge.stderr)
+            self.assertEqual(
+                (instance / "docs" / "architecture.md").read_text(), "instance generated"
+            )
+
+    def test_first_sync_unrelated_histories_preserves_instance_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            template = Path(tmp) / "template"
+            instance = Path(tmp) / "instance"
+            _init_repo(template)
+            (template / "docs").mkdir()
+            (template / "docs" / "architecture.md").write_text("template placeholder")
+            _commit_all(template, "template initial")
+
+            _init_repo(instance)
+            (instance / "docs").mkdir()
+            (instance / "docs" / "architecture.md").write_text("instance generated")
+            _commit_all(instance, "instance initial")
+
+            _git(["remote", "add", "template", str(template)], instance)
+            _git(["fetch", "-q", "template", "main"], instance)
+            _register_runtime_attributes(instance)
+
+            merge = _git(
+                ["merge", "template/main", "--no-edit", "--allow-unrelated-histories", "-X", "theirs"],
+                instance,
+                check=False,
+            )
+
+            self.assertEqual(merge.returncode, 0, merge.stdout + merge.stderr)
+            self.assertEqual(
+                (instance / "docs" / "architecture.md").read_text(), "instance generated"
+            )
+
+    def test_template_placeholder_is_installed_when_instance_lacks_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            template = Path(tmp) / "template"
+            instance = Path(tmp) / "instance"
+            _init_repo(template)
+            (template / "README.md").write_text("shared base")
+            _commit_all(template, "shared base")
+
+            _git(["clone", "-q", str(template), str(instance)], tmp)
+            _git(["config", "user.email", "a@b.c"], instance)
+            _git(["config", "user.name", "a"], instance)
+
+            (template / "docs").mkdir()
+            (template / "docs" / "architecture.md").write_text("template placeholder")
+            _commit_all(template, "template adds placeholder")
+
+            _git(["remote", "add", "template", str(template)], instance)
+            _git(["fetch", "-q", "template", "main"], instance)
+            _register_runtime_attributes(instance)
+
+            merge = _git(["merge", "template/main", "--no-edit"], instance, check=False)
+
+            self.assertEqual(merge.returncode, 0, merge.stdout + merge.stderr)
+            self.assertEqual(
+                (instance / "docs" / "architecture.md").read_text(), "template placeholder"
+            )
 
 
 if __name__ == "__main__":

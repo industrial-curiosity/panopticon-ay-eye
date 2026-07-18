@@ -9,14 +9,14 @@
 
 ## 2. Secure Payload Dispatch
 
-- [x] 2.1 Fetch the instance repository's complete `install.py` through the GitHub contents API using headers rather than credential-bearing URLs or command arguments
+- [x] 2.1 Fetch the instance repository's complete `install.py` through the GitHub contents API using headers rather than credential-bearing URLs or command arguments, accepting API line wrapping while retaining strict base64 and UTF-8 validation
 - [x] 2.2 Add controlled error handling that reports actionable repository, ref, authentication, and non-interactive failures without printing tokens or raw authenticated response bodies
 - [x] 2.3 Execute the fetched instance installer in-process from the child-repository working directory with terminal access and pass-through environment variables
 - [x] 2.4 Preserve the existing template bootstrap as the default instance payload behavior while allowing customized instance installers to replace its prompts and steps
 
 ## 3. Verification
 
-- [x] 3.1 Extend self-bootstrap tests for public anonymous instances, both token environment variables, GitHub CLI token fallback, explicit refs, and resolved default branches
+- [x] 3.1 Extend self-bootstrap tests for public anonymous instances, both token environment variables, GitHub CLI token fallback, explicit refs, resolved default branches, and GitHub-style line-wrapped base64 in both payload-fetch paths
 - [x] 3.2 Add pseudo-terminal tests for piped-source instance prompts and hidden authentication prompts, including assertions that secrets never appear in stdout or stderr
 - [x] 3.3 Add subprocess and isolated-process tests for non-interactive failures, invalid repositories or refs, authenticated retry failures, and recursion prevention
 - [x] 3.4 Verify the uncustomized instance payload retains idempotent skills, tooling, workflow, guide, config-refresh, and prompt behavior

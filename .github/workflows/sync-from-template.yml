@@ -14,6 +14,13 @@
 # version's top-level JSON fields against the instance's (unchanged) current file for each
 # registered path, warning (never blocking) when the template added or removed a field.
 #
+# Template-declared instance-owned generated paths: docs/architecture.md starts as the template's
+# empty-state placeholder, then becomes deterministic output owned by the instance. Register it in
+# .git/info/attributes before every merge so an existing instance copy wins when both histories
+# touch the path, while a template placeholder is still added when the instance has no copy. This
+# fixed rule is neither protected JSON config nor an org-declared customization. It reuses the same
+# `merge.ours.driver` registered below and leaves no tracked attribute behind.
+#
 # Org-declared instance-level customization protection (tooling-currency capability, design D6):
 # panopticon.config.json's org-declared `protected_paths` field lists arbitrary paths (skills,
 # vendored tooling modules, future plugin content) customized at the instance level. Unlike
@@ -69,7 +76,7 @@ jobs:
       # Regenerated every run (this file is untracked and lives entirely inside .git/, so nothing
       # here persists across runs on its own). Must run before the merge step below, in the same
       # job/working directory — .git/info/attributes is per-checkout state (design D6 risk).
-      - name: Register org-declared protected paths
+      - name: Register generated and org-declared protected paths
         shell: python
         run: |
           import os
@@ -79,15 +86,26 @@ jobs:
           sys.path.insert(0, ".")
           from panopticon.config import load_org_config
 
+          generated_paths = ("docs/architecture.md",)
           protected_paths = load_org_config(".")["protected_paths"]
+          attributed_paths = dict.fromkeys((*generated_paths, *protected_paths))
 
           attrs_path = Path(".git/info/attributes")
           attrs_path.parent.mkdir(parents=True, exist_ok=True)
           attrs_path.write_text(
-              "".join(f"{path} merge=ours\n" for path in protected_paths), encoding="utf-8"
+              "".join(f"{path} merge=ours\n" for path in attributed_paths), encoding="utf-8"
           )
 
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## Template-declared instance-owned generated paths\n\n")
+              handle.write(
+                  "These generated paths keep the instance version when both sides change; "
+                  "they are not org customizations:\n\n"
+              )
+              for path in generated_paths:
+                  handle.write(f"- `{path}`\n")
+
+              handle.write("\n")
               handle.write("## Org-declared protected paths\n\n")
               if protected_paths:
                   handle.write(

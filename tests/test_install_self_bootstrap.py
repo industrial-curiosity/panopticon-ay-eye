@@ -50,7 +50,7 @@ def _contents_response(source):
     return _json_response(
         {
             "encoding": "base64",
-            "content": base64.b64encode(source.encode()).decode(),
+            "content": base64.encodebytes(source.encode()).decode(),
         }
     )
 
@@ -231,6 +231,15 @@ class TestInstanceRetrieval(unittest.TestCase):
         self.assertIn("ref=release%2Fone", seen[0].full_url)
         self.assertNotIn("secret-token", seen[0].full_url)
         self.assertEqual(seen[0].headers["Authorization"], "Bearer secret-token")
+
+    def test_installer_fetch_accepts_github_line_wrapped_base64(self):
+        source = "# long installer payload\n" + "print('custom')\n" * 10
+        fetched = INSTALLER.fetch_instance_installer(
+            "acme/instance",
+            "main",
+            urlopen=lambda _request, timeout=30: _contents_response(source),
+        )
+        self.assertEqual(fetched, source)
 
     def test_custom_payload_receives_marker_working_directory_and_environment(self):
         source = (

@@ -158,6 +158,10 @@ concept. Other ecosystems fall back to LLM extraction until a parser is contribu
   (`org_diagram_link.py`)
 - `.github/workflows/` — the reusable workflows child repos call: `panopticon-pr.yml`, `panopticon-merge.yml`,
   `panopticon-pr-close.yml`; plus `sync-from-template.yml`, run from instance repos to pull template updates.
+  Before merging, template sync registers `docs/architecture.md` as a template-declared, instance-owned
+  generated path in `.git/info/attributes`: an existing instance diagram wins over the template placeholder,
+  while an instance with no diagram receives that placeholder. This fixed rule is separate from protected
+  JSON config and org-declared `protected_paths` customizations.
   These don't yet invoke `dependency_extraction`/`dependency_merge` (see "Dependency-indexing's CI wiring status"
   above) — local/manual use of that tooling is fully supported today.
 - `interfaces/` — interface index shards + compiled index (empty in the template; populated in instance repos)

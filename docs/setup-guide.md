@@ -23,9 +23,31 @@ GitHub does not allow private forks of public repositories, so the instance is c
    instructions to resolve them locally. You can also enable the weekly schedule
    in the workflow file to receive updates automatically. Any path listed in your org config's
    `protected_paths` (step 3 below) always survives this sync unchanged — see that section for
-   how to declare instance-level customizations.
+   how to declare instance-level customizations. Separately, the template always preserves an existing
+   instance `docs/architecture.md` as generated instance-owned output; if the instance does not have that
+   file yet, sync installs the template's empty-state placeholder.
 4. No tagging is required to get started — child caller workflows default to the instance repo's
    default branch until you opt into pinning a ref (see step 3's `workflow_ref`).
+
+### One-time workflow update for existing instances
+
+An existing instance runs the copy of `sync-from-template.yml` already on its default branch, so that old
+workflow cannot protect the same merge that would update it. Before the first sync containing this generated
+diagram rule, replace the instance's workflow once from a local clone of the instance repo:
+
+```bash
+gh api \
+  repos/industrial-curiosity/panopticon-ay-eye/contents/.github/workflows/sync-from-template.yml \
+  --jq '.content' | base64 --decode > .github/workflows/sync-from-template.yml
+
+git add .github/workflows/sync-from-template.yml
+git commit -m "fix: preserve generated architecture during template sync"
+git push
+```
+
+Then run **Actions → Sync from template → Run workflow**. Instances created after the updated workflow is
+published inherit it automatically and do not need this one-time step. If the instance deliberately customizes
+this workflow, merge the generated-path registration into that customization instead of replacing the file.
 
 ## 2. Configure org-level secrets and variables
 
@@ -211,6 +233,10 @@ Diagram rendering format defaults to Mermaid and is configurable per instance vi
 `panopticon.diagram.config.json` at the instance repo root — this file is protected from
 `sync-from-template`'s merge (your customization always wins), and syncing warns (non-blocking) if
 the template adds or removes a config field you haven't picked up.
+
+The generated `docs/architecture.md` follows a different rule: it is not protected configuration and does
+not belong in `protected_paths`. The template sync workflow declares it as instance-owned generated output
+and preserves the instance copy whenever both sides contain or change the path.
 
 ## 6. Keeping a child repo's skills and tooling current
 

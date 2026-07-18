@@ -26,6 +26,9 @@ process and child-repository working directory. It SHALL pass through the existi
 apart from making launcher-resolved universal values available to the payload, so the instance installer
 retains control of organization-specific prompts, parameters, skills locations, files, and behavior. The
 launcher SHALL prevent a fetched payload from recursively re-entering the launcher dispatch phase.
+The launcher SHALL accept the GitHub contents API's whitespace-wrapped base64 representation while still
+strictly validating the normalized payload as base64 and UTF-8 before execution. The template-derived
+instance payload SHALL apply the same decoding behavior when it fetches its default bootstrap modules.
 
 The launcher and its diagnostics SHALL never place a token in a URL or command argument, echo a token,
 include a token or authenticated response body in an error, or persist a prompted token to disk or Git
@@ -81,6 +84,21 @@ responsible for its initial creation after validation.
 - **GIVEN** `PANOPTICON_INSTANCE_REF` names a branch, tag, or commit containing a customized installer
 - **WHEN** the launcher retrieves the instance payload
 - **THEN** it fetches `install.py` at that exact ref instead of resolving or using the default branch
+
+#### Scenario: GitHub-wrapped base64 payload is decoded
+
+- **GIVEN** the GitHub contents API returns a valid installer or default bootstrap module whose base64
+  content contains transport whitespace and line wrapping
+- **WHEN** the launcher or template-derived instance payload decodes that content
+- **THEN** it removes the transport whitespace, strictly validates the remaining base64 and UTF-8 content,
+  and executes the decoded source
+
+#### Scenario: Malformed payload remains rejected
+
+- **GIVEN** the GitHub contents API response declares base64 content but the normalized payload is not
+  valid base64 or does not decode as UTF-8
+- **WHEN** the launcher or template-derived instance payload decodes that content
+- **THEN** it exits non-zero with a controlled invalid-payload error and does not execute the content
 
 #### Scenario: Customized instance installer receives control
 
