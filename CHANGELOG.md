@@ -2,6 +2,35 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [0.1.5] - 2026-07-18
+
+The public installer now dispatches securely to instance-owned installers for both public and private
+repositories, and template sync preserves the instance-generated organization diagram. Established
+across `add-template-installer-wrapper` and `fix-org-diagram-template-sync`.
+
+### Changed
+
+**Repo initialization** (`repo-initialization`)
+- A single public template launcher now supports public and private instance repositories. It resolves
+  the instance, ref, and authentication before handing control to the instance-owned installer, allowing
+  customized installers to retain their own prompts, parameters, and behavior.
+- The launcher accepts GitHub Contents API line-wrapped base64 while retaining strict base64 and UTF-8
+  validation, and keeps prompted or configured tokens out of URLs, command arguments, output, errors,
+  and persistent storage.
+
+**Architecture diagrams** (`architecture-diagrams`)
+- Template sync now classifies `docs/architecture.md` as a fixed, template-declared but instance-owned
+  generated path. Existing instance diagrams win merges, while the template placeholder is installed
+  when an instance does not yet have the file.
+
+### Fixed
+
+- Routine and first-time template sync no longer conflict on or overwrite an instance's generated
+  `docs/architecture.md`; the workflow registers `merge=ours` in `.git/info/attributes` before merging
+  without misclassifying the path as protected JSON configuration or org customization.
+- The public installer no longer rejects valid GitHub Contents API payloads solely because their base64
+  content contains transport line wrapping.
+
 ## [0.1.4] - 2026-07-15
 
 `panopticon-init` now wires dependency indexing into the standard initialization flow, so every

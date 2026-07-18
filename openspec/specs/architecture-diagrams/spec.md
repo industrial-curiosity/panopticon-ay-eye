@@ -1,3 +1,9 @@
+# Architecture Diagrams Specification
+
+## Purpose
+
+Define how Panopticon generates, links, configures, and synchronizes repository and organization diagrams.
+## Requirements
 ### Requirement: Diagram format configuration
 
 Diagram rendering format SHALL be configurable per instance repo via `panopticon.diagram.config.json` at the
@@ -291,8 +297,8 @@ the org diagram itself already enumerates every repo with an external interface 
 
 ### Requirement: Org diagram renders an explicit empty-state placeholder
 
-When the compiled index (interfaces and dependencies combined) contains zero repo sections, `write_org_diagram`
-SHALL write a placeholder `docs/architecture.md` rather than an empty or minimal document: a diagram depicting
+`write_org_diagram` SHALL write a placeholder `docs/architecture.md` rather than an empty or minimal document
+when the compiled index (interfaces and dependencies combined) contains zero repo sections: a diagram depicting
 six nodes labeled `?`, connected to form a hexagon with no meaningful edge labels, preceded by a markdown link
 to `setup-guide.md#4-initialize-a-child-repo`. This placeholder SHALL be produced by the same
 deterministic render path every time `write_org_diagram` runs against a zero-repo compiled index — not written
@@ -338,3 +344,36 @@ repository is created from a template.
 - **THEN** the Overview section reads: instance-appropriate boilerplate text, then the org architecture link,
   then a maintainer note instructing the org to personalize the paragraph, then the logo image — in that
   order
+
+### Requirement: Org diagram is template-declared and instance-owned during sync
+
+The template SHALL declare `docs/architecture.md` as an instance-owned generated path for template-sync
+merges. The template's tracked copy is an installable empty-state placeholder, not the durable source of
+truth after an instance has generated or otherwise acquired its own copy. When the path exists on both
+sides of a template merge, the instance's current copy SHALL win. When it exists only in the incoming
+template, the placeholder SHALL be installed.
+
+This classification SHALL be fixed by the template and SHALL NOT be modeled as protected JSON configuration,
+an entry in `PROTECTED_CONFIG_FILES`, an org-declared `protected_paths` customization, or a tracked
+`.gitattributes` rule. It SHALL use the template-sync workflow's per-checkout `.git/info/attributes`
+registration and existing `merge.ours.driver true` configuration.
+
+#### Scenario: Generated instance diagram is preserved
+
+- **GIVEN** both the instance and incoming template contain `docs/architecture.md`
+- **WHEN** template sync merges the histories and Git requires a path-level merge decision
+- **THEN** the instance's current generated content is retained
+
+#### Scenario: Placeholder bootstraps a missing diagram
+
+- **GIVEN** the incoming template contains the empty-state placeholder and the instance has no
+  `docs/architecture.md`
+- **WHEN** template sync merges the histories
+- **THEN** the placeholder is added to the instance and its README architecture link resolves
+
+#### Scenario: Generated path is not reported as customization
+
+- **WHEN** template sync registers `docs/architecture.md` in `.git/info/attributes`
+- **THEN** the workflow identifies it as a template-declared generated path and does not describe it as
+  protected configuration or org customization
+

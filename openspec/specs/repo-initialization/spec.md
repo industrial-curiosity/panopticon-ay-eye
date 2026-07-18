@@ -1,107 +1,139 @@
+# Repository Initialization Specification
+
+## Purpose
+
+Define how Panopticon bootstraps, configures, validates, and updates child and instance repositories.
+## Requirements
 ### Requirement: Bootstrap installer script
 
-The template repo SHALL include a Python bootstrap script that can be run directly from a child repo
-without cloning the instance repo locally, invoked via:
+The template repo SHALL publish a Python standard-library-only launcher that can be piped directly into
+Python from a stable, organization-neutral public-template URL while the user's working directory is the
+child repo to initialize. The same launcher command SHALL support public and private instance repositories.
 
-```
-curl -fsSL https://raw.githubusercontent.com/<instance>/main/install.py | python3
-```
+The launcher SHALL resolve the instance org/repo slug from `PANOPTICON_INSTANCE`, or prompt through the
+controlling terminal when the variable is absent and interactive input is available. It SHALL resolve the
+instance ref from `PANOPTICON_INSTANCE_REF` when set; otherwise it SHALL query the GitHub repository API
+for the instance repository's actual default branch rather than assuming a branch name.
 
-or equivalently by downloading and running it. The script SHALL read the instance org/repo slug from the
-`PANOPTICON_INSTANCE` environment variable, falling back to an interactive prompt when the variable is not
-set and stdin is a terminal. Using only Python stdlib and the GitHub API (no additional dependencies), the
-script SHALL:
+Authentication SHALL be resolved in this order: `GH_TOKEN`, `GITHUB_TOKEN`, then `gh auth token` when the
+GitHub CLI is available. With no resolved token, the launcher SHALL first attempt anonymous GitHub API
+access so public instances require no authentication. When anonymous access cannot retrieve the instance
+and a controlling terminal is available, the launcher SHALL offer a hidden token prompt and retry with
+the entered token. In non-interactive execution it SHALL fail clearly and name the environment variables
+needed to continue.
 
-1. Determine the child repo's skills location (see "Skills location selection") — this SHALL happen
-   before any skill files are downloaded.
-2. Download only skills whose directory name begins with `panopticon-` from the instance repo's
-   `.agents/skills/` directory and write them to the chosen skills location in the child repo, creating
-   the directory if absent. Skills at other name prefixes (org-internal skills, tooling skills, etc.)
-   SHALL NOT be written to the child repo.
-3. Download the local-tooling subset of the `panopticon` Python package into the child repo's
-   `panopticon/` directory (see "Local tooling package vendored into child repo").
-4. Download the getting-started guide from the instance repo and write it to the child repo's root as
-   `PANOPTICON.md` (see "Getting-started guide vendored into child repo").
-5. Download the three caller workflow files from the instance repo and write them to the child repo's
-   `.github/workflows/`, creating the directory if absent.
-6. If `panopticon/config.json` already exists (the repo was already initialized), re-resolve and
-   update its `instance_default_branch` field in place (see "Bootstrap script refreshes
-   instance_default_branch on rerun") — every other field is left untouched.
-7. Verify org-level CI prerequisites (secrets and variables) and report any missing items — report-only,
-   never blocking.
-8. Output the exact prompts the user shall give their AI agent to complete the AI-dependent initialization
-   steps (see "Agent prompts output"), and the sync-workflow reference (see "Bootstrap output references
-   the sync workflow and getting-started guide").
+After resolving access and the ref, the launcher SHALL fetch the selected instance repository's complete
+`install.py` through the GitHub contents API and execute it as the installation payload in the current
+process and child-repository working directory. It SHALL pass through the existing environment unchanged,
+apart from making launcher-resolved universal values available to the payload, so the instance installer
+retains control of organization-specific prompts, parameters, skills locations, files, and behavior. The
+launcher SHALL prevent a fetched payload from recursively re-entering the launcher dispatch phase.
+The launcher SHALL accept the GitHub contents API's whitespace-wrapped base64 representation while still
+strictly validating the normalized payload as base64 and UTF-8 before execution. The template-derived
+instance payload SHALL apply the same decoding behavior when it fetches its default bootstrap modules.
 
-The bootstrap script SHALL NOT *create* `panopticon/config.json` — that remains the last artifact
-created, by the finalization step, only after the agent has completed its work and validation
-passes. Step 6 above is a narrow, explicit exception covering only an update to one field of an
-*already-existing* config file on rerun (see "Bootstrap script refreshes instance_default_branch on
-rerun"); it does not change when or how the file is first created.
+The launcher and its diagnostics SHALL never place a token in a URL or command argument, echo a token,
+include a token or authenticated response body in an error, or persist a prompted token to disk or Git
+credential storage. Hidden token input SHALL not be displayed. A token entered interactively SHALL exist
+only for the lifetime of the launcher process and its instance-installer payload.
 
-#### Self-bootstrapping when piped via curl
+The instance installer remains responsible for the deterministic installation behavior defined by the
+instance, including the template default behavior of selecting a skills location, downloading only
+`panopticon-` skills, vendoring local tooling and the getting-started guide, writing caller workflows,
+refreshing an existing `panopticon/config.json`, reporting CI prerequisites, and printing agent and sync
+instructions. The instance installer SHALL NOT create `panopticon/config.json`; finalization remains
+responsible for its initial creation after validation.
 
-When `install.py` is piped from the instance repo via `curl | python3`, it runs outside the instance repo
-directory and cannot import the `panopticon` package locally. The script SHALL detect this condition
-(import failure at startup) and self-bootstrap by downloading `panopticon/__init__.py` and
-`panopticon/bootstrap.py` from the instance repo via the GitHub API, installing them into `sys.modules`
-in-process, then continuing with the normal import flow — without requiring any local clone of the
-instance repo.
+#### Scenario: Public instance uses anonymous access
 
-Token discovery for GitHub API calls SHALL follow the same precedence used by bootstrap.py: `GH_TOKEN`
-env var, then `GITHUB_TOKEN` env var, then `gh auth token` if the `gh` CLI is available. When no token is
-found the API call is made unauthenticated (suitable for public instance repos; private repos will receive
-a 404 and the script SHALL exit with a clear error).
+- **GIVEN** `PANOPTICON_INSTANCE` names a public instance repository and no GitHub token is available
+- **WHEN** the user pipes the public template launcher into Python
+- **THEN** the launcher resolves the default branch, retrieves the instance `install.py` anonymously,
+  and executes it without asking for authentication
 
-#### Scenario: Only panopticon-prefixed skills are installed
+#### Scenario: Private instance uses existing authentication
 
-- **GIVEN** the instance repo's `.agents/skills/` contains both `panopticon-doc-generation/` and
-  `openspec-apply-change/` (an org-internal skill), and the chosen skills location is `.agents/skills/`
-  (the default)
-- **WHEN** the bootstrap script runs
-- **THEN** `.agents/skills/panopticon-doc-generation/` is written to the child repo and
-  `.agents/skills/openspec-apply-change/` is not
+- **GIVEN** `PANOPTICON_INSTANCE` names a private instance repository and `GH_TOKEN`, `GITHUB_TOKEN`, or
+  `gh auth token` provides access
+- **WHEN** the public template launcher runs
+- **THEN** the launcher retrieves and executes the private instance's `install.py` without exposing the
+  token
 
-#### Scenario: First run in an uninitialised repo
+#### Scenario: Private instance prompts securely for authentication
 
-- **WHEN** the bootstrap script runs in a child repo with `PANOPTICON_INSTANCE=acme/panopticon-instance`
-  set (or entered at the prompt), and the skills location prompt is accepted at its `.agents/skills/`
-  default
-- **THEN** the child repo's `.agents/skills/` contains the instance skills, `.github/workflows/` contains
-  the three Panopticon caller workflows, the repo root contains `PANOPTICON.md`, and the terminal prints
-  the `/panopticon-init` prompt — without creating `panopticon/config.json`
+- **GIVEN** the instance installer cannot be retrieved anonymously, no existing token is available, and
+  the launcher has a controlling terminal
+- **WHEN** the public template launcher runs
+- **THEN** it requests a token using hidden input, retries the GitHub API request, and makes the token
+  available to the instance payload only for the current process without displaying or persisting it
 
-#### Scenario: Piped curl execution with panopticon package unavailable
+#### Scenario: Missing instance is prompted while launcher input is piped
 
-- **GIVEN** the user runs `curl -fsSL https://raw.githubusercontent.com/<instance>/main/install.py | python3`
-  from a child repo that does not contain the `panopticon` package
-- **WHEN** the initial import of `panopticon.bootstrap` fails with `ModuleNotFoundError`
-- **THEN** the script downloads `panopticon/__init__.py` and `panopticon/bootstrap.py` from the instance
-  repo, installs them in-process, and proceeds identically to a local run with no error surfaced to the
-  user
+- **GIVEN** `PANOPTICON_INSTANCE` is unset and the launcher source is arriving through piped stdin
+- **WHEN** a controlling terminal is available
+- **THEN** the launcher prompts for `owner/repo` through the controlling terminal and continues without
+  consuming installer-source bytes as user input
 
-#### Scenario: Piped curl execution with PANOPTICON_INSTANCE unset
+#### Scenario: Non-interactive inputs are incomplete
 
-- **GIVEN** the user pipes `install.py` via curl without setting `PANOPTICON_INSTANCE`
-- **WHEN** stdin is not a terminal (no interactive prompt possible)
-- **THEN** the script exits with a non-zero code and a message that names the missing env var and shows
-  the correct export-and-pipe command
+- **GIVEN** no controlling terminal is available
+- **WHEN** the instance slug or authentication required to retrieve a private instance is unavailable
+- **THEN** the launcher exits non-zero with instructions naming `PANOPTICON_INSTANCE` and the applicable
+  token environment variables, without printing secret values
 
-#### Scenario: Instance slug not configured in interactive mode
+#### Scenario: Explicit instance ref is honored
 
-- **WHEN** the bootstrap script runs with no `PANOPTICON_INSTANCE` env var and stdin is a terminal
-- **THEN** the script prompts for the slug and proceeds using the entered value, identical to supplying
-  the env var
+- **GIVEN** `PANOPTICON_INSTANCE_REF` names a branch, tag, or commit containing a customized installer
+- **WHEN** the launcher retrieves the instance payload
+- **THEN** it fetches `install.py` at that exact ref instead of resolving or using the default branch
 
-#### Scenario: Re-run on an already-bootstrapped repo
+#### Scenario: GitHub-wrapped base64 payload is decoded
 
-- **WHEN** the bootstrap script is run again on a repo whose skills and workflows are already installed
-- **THEN** all files are updated in place and nothing is duplicated
+- **GIVEN** the GitHub contents API returns a valid installer or default bootstrap module whose base64
+  content contains transport whitespace and line wrapping
+- **WHEN** the launcher or template-derived instance payload decodes that content
+- **THEN** it removes the transport whitespace, strictly validates the remaining base64 and UTF-8 content,
+  and executes the decoded source
+
+#### Scenario: Malformed payload remains rejected
+
+- **GIVEN** the GitHub contents API response declares base64 content but the normalized payload is not
+  valid base64 or does not decode as UTF-8
+- **WHEN** the launcher or template-derived instance payload decodes that content
+- **THEN** it exits non-zero with a controlled invalid-payload error and does not execute the content
+
+#### Scenario: Customized instance installer receives control
+
+- **GIVEN** the selected instance's `install.py` defines organization-specific prompts and installation
+  behavior
+- **WHEN** the launcher executes the fetched payload
+- **THEN** the payload runs in the child repository with terminal access and the caller's environment,
+  including `PANOPTICON_SKILLS_LOCATION` when supplied, without the launcher imposing template bootstrap
+  steps
+
+#### Scenario: Instance payload does not recursively dispatch
+
+- **GIVEN** the fetched instance installer was forked from a template version that recognizes the
+  launcher execution marker
+- **WHEN** it starts as the selected payload
+- **THEN** it performs instance installation rather than fetching and executing itself again
+
+#### Scenario: Default template instance behavior remains available
+
+- **GIVEN** an instance has not customized the template's installation payload
+- **WHEN** its fetched `install.py` executes
+- **THEN** it installs the instance's Panopticon skills, tooling, workflows, and guide, prints the agent
+  prompt, and does not create `panopticon/config.json`
+
+#### Scenario: Re-run remains idempotent
+
+- **WHEN** the public launcher dispatches the instance installer in an already-bootstrapped child repo
+- **THEN** the instance installer updates its managed files in place and does not duplicate them
 
 ### Requirement: Download progress reporting
 
-While downloading skills, vendoring local-tooling modules, and writing caller workflows, the bootstrap
-script SHALL print one progress line per file as it completes, showing the file's position and the total
+The bootstrap script SHALL, while downloading skills, vendoring local-tooling modules, and writing caller
+workflows, print one progress line per file as it completes, showing the file's position and the total
 count for that step (e.g. `  [3/7] panopticon-doc-generation/SKILL.md`), before that step's existing
 summary line. This SHALL apply to each of the three download steps independently. A user watching the
 terminal SHALL be able to see how many files remain in the step currently running and confirm the script
@@ -130,8 +162,8 @@ is making progress rather than stalled, even when individual network fetches are
 
 ### Requirement: GitHub API request resilience
 
-The bootstrap script's GitHub API calls (`_api_get`, used by skill downloads, local-tooling vendoring,
-workflow wiring, org config fetch, and the org-prerequisites check) SHALL retry transient failures — `429`
+The bootstrap script SHALL retry transient failures from its GitHub API calls (`_api_get`, used by skill
+downloads, local-tooling vendoring, workflow wiring, org config fetch, and the org-prerequisites check) — `429`
 and `5xx` responses, and connection-level errors — with exponential backoff before giving up, mirroring
 the retry pattern already used by the LLM HTTP client (`panopticon/llm.py`'s `HTTPClient`: up to 3
 attempts, backing off `2 ** (attempt - 1)` seconds between attempts). Non-transient errors (`401`, `403`,
@@ -523,8 +555,8 @@ ordering alone to win this resolution, since `python3 -m`/`-c` prepend the curre
 
 ### Requirement: Vendored tooling's bytecode cache is gitignored
 
-Whenever the bootstrap script vendors the local-tooling subset of the `panopticon` package (see
-"Local tooling package vendored into child repo"), it SHALL also write `panopticon/.gitignore`
+The bootstrap script SHALL, whenever it vendors the local-tooling subset of the `panopticon` package (see
+"Local tooling package vendored into child repo"), also write `panopticon/.gitignore`
 containing `__pycache__/`, so that running the vendored modules (`python3 -m panopticon.docs`,
 `python3 -m panopticon.init_repo`, etc.) never leaves compiled bytecode as an untracked-but-visible
 or accidentally-staged artifact in the child repo. This is written unconditionally on every
@@ -831,9 +863,10 @@ manually to pull upstream template changes. The workflow SHALL:
 1. Detect whether the instance repo shares git history with the template (i.e., a common ancestor exists).
 2. When **no common ancestor exists** (first-time sync after "Use this template" which creates unrelated
    histories), automatically resolve all add/add conflicts by preferring the template version (`-X theirs`),
-   then push without requiring manual intervention.
+   then push without requiring manual intervention, except for paths with an explicit `merge=ours` rule.
 3. When a common ancestor **does** exist, use the default merge strategy and surface genuine conflicts with
-   local-resolution instructions rather than overriding them silently.
+   local-resolution instructions rather than overriding them silently, except for paths with an explicit
+   `merge=ours` rule.
 4. Use a fine-grained PAT with Contents R/W (not `GITHUB_TOKEN`) for git operations — GitHub unconditionally
    rejects pushes to `.github/workflows/` from `GITHUB_TOKEN` regardless of job-level permissions. The
    workflow SHALL use `PANOPTICON_INSTANCE_TOKEN` (already scoped to the instance repo with Contents R/W)
@@ -846,36 +879,45 @@ manually to pull upstream template changes. The workflow SHALL:
    file and which fields the template added or removed that the instance's copy doesn't have, so instance
    owners notice new or deprecated configuration options without them being silently applied or silently
    missed.
-7. **Before** running the merge (steps 1–3 above), read `panopticon.config.json`'s org-declared
-   `protected_paths` field (tooling-currency capability) and write each listed path, with the
-   `merge=ours` attribute, to `.git/info/attributes` — never to the tracked `.gitattributes` file,
-   and without committing anything. This SHALL apply regardless of whether the incoming template
-   changes touch the same paths, and MUST NOT cause the merge to abort or require manual
-   intervention the way an uncommitted change to a *tracked* file the incoming merge also touches
-   would.
-8. Print, to the GitHub Actions step summary, every path from `protected_paths` that was protected
-   during that run — since this protection is not visible in the tracked tree, this is the only
-   record of it for that run.
+7. **Before** running the merge (steps 1–3 above), write every template-declared, instance-owned generated
+   path, initially `docs/architecture.md`, with the `merge=ours` attribute to `.git/info/attributes`. This
+   fixed list SHALL be owned by the template sync workflow, not read from protected JSON configuration and
+   not read from org-declared `protected_paths`.
+8. In the same pre-merge registration, read `panopticon.config.json`'s org-declared `protected_paths` field
+   (tooling-currency capability) and write each listed path with the `merge=ours` attribute to
+   `.git/info/attributes` — never to the tracked `.gitattributes` file, and without committing anything.
+   This SHALL apply regardless of whether the incoming template changes touch the same paths, and MUST NOT
+   cause the merge to abort or require manual intervention the way an uncommitted change to a tracked file
+   the incoming merge also touches would.
+9. Reuse the `merge.ours.driver true` configuration already registered for protected config and org-declared
+   paths; the generated path SHALL NOT introduce another driver.
+10. Print, to the GitHub Actions step summary, every path from `protected_paths` that was protected during
+    that run — since org customization protection is not visible in the tracked tree, this is the only
+    record of it for that run. The fixed generated path SHALL be identified separately and SHALL NOT be
+    presented as an org customization.
 
-Auto-resolution in case 2 is safe because instance repos created via "Use this template" contain only
-files that originated from the template; instance-specific files (`panopticon.config.json`, org skills)
-do not exist in the template and are therefore never overridden. Registered protected-config paths (case 5)
-DO exist in the template (each with a template-shipped default), which is exactly why they need explicit
-protection rather than relying on case 2's "doesn't exist upstream" reasoning. Org-declared paths (cases
-7–8) may or may not exist in the template — the mechanism protects them either way, since the org, not
-the template, decides what belongs in `protected_paths`.
+Auto-resolution in case 2 is safe for ordinary template files because instance repos created via "Use this
+template" contain only files that originated from the template; instance-specific files
+(`panopticon.config.json`, org skills) do not exist in the template and are therefore never overridden.
+Registered protected-config paths (case 5) do exist in the template and hold instance configuration.
+Org-declared paths (case 8) may or may not exist in the template and represent explicit customization.
+`docs/architecture.md` also exists in the template, but only as a placeholder: once present in an instance,
+it is deterministic generated state owned by that instance and therefore follows the fixed rule in case 7.
 
 #### Scenario: First-time sync after "Use this template"
 
-- **GIVEN** an instance repo created via GitHub's "Use this template" (no shared git history with the template)
+- **GIVEN** an instance repo created via GitHub's "Use this template" with no shared git history with the
+  template
 - **WHEN** the sync workflow runs
-- **THEN** it detects the missing common ancestor, merges with `-X theirs`, and pushes without error
+- **THEN** it detects the missing common ancestor, merges with `-X theirs`, applies explicit path merge
+  attributes, and pushes without error
 
 #### Scenario: Routine sync with common ancestor
 
-- **GIVEN** an instance repo that has previously synced with the template (common ancestor exists)
+- **GIVEN** an instance repo that has previously synced with the template and therefore has a common ancestor
 - **WHEN** the sync workflow runs
-- **THEN** it merges normally; any genuine divergence surfaces as a conflict with local-resolution instructions
+- **THEN** it merges normally; divergence outside explicitly attributed paths surfaces as a conflict with
+  local-resolution instructions
 
 #### Scenario: Protected config survives a template change
 
@@ -895,18 +937,47 @@ the template, decides what belongs in `protected_paths`.
 
 #### Scenario: Org-declared protected path survives even when the template touches the same path
 
-- **GIVEN** `panopticon.config.json` lists a customized skill file in `protected_paths`, and the
-  incoming template sync also modifies that same file's default content in this run
+- **GIVEN** `panopticon.config.json` lists a customized skill file in `protected_paths`, and the incoming
+  template sync also modifies that same file's default content in this run
 - **WHEN** the sync workflow runs
 - **THEN** the instance's customized version is unchanged after the sync, the merge completes without
-  aborting, and the tracked `.gitattributes` file (unaffected by `protected_paths`) merges normally
+  aborting, and the tracked `.gitattributes` file merges normally
 
 #### Scenario: Protected paths are visible in the step summary, not the tracked tree
 
 - **GIVEN** `panopticon.config.json` lists one or more `protected_paths` entries
 - **WHEN** the sync workflow runs
-- **THEN** the GitHub Actions step summary for that run names every protected path, and no tracked
-  file in the instance repo records this list
+- **THEN** the GitHub Actions step summary names every org-declared protected path, distinguishes the fixed
+  generated path from those customizations, and no tracked file records either runtime list
+
+#### Scenario: Both sides independently add the org diagram during routine history
+
+- **GIVEN** the instance and template share history from before `docs/architecture.md` existed, then each side
+  independently adds that path with different content
+- **WHEN** the routine template merge runs
+- **THEN** the merge succeeds and retains the instance's generated `docs/architecture.md`
+
+#### Scenario: Both sides modify the org diagram during routine history
+
+- **GIVEN** the instance and template share an earlier `docs/architecture.md`, then each side modifies it
+  independently
+- **WHEN** the routine template merge runs
+- **THEN** the merge succeeds and retains the instance's generated `docs/architecture.md`
+
+#### Scenario: Unrelated histories both contain the org diagram
+
+- **GIVEN** the instance and template have unrelated histories and each contains a different
+  `docs/architecture.md`
+- **WHEN** the first template sync runs with `--allow-unrelated-histories -X theirs`
+- **THEN** the merge succeeds and retains the instance's generated file despite the general `theirs` strategy
+
+#### Scenario: Missing instance diagram receives the template placeholder
+
+- **GIVEN** the template contains its placeholder `docs/architecture.md` and the instance does not contain
+  that path
+- **WHEN** template sync runs
+- **THEN** the placeholder is added to the instance because there is no existing instance-generated file to
+  preserve
 
 ### Requirement: Idempotent re-initialization
 
@@ -924,3 +995,4 @@ artifacts in place without creating duplicates.
 
 - **WHEN** the finalization step runs again on a repo that already has `panopticon/config.json`
 - **THEN** the config is updated in place and no duplicate files are created
+
