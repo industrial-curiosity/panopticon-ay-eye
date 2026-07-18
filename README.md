@@ -17,6 +17,19 @@ related to one another and catch breaking changes and incompatibilities before t
 
 **Getting started:** see the [org-owner setup guide](docs/setup-guide.md).
 
+To initialize a child repository against either a public or private instance, run the public template
+launcher from that child repository:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-eye/main/install.py | python3
+```
+
+The launcher asks for missing interactive inputs and then runs the installer owned by the selected
+instance. Set `PANOPTICON_INSTANCE=YOUR-ORG/YOUR-INSTANCE-REPO` for repeatable runs; for example,
+`PANOPTICON_INSTANCE=acme/panopticon-instance`. Private instances use `GH_TOKEN`, `GITHUB_TOKEN`, or an
+existing `gh auth` session. CI runs must provide the instance and required authentication through their
+secret environment.
+
 ## How it works
 
 There are three repository roles:

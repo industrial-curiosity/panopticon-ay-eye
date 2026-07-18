@@ -127,22 +127,31 @@ Initialization has three phases: a deterministic bootstrap, an AI agent pass, an
 
 ### Phase 1 — Bootstrap (from the child repo, no AI needed)
 
-Run the bootstrap script from inside the child repo. It will prompt for your instance slug if
-`PANOPTICON_INSTANCE` is not already set:
+Run the public template launcher from inside the child repo. The same command supports public and private
+instance repositories:
 
 ```bash
 cd my-service
-export PANOPTICON_INSTANCE=acme/panopticon-instance
-curl -fsSL "https://raw.githubusercontent.com/${PANOPTICON_INSTANCE}/main/install.py" | python3
-
-# or call it directly and enter it again when prompted
-curl -fsSL "https://raw.githubusercontent.com/acme/panopticon-instance/main/install.py" | python3
+curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-eye/main/install.py | python3
 ```
 
-Before installing anything, the script asks where skills should live (default `.agents/skills/`; see
-[`docs/agentskills-support.md`](agentskills-support.md) for which tools read which locations) — this
-works even when piped through `curl`. Set `PANOPTICON_SKILLS_LOCATION` to skip the prompt for
-non-interactive/CI runs.
+The launcher asks for any missing interactive inputs, authenticates when the selected instance is private,
+and then runs that instance repository's own installer. Set stable inputs before repeat or non-interactive
+runs:
+
+```bash
+export PANOPTICON_INSTANCE=YOUR-ORG/YOUR-INSTANCE-REPO
+export PANOPTICON_SKILLS_LOCATION=.agents/skills
+# Optional: select a branch, tag, or commit instead of the instance's default branch.
+export PANOPTICON_INSTANCE_REF=YOUR-INSTANCE-REF
+```
+
+For example, use `PANOPTICON_INSTANCE=acme/panopticon-instance` and
+`PANOPTICON_INSTANCE_REF=release-2026-07`. Private instances use `GH_TOKEN`, `GITHUB_TOKEN`, or an existing
+`gh auth` session. Supply tokens through your shell or CI secret environment; never place one directly in
+the command. The instance installer chooses where skills live (template default `.agents/skills/`; see
+[`docs/agentskills-support.md`](agentskills-support.md)). Set `PANOPTICON_SKILLS_LOCATION` to skip that
+prompt for non-interactive or CI runs.
 
 Once a location is chosen, the script will:
 

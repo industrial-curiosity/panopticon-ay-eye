@@ -1,11 +1,12 @@
 """Bootstrap installer logic for child-repo initialization.
 
-This module is the implementation behind ``install.py``. All logic is here so it can be
-unit-tested as part of the normal test suite.
+This module is the template's default instance-owned installation payload. The public ``install.py``
+launcher fetches the selected instance repo's complete installer; an uncustomized instance then loads
+this module. All logic remains importable so it can be unit-tested as part of the normal test suite.
 
 Invocation from a child repo (no local instance clone required)::
 
-    curl -fsSL https://raw.githubusercontent.com/<instance>/main/install.py | python3
+    curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-eye/main/install.py | python3
 
 or::
 
