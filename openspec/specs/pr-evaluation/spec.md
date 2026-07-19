@@ -1,3 +1,11 @@
+# PR evaluation
+
+## Purpose
+
+Define the reusable pull-request workflow that evaluates Panopticon-managed repositories.
+
+## Requirements
+
 ### Requirement: Initialization check
 
 The PR workflow SHALL verify that the repo is Panopticon-initialized (`panopticon/config.json` present); when

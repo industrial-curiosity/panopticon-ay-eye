@@ -2,6 +2,22 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [0.1.6] - 2026-07-19
+
+### Changed
+
+**Agent runtime** (`agent-runtime`)
+
+- CI LLM request timeout and retry budgets are now optional, bounded organization-level variables. Defaults
+  allow 90 seconds per request, two transport attempts, and two structured-response correction retries;
+  invalid values fail before an LLM request is sent.
+
+**PR evaluation** (`pr-evaluation`)
+
+- The reusable PR workflow now has a configurable 20-minute default job timeout and passes the request-budget
+  variables to its LLM-backed checks. LiteLLM proxy guidance now keeps its timeout slightly above Panopticon's
+  client timeout so failures remain actionable.
+
 ## [0.1.5] - 2026-07-18
 
 The public installer now dispatches securely to instance-owned installers for both public and private

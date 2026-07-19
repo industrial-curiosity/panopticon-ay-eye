@@ -1,3 +1,11 @@
+# Agent runtime
+
+## Purpose
+
+Define the provider-agnostic LLM runtime used by Panopticon CI checks.
+
+## Requirements
+
 ### Requirement: Provider-agnostic LLM configuration for CI
 
 The agent runtime is the execution path for LLM tasks in CI workflows only. It SHALL read the LLM endpoint
