@@ -120,8 +120,10 @@ def resolve_instance(env=None, tty_path="/dev/tty"):
     if not value:
         raise LauncherError(
             "PANOPTICON_INSTANCE is required in non-interactive runs.\n"
-            "Set it before launching:\n\n"
-            "    export PANOPTICON_INSTANCE=owner/panopticon-instance"
+            "Run this exact command from inside the child clone:\n\n"
+            "    curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
+            "panopticon-ay-eye/main/install.py | "
+            "PANOPTICON_INSTANCE='owner/panopticon-instance' python3"
         )
     _validate_instance(value)
     return value

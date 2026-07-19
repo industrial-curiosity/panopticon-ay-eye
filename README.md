@@ -126,21 +126,20 @@ concept. Other ecosystems fall back to LLM extraction until a parser is contribu
 
 - **Hybrid execution** — deterministic Python for everything structural (checks, index merge/compile, parsers);
   LLM agents only where judgment is required (doc generation, drift detection, extraction fallback).
-- **Provider-agnostic agents** — CI agent steps are configured via `PANOPTICON_LLM_API_KEY` (secret),
-  `PANOPTICON_LLM_ENDPOINT` (variable), and optional bounded request-budget variables; litellm-compatible
-  endpoints are supported first. Local flows
+- **Provider-agnostic agents** — each instance explicitly selects LiteLLM-compatible HTTP or native
+  Bedrock Converse/OIDC through **Configure Panopticon**. Instance configuration owns customizable
+  organization secret/variable names; generated child callers map them explicitly. Local flows
   (initialization, doc updates) run the same skills in the user's preferred AI agent harness and need no LLM
   secrets. Every CI check that requires a structured JSON response (doc-drift, index-currency, interface
   extraction) goes through one shared, hardened runtime method (`LLMClient.complete_json`) that retries with a
   corrective message — never relaxed validation — when a model doesn't comply with a skill's JSON-only response
-  contract on the first attempt, before failing loudly. No provider-specific request parameters (e.g.
-  `response_format`) are used, so this works across "a wide variety of LLMs" without narrowing which
-  litellm-compatible endpoints are supported.
-- **Minimal Python requirements** — stdlib-first, checkout-and-run on a bare CI runner, every dependency justified
-  and pinned.
-- **Cross-repo auth** — an org-level `PANOPTICON_INSTANCE_TOKEN` secret grants read/write access to the private
+  contract on the first attempt, before failing loudly. Provider-specific authentication and transport
+  remain isolated below that shared surface.
+- **Minimal Python requirements** — stdlib-first, checkout-and-run on a bare CI runner; Bedrock's pinned
+  SDK is installed only in its reusable CI workflow and is never child-vendored.
+- **Cross-repo auth** — a configurable org-level token secret (`PANOPTICON_INSTANCE_TOKEN` by default) grants read/write access to the private
   instance repo (PR simulation, `{repo}/{branch}` branch pushes, and the merge push). All Panopticon secrets are
-  org-level: child repos inherit them and never need per-repo secret or env configuration.
+  org-level: generated child callers map them explicitly and never need per-repo secret or env configuration.
 
 ## Repository layout
 
@@ -157,8 +156,9 @@ concept. Other ecosystems fall back to LLM extraction until a parser is contribu
   org/repo/diagram config, `internal_registries`, and the protected-config registries (`config.py`), child-repo
   init (`init_repo.py`), the on-demand local sync script (`sync.py`), and the org-diagram link script
   (`org_diagram_link.py`)
-- `.github/workflows/` — the reusable workflows child repos call: `panopticon-pr.yml`, `panopticon-merge.yml`,
-  `panopticon-pr-close.yml`; plus `sync-from-template.yml`, run from instance repos to pull template updates.
+- `.github/workflows/` — provider-specific reusable PR workflows (`panopticon-pr-litellm.yml` and
+  `panopticon-pr-bedrock.yml`), the legacy `panopticon-pr.yml` migration guard, provider-independent
+  merge/close workflows, and `configure-panopticon.yml`; plus `sync-from-template.yml` for instance updates.
   Before merging, template sync registers `docs/architecture.md` as a template-declared, instance-owned
   generated path in `.git/info/attributes`: an existing instance diagram wins over the template placeholder,
   while an instance with no diagram receives that placeholder. This fixed rule is separate from protected

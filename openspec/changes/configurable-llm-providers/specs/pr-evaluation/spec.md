@@ -61,4 +61,3 @@ bootstrap command plus commit, push, and rerun instructions when caller regenera
 - **WHEN** a provider workflow receives a configuration revision different from the live instance contract
 - **THEN** it fails before LLM checks and prints an exact installer command in the form
   `curl -fsSL <public-installer-url> | PANOPTICON_INSTANCE='<owner/repo>' python3`
-

@@ -1,0 +1,502 @@
+# Panopticon reusable PR evaluation workflow.
+#
+# Lives in the instance repo (a copy of this template); child repos call it via a thin caller
+# written by the bootstrap installer with explicit secret and variable mappings.
+# Org-level variables: PANOPTICON_LLM_ENDPOINT, PANOPTICON_LLM_MODEL,
+# PANOPTICON_LLM_TIMEOUT_SECONDS, PANOPTICON_LLM_MAX_ATTEMPTS,
+# PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS, PANOPTICON_LLM_JOB_TIMEOUT_MINUTES.
+#
+# Checks (pr-evaluation spec): initialization → doc drift → index currency → diagram existence →
+# pre-merge simulation → branch state push. Check outcomes honor the org gating configuration in
+# the instance repo's panopticon.config.json (init/doc-drift blocking by default,
+# interface-conflict/diagram-missing advisory by default). Checks run and report even when an
+# earlier check found problems; a final gate step applies gating and fails the workflow.
+name: Panopticon PR evaluation (LiteLLM)
+
+on:
+  workflow_call:
+    inputs:
+      instance:
+        required: true
+        type: string
+      workflow_ref:
+        required: true
+        type: string
+      configuration_revision:
+        required: true
+        type: string
+      configuration_names:
+        required: true
+        type: string
+      model:
+        required: false
+        type: string
+        default: ""
+      timeout_seconds:
+        required: false
+        type: string
+        default: ""
+      max_attempts:
+        required: false
+        type: string
+        default: ""
+      max_correction_attempts:
+        required: false
+        type: string
+        default: ""
+      job_timeout_minutes:
+        required: false
+        type: string
+        default: ""
+      endpoint:
+        required: false
+        type: string
+        default: ""
+    secrets:
+      instance_token:
+        required: false
+      api_key:
+        required: false
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(inputs.job_timeout_minutes || '20') >= 10 && fromJSON(inputs.job_timeout_minutes || '20') <= 60 && fromJSON(inputs.job_timeout_minutes || '20') || fromJSON('invalid') }}
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      PANOPTICON_INSTANCE_DIR: .panopticon-instance
+      # The child repo's own panopticon/ (vendored local-tooling subset — see
+      # bootstrap.py's LOCAL_TOOLING_MODULES) shares its package name with the instance repo's
+      # full copy on PYTHONPATH below. Without this, `python3 -m`/`-c` prepend the checkout's cwd
+      # to sys.path ahead of PYTHONPATH, so imports resolve the child's partial copy first and
+      # instance-only modules (drift, currency, merge) fail with "No module named panopticon.X".
+      PYTHONSAFEPATH: "1"
+      PANOPTICON_LLM_PROVIDER: litellm
+      PANOPTICON_LLM_API_KEY: ${{ secrets.api_key }}
+      PANOPTICON_LLM_ENDPOINT: ${{ inputs.endpoint }}
+      PANOPTICON_LLM_MODEL: ${{ inputs.model }}
+      PANOPTICON_LLM_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds || '90' }}
+      PANOPTICON_LLM_MAX_ATTEMPTS: ${{ inputs.max_attempts || '2' }}
+      PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS: ${{ inputs.max_correction_attempts || '2' }}
+      PANOPTICON_INSTANCE_TOKEN: ${{ secrets.instance_token }}
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      # Skip-and-instruct: an uninitialized repo fails this check with the init procedure and
+      # every later Panopticon check is skipped. Org gating is unreadable without the config
+      # (it lives in the instance repo named there), so the documented default (blocking)
+      # applies here.
+      - name: Initialization check
+        id: init
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f panopticon/config.json ]; then
+            {
+              echo "## Panopticon: repo not initialized"
+              echo "No \`panopticon/config.json\` found. Initialize this repo from your org's"
+              echo "instance checkout (see docs/setup-guide.md in the instance repo):"
+              echo '```bash'
+              echo "python3 -m panopticon.init_repo --child <path-to-this-repo> --instance <org>/<instance>"
+              echo '```'
+              echo "All other Panopticon checks were skipped."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Panopticon: repo not initialized (panopticon/config.json missing); see the step summary for the init procedure"
+            echo "initialized=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "initialized=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "PANOPTICON_REPO=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["repo"])')"
+            echo "PANOPTICON_INSTANCE=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["instance"])')"
+            echo "PANOPTICON_DOCS=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["docs_location"])')"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate provider inputs
+        if: steps.init.outputs.initialized == 'true'
+        shell: python
+        env:
+          CONFIGURATION_NAMES: ${{ inputs.configuration_names }}
+          INSTANCE: ${{ inputs.instance }}
+        run: |
+          import json
+          import os
+
+          required = {"api_key": "PANOPTICON_LLM_API_KEY", "endpoint": "PANOPTICON_LLM_ENDPOINT", "model": "PANOPTICON_LLM_MODEL", "instance_token": "PANOPTICON_INSTANCE_TOKEN"}
+          configured_names = json.loads(os.environ["CONFIGURATION_NAMES"])
+          missing = [
+              (logical, configured_names.get(logical, canonical))
+              for logical, canonical in required.items()
+              if not os.environ.get(canonical)
+          ]
+          if missing:
+              command = (
+                  "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
+                  "panopticon-ay-eye/main/install.py | "
+                  f"PANOPTICON_INSTANCE='{os.environ['INSTANCE']}' python3"
+              )
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                  summary.write("## Panopticon: missing LiteLLM configuration\n\n")
+                  for logical, configured_name in missing:
+                      summary.write(f"- `{configured_name}` ({logical})\n")
+                  summary.write("\nThe instance configuration or child caller is stale. ")
+                  summary.write("From inside the child clone run:\n\n~~~bash\n")
+                  summary.write(command + "\n~~~\n\n")
+                  summary.write(
+                      "Review and commit the generated changes, push them, then rerun or await "
+                      "this PR workflow.\n"
+                  )
+              raise SystemExit(
+                  "::error::Panopticon LiteLLM configuration is missing; "
+                  "see the step summary for the exact configured names and bootstrap command"
+              )
+
+      - name: Check out instance repo (tooling, skills, compiled index, org config)
+        if: steps.init.outputs.initialized == 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.instance }}
+          token: ${{ secrets.instance_token }}
+          ref: ${{ inputs.workflow_ref }}
+          path: .panopticon-instance
+
+      - name: Validate provider configuration revision
+        if: steps.init.outputs.initialized == 'true'
+        shell: python
+        env:
+          EXPECTED_REVISION: ${{ inputs.configuration_revision }}
+          INSTANCE: ${{ inputs.instance }}
+        run: |
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["PANOPTICON_INSTANCE_DIR"])
+          import sys
+          sys.path.insert(0, str(root))
+
+          from panopticon.config import load_org_config, provider_contract
+
+          actual = provider_contract(load_org_config(root))["revision"]
+          expected = os.environ["EXPECTED_REVISION"]
+          if actual != expected:
+              command = (
+                  "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
+                  "panopticon-ay-eye/main/install.py | "
+                  f"PANOPTICON_INSTANCE='{os.environ['INSTANCE']}' python3"
+              )
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                  summary.write("## Panopticon child caller is stale\n\n")
+                  summary.write("Run this from inside the child clone:\n\n~~~bash\n")
+                  summary.write(command + "\n~~~\n\n")
+                  summary.write(
+                      "Review and commit the generated changes, push them, then rerun or await "
+                      "this PR workflow. Keep old secret names available until regeneration finishes.\n"
+                  )
+              raise SystemExit(
+                  "::error::Panopticon provider configuration revision changed; "
+                  "see the step summary for the exact child-bootstrap command"
+              )
+
+      - name: Read gating configuration and prepare diff
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "PYTHONPATH=$GITHUB_WORKSPACE/$PANOPTICON_INSTANCE_DIR" >> "$GITHUB_ENV"
+          export PYTHONPATH="$GITHUB_WORKSPACE/$PANOPTICON_INSTANCE_DIR"
+          {
+            echo "GATE_DOC_DRIFT=$(python3 -c "from panopticon.config import load_org_config;print(load_org_config('$PANOPTICON_INSTANCE_DIR')['gating']['doc-drift'])")"
+            echo "GATE_CONFLICT=$(python3 -c "from panopticon.config import load_org_config;print(load_org_config('$PANOPTICON_INSTANCE_DIR')['gating']['interface-conflict'])")"
+            echo "GATE_DIAGRAM=$(python3 -c "from panopticon.config import load_org_config;print(load_org_config('$PANOPTICON_INSTANCE_DIR')['gating']['diagram-missing'])")"
+          } >> "$GITHUB_ENV"
+          git diff "origin/${{ github.base_ref }}...HEAD" -- ':!.panopticon-instance' > /tmp/panopticon-pr.diff
+          mkdir -p /tmp/panopticon-reports
+
+      # Advisory-only tooling-currency checks (tooling-currency capability): warns when the child's
+      # wired workflow ref or downloaded skills/vendored tooling have drifted from the instance
+      # repo's current default branch. Deterministic, no LLM call, no network calls beyond the
+      # git ls-remote the ref-alignment check needs, run against the instance checkout above.
+      # Never gated (design D3) — its outcome is not read by "Apply gating" below and its findings
+      # never feed panopticon/report.py's combined TL;DR report (design D4); fully independent of
+      # every other check in this job. `::warning::` output is the same annotation mechanism every
+      # other advisory message in this codebase already uses — no new output channel.
+      - name: Provider preflight
+        if: steps.init.outputs.initialized == 'true'
+        shell: python
+        run: |
+          from panopticon.llm import LLMClient
+          print(LLMClient.from_env().preflight())
+
+      - name: Tooling-currency check (advisory only)
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m panopticon.tooling_currency --instance-root "$PANOPTICON_INSTANCE_DIR"
+
+      # Doc drift and index currency both fail loudly on operational errors (missing skill,
+      # unreachable endpoint, malformed verdict) — but never by exiting the step, since an earlier
+      # check's operational failure must not prevent later, independent checks from running and
+      # reporting their own results (pr-evaluation spec: "Checks run independently regardless of
+      # earlier failures; gating decides at the end"). The failure is instead recorded via
+      # `error`, shows up as its own section in the combined report (each check writes a
+      # could-not-run section to its own --report-file on this path), and gating fails the
+      # workflow on it at the end, same as a stale verdict is recorded and gated at the end.
+      - name: Doc-drift check
+        id: drift
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        env:
+          PANOPTICON_LLM_API_KEY: ${{ secrets.api_key }}
+          PANOPTICON_LLM_ENDPOINT: ${{ inputs.endpoint }}
+          PANOPTICON_LLM_MODEL: ${{ inputs.model }}
+          PANOPTICON_LLM_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
+          PANOPTICON_LLM_MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+          PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS: ${{ inputs.max_correction_attempts }}
+        run: |
+          set -euo pipefail
+          set +e
+          python3 -m panopticon.drift \
+            --diff-file /tmp/panopticon-pr.diff \
+            --docs-root "$PANOPTICON_DOCS" \
+            --skill-root "$PANOPTICON_INSTANCE_DIR" \
+            --report-file /tmp/panopticon-reports/drift.md \
+            --actions-file /tmp/panopticon-reports/drift-actions.json
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "::error::Panopticon doc-drift check could not run (exit $status); see the step log"
+            echo "error=true" >> "$GITHUB_OUTPUT"
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "error=false" >> "$GITHUB_OUTPUT"
+            echo "stale=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Index-currency check
+        id: currency
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        env:
+          PANOPTICON_LLM_API_KEY: ${{ secrets.api_key }}
+          PANOPTICON_LLM_ENDPOINT: ${{ inputs.endpoint }}
+          PANOPTICON_LLM_MODEL: ${{ inputs.model }}
+          PANOPTICON_LLM_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
+          PANOPTICON_LLM_MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+          PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS: ${{ inputs.max_correction_attempts }}
+        run: |
+          set -euo pipefail
+          set +e
+          python3 -m panopticon.currency \
+            --diff-file /tmp/panopticon-pr.diff \
+            --index panopticon/index.json \
+            --repo "$PANOPTICON_REPO" \
+            --skill-root "$PANOPTICON_INSTANCE_DIR" \
+            --report-file /tmp/panopticon-reports/currency.md \
+            --actions-file /tmp/panopticon-reports/currency-actions.json
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "::error::Panopticon index-currency check could not run (exit $status); see the step log"
+            echo "error=true" >> "$GITHUB_OUTPUT"
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "error=false" >> "$GITHUB_OUTPUT"
+            echo "stale=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Deterministic, no LLM call: verifies architecture.md has a well-formed diagram section in
+      # the instance's configured format (design D2). Independent of doc-drift, which judges
+      # diagram *accuracy* — this only checks existence/structure.
+      - name: Diagram-existence check
+        id: diagram
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          python3 -m panopticon.diagram_check \
+            --docs-root "$PANOPTICON_DOCS" \
+            --instance-root "$PANOPTICON_INSTANCE_DIR" \
+            --report-file /tmp/panopticon-reports/diagram.md \
+            --actions-file /tmp/panopticon-reports/diagram-actions.json
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "::error::Panopticon diagram-existence check could not run (exit $status); see the step log"
+            echo "error=true" >> "$GITHUB_OUTPUT"
+            echo "missing=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "error=false" >> "$GITHUB_OUTPUT"
+            echo "missing=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Same merge code path as the real merge, in dry-run mode, against the compiled index
+      # fetched from the instance repo's default branch (design D4).
+      - name: Pre-merge simulation
+        id: simulate
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$PANOPTICON_INSTANCE_DIR/interfaces/index.json" ]; then
+            # Fresh instance with no merges yet: simulate against an empty compiled index.
+            python3 -c "from panopticon.index import KIND_COMPILED, empty_index, save_index; save_index(empty_index(KIND_COMPILED), '$PANOPTICON_INSTANCE_DIR/interfaces/index.json', kind=KIND_COMPILED)"
+          fi
+          set +e
+          python3 -m panopticon.merge simulate \
+            --local panopticon/index.json \
+            --repo "$PANOPTICON_REPO" \
+            --compiled "$PANOPTICON_INSTANCE_DIR/interfaces/index.json" \
+            --report-file /tmp/panopticon-reports/simulation.md \
+            --actions-file /tmp/panopticon-reports/simulation-actions.json
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "::error::Panopticon pre-merge simulation could not run (exit $status); see the step log"
+            echo "error=true" >> "$GITHUB_OUTPUT"
+            echo "conflicts=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "error=false" >> "$GITHUB_OUTPUT"
+            echo "conflicts=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Builds the one combined report (TL;DR, then each check's detail, then the same TL;DR
+      # repeated — pr-evaluation spec's "Combined report leads with a de-duplicated action list";
+      # see design.md D10 for why no earlier step writes to $GITHUB_STEP_SUMMARY directly) and
+      # posts it to both the step summary and the PR comment.
+      - name: Post combined report
+        if: steps.init.outputs.initialized == 'true' && always() && steps.simulate.outcome != 'skipped'
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DRIFT_ERROR: ${{ steps.drift.outputs.error }}
+          CURRENCY_ERROR: ${{ steps.currency.outputs.error }}
+          DIAGRAM_ERROR: ${{ steps.diagram.outputs.error }}
+          SIMULATE_ERROR: ${{ steps.simulate.outputs.error }}
+        run: |
+          import os
+          import subprocess
+          import sys
+
+          sys.path.insert(0, os.path.join(os.environ["GITHUB_WORKSPACE"], os.environ["PANOPTICON_INSTANCE_DIR"]))
+          from panopticon.report import build_combined_report, load_actions
+
+          reports_dir = "/tmp/panopticon-reports"
+          sections = []
+          actions = []
+          for check in ("drift", "currency", "diagram", "simulation"):
+              report_path = os.path.join(reports_dir, f"{check}.md")
+              if os.path.exists(report_path):
+                  with open(report_path, encoding="utf-8") as handle:
+                      sections.append(handle.read().strip())
+              actions.extend(load_actions(os.path.join(reports_dir, f"{check}-actions.json")))
+
+          has_operational_failure = "true" in (
+              os.environ.get("DRIFT_ERROR"), os.environ.get("CURRENCY_ERROR"),
+              os.environ.get("DIAGRAM_ERROR"), os.environ.get("SIMULATE_ERROR"),
+          )
+          body = build_combined_report(sections, actions, has_operational_failure=has_operational_failure)
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write(body)
+
+          marker = "<!-- panopticon-report -->"
+          body_file = "/tmp/panopticon-comment.md"
+          with open(body_file, "w", encoding="utf-8") as handle:
+              handle.write(f"{marker}\n## Panopticon report\n\n{body}")
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          pr_number = os.environ["PR_NUMBER"]
+          existing = subprocess.run(
+              [
+                  "gh", "api", f"repos/{repo}/issues/{pr_number}/comments", "--paginate",
+                  "--jq", f'[.[] | select(.body | startswith("{marker}"))][0].id',
+              ],
+              capture_output=True, text=True,
+          ).stdout.strip()
+          if existing and existing != "null":
+              subprocess.run(
+                  ["gh", "api", "-X", "PATCH", f"repos/{repo}/issues/comments/{existing}", "-F", f"body=@{body_file}"],
+                  check=True, stdout=subprocess.DEVNULL,
+              )
+          else:
+              subprocess.run(
+                  ["gh", "api", "-X", "POST", f"repos/{repo}/issues/{pr_number}/comments", "-F", f"body=@{body_file}"],
+                  check=True, stdout=subprocess.DEVNULL,
+              )
+
+      # In-flight branch state, visible org-wide: docs + index pushed (same merge code path) to
+      # {repo}/{branch} in the instance repo. Never touches the instance default branch; the
+      # branch is fully derived, so force-push is safe.
+      - name: Push branch state to instance repo
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PANOPTICON_INSTANCE_DIR"
+          git checkout -B "$PANOPTICON_REPO/${{ github.head_ref }}"
+          mkdir -p "docs/$PANOPTICON_REPO"
+          rsync -a --delete "$GITHUB_WORKSPACE/$PANOPTICON_DOCS/" "docs/$PANOPTICON_REPO/"
+          set +e
+          python3 -m panopticon.merge merge \
+            --local "$GITHUB_WORKSPACE/panopticon/index.json" \
+            --repo "$PANOPTICON_REPO" \
+            --instance-root . > /dev/null
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "::error::Panopticon branch-state push: index merge failed (exit $status)"
+            exit "$status"
+          fi
+          git config user.name "panopticon[bot]"
+          git config user.email "panopticon-bot@users.noreply.github.com"
+          git add -A
+          git commit --allow-empty -m "panopticon: branch state for $PANOPTICON_REPO/${{ github.head_ref }} @ ${{ github.event.pull_request.head.sha }}"
+          git push --force origin "HEAD:refs/heads/$PANOPTICON_REPO/${{ github.head_ref }}"
+
+      # Gating applies here so every check above could run and report first.
+      - name: Apply gating
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=""
+          warn() { echo "::warning::$1"; }
+          fail() { failed="$failed$1\n"; echo "::error::$1"; }
+          # An operational failure is never advisory — a check that could not run has told the
+          # developer nothing they can act on, regardless of that check's own gating configuration.
+          if [ "${{ steps.drift.outputs.error }}" = "true" ]; then
+            fail "Panopticon doc-drift check could not run (see PR comment for the error)"
+          elif [ "${{ steps.drift.outputs.stale }}" = "true" ]; then
+            message="Panopticon doc-drift check found stale docs (see PR comment for what to update)"
+            [ "$GATE_DOC_DRIFT" = "blocking" ] && fail "$message" || warn "$message (advisory by org configuration)"
+          fi
+          if [ "${{ steps.currency.outputs.error }}" = "true" ]; then
+            fail "Panopticon index-currency check could not run (see PR comment for the error)"
+          elif [ "${{ steps.currency.outputs.stale }}" = "true" ]; then
+            # A stale index always fails: simulation over a stale index predicts the wrong merge.
+            fail "Panopticon index-currency check found a stale local index (see PR comment)"
+          fi
+          if [ "${{ steps.diagram.outputs.error }}" = "true" ]; then
+            fail "Panopticon diagram-existence check could not run (see PR comment for the error)"
+          elif [ "${{ steps.diagram.outputs.missing }}" = "true" ]; then
+            message="Panopticon diagram-existence check found no architecture diagram section (see PR comment)"
+            [ "$GATE_DIAGRAM" = "blocking" ] && fail "$message" || warn "$message (advisory by org configuration)"
+          fi
+          if [ "${{ steps.simulate.outputs.error }}" = "true" ]; then
+            fail "Panopticon pre-merge simulation could not run (see PR comment for the error)"
+          elif [ "${{ steps.simulate.outputs.conflicts }}" = "true" ]; then
+            message="Panopticon pre-merge simulation predicts interface conflicts (see PR comment)"
+            [ "$GATE_CONFLICT" = "blocking" ] && fail "$message" || warn "$message (advisory by org configuration)"
+          fi
+          if [ -n "$failed" ]; then
+            printf '%b' "$failed" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

@@ -113,6 +113,8 @@ class TestLauncherInputs(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("PANOPTICON_INSTANCE", result.stderr)
+        self.assertIn("| PANOPTICON_INSTANCE='owner/panopticon-instance' python3", result.stderr)
+        self.assertNotIn("export PANOPTICON_INSTANCE", result.stderr)
         self.assertNotIn("secret-value", result.stdout + result.stderr)
 
     def test_instance_prompt_reads_the_terminal(self):

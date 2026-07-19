@@ -8,9 +8,9 @@ Invocation from a child repo (no local instance clone required)::
 
     curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-eye/main/install.py | python3
 
-or::
+with the instance applied directly to the piped Python process::
 
-    PANOPTICON_INSTANCE=acme/panopticon-instance python3 install.py
+    curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-eye/main/install.py | PANOPTICON_INSTANCE='acme/panopticon-instance' python3
 
 The installer determines a skills location (prompting for it — even when piped via curl, by
 reading from /dev/tty — before downloading anything), then runs the remaining deterministic
@@ -23,6 +23,7 @@ every other field, and the file's creation, remain finalization's job alone.
 """
 
 import base64
+import binascii
 import json
 import os
 import shutil
@@ -34,14 +35,13 @@ import urllib.request
 from pathlib import Path
 
 from . import SCHEMA_VERSION
+from .providers import ProviderConfigError, resolve_provider_contract
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 DEFAULT_BRANCH = "main"
 SKILLS_PREFIX = ".agents/skills/"
 CALLER_WORKFLOWS = ("panopticon-pr.yml", "panopticon-merge.yml", "panopticon-pr-close.yml")
-ORG_SECRETS = ("PANOPTICON_LLM_API_KEY", "PANOPTICON_INSTANCE_TOKEN")
-ORG_VARS = ("PANOPTICON_LLM_ENDPOINT", "PANOPTICON_LLM_MODEL")
 
 _CALLER_HEADER = (
     "# Wired by Panopticon install.py — a thin reference to the shared workflow in the instance repo.\n"
@@ -50,7 +50,11 @@ _CALLER_HEADER = (
 
 # ── Workflow generation ───────────────────────────────────────────────────────
 
-def caller_workflow_text(name, instance, ref, default_branch=DEFAULT_BRANCH):
+def _actions_expression(namespace, name):
+    return "${{ " + namespace + "." + name + " }}"
+
+
+def caller_workflow_text(name, instance, ref, contract, default_branch=DEFAULT_BRANCH):
     """Return the YAML text for one thin caller workflow."""
     triggers = {
         "panopticon-pr.yml": "on:\n  pull_request:\n",
@@ -62,18 +66,55 @@ def caller_workflow_text(name, instance, ref, default_branch=DEFAULT_BRANCH):
         "panopticon-merge.yml": "Panopticon merge sync",
         "panopticon-pr-close.yml": "Panopticon PR close",
     }[name]
-    return (
+    remote_name = contract["workflow"] if name == "panopticon-pr.yml" else name
+    lines = [
         f"{_CALLER_HEADER}"
         f"name: {workflow_name}\n"
         f"{triggers}"
         "jobs:\n"
         "  panopticon:\n"
-        f"    uses: {instance}/.github/workflows/{name}@{ref}\n"
-        "    secrets: inherit\n"
-    )
+        f"    uses: {instance}/.github/workflows/{remote_name}@{ref}\n"
+    ]
+    if name == "panopticon-pr.yml":
+        lines.append("    permissions:\n")
+        for permission, access in contract["permissions"].items():
+            lines.append(f"      {permission}: {access}\n")
+        lines.extend(
+            [
+                "    with:\n",
+                f"      instance: {instance}\n",
+                f"      workflow_ref: {ref}\n",
+                f"      configuration_revision: {contract['revision']}\n",
+                "      configuration_names: '"
+                + json.dumps(
+                    {**contract["secrets"], **contract["variables"]},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "'\n",
+            ]
+        )
+        for logical, configured_name in contract["variables"].items():
+            lines.append(
+                f"      {logical}: {_actions_expression('vars', configured_name)}\n"
+            )
+        lines.append("    secrets:\n")
+        for logical, configured_name in contract["secrets"].items():
+            lines.append(
+                f"      {logical}: {_actions_expression('secrets', configured_name)}\n"
+            )
+    else:
+        token_name = contract["secrets"]["instance_token"]
+        lines.extend(
+            [
+                "    secrets:\n",
+                f"      instance_token: {_actions_expression('secrets', token_name)}\n",
+            ]
+        )
+    return "".join(lines)
 
 
-def wire_workflows(instance, ref, child_root=".", default_branch=DEFAULT_BRANCH):
+def wire_workflows(instance, ref, contract, child_root=".", default_branch=DEFAULT_BRANCH):
     """Write/refresh the three caller workflows in place; returns their paths."""
     workflows_dir = Path(child_root) / ".github" / "workflows"
     workflows_dir.mkdir(parents=True, exist_ok=True)
@@ -81,7 +122,9 @@ def wire_workflows(instance, ref, child_root=".", default_branch=DEFAULT_BRANCH)
     total = len(CALLER_WORKFLOWS)
     for i, name in enumerate(CALLER_WORKFLOWS, start=1):
         path = workflows_dir / name
-        path.write_text(caller_workflow_text(name, instance, ref, default_branch), encoding="utf-8")
+        path.write_text(
+            caller_workflow_text(name, instance, ref, contract, default_branch), encoding="utf-8"
+        )
         written.append(path)
         print(f"  [{i}/{total}] {name}")
     return written
@@ -166,9 +209,10 @@ def resolve_instance(env=None, prompt_fn=None):
             if not sys.stdin.isatty():
                 sys.exit(
                     "error: PANOPTICON_INSTANCE is not set and stdin is not a terminal.\n"
-                    "Set it before piping the installer:\n\n"
-                    "    export PANOPTICON_INSTANCE=acme/panopticon-instance\n"
-                    "    curl -fsSL https://... | python3"
+                    "Run the exact installer command with the instance applied to Python:\n\n"
+                    "    curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
+                    "panopticon-ay-eye/main/install.py | "
+                    "PANOPTICON_INSTANCE='acme/panopticon-instance' python3"
                 )
             prompt_fn = input
         value = prompt_fn(
@@ -182,13 +226,63 @@ def resolve_instance(env=None, prompt_fn=None):
 # ── Org config ────────────────────────────────────────────────────────────────
 
 def fetch_org_config(owner, repo, ref, token=None, urlopen=urllib.request.urlopen):
-    """Fetch panopticon.config.json from the instance repo; return {} on any error."""
+    """Fetch the instance config, preserving access, transport, and parse failures."""
     try:
         url = f"https://api.github.com/repos/{owner}/{repo}/contents/panopticon.config.json?ref={ref}"
         data = _api_get(url, token, urlopen)
-        return json.loads(base64.b64decode(data["content"]))
-    except Exception:
-        return {}
+        document = json.loads(base64.b64decode(data["content"]))
+    except (KeyError, ValueError, UnicodeError, binascii.Error) as exc:
+        raise RuntimeError(
+            f"invalid panopticon.config.json fetched from {owner}/{repo}@{ref}: {exc}"
+        ) from exc
+    if not isinstance(document, dict):
+        raise RuntimeError(
+            f"invalid panopticon.config.json fetched from {owner}/{repo}@{ref}: expected object"
+        )
+    return document
+
+
+def child_bootstrap_command(instance):
+    return (
+        "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
+        "panopticon-ay-eye/main/install.py | "
+        f"PANOPTICON_INSTANCE='{instance}' python3"
+    )
+
+
+def provider_remediation(instance, branch):
+    """Complete maintainer recovery instructions for an unconfigured provider."""
+    actions_url = (
+        f"https://github.com/{instance}/actions/workflows/configure-panopticon.yml"
+    )
+    installer = child_bootstrap_command(instance)
+    return f"""Configure the Panopticon instance before bootstrapping a child repository.
+
+GitHub Actions console:
+  1. Open {actions_url}
+  2. Select Run workflow.
+  3. Select branch {branch}.
+  4. Replace select-a-provider with litellm or bedrock.
+  5. Review the secret and variable name fields; enter names only, never values.
+  6. Select Run workflow and wait for the green completed run that commits panopticon.config.json.
+
+Equivalent GitHub CLI command (example selects LiteLLM with documented default names):
+  gh workflow run configure-panopticon.yml --repo {instance} --ref {branch} -f provider=litellm
+  gh run watch --repo {instance}
+
+Then rerun child bootstrap from inside the child repository clone:
+  {installer}
+"""
+
+
+def validate_provider_workflow(tree, contract, instance, ref):
+    expected = f".github/workflows/{contract['workflow']}"
+    paths = {entry.get("path") for entry in tree if entry.get("type") == "blob"}
+    if expected not in paths:
+        raise RuntimeError(
+            f"configured provider {contract['provider']!r} requires {expected}, but it is absent "
+            f"from {instance}@{ref}; sync the instance from the template and rerun child bootstrap"
+        )
 
 # ── instance_default_branch refresh (tooling-currency capability) ──────────────
 # A narrow, explicit exception to "the bootstrap script never writes panopticon/config.json": that
@@ -319,18 +413,23 @@ def download_getting_started_guide(owner, repo, ref, token=None, child_root=".",
 
 # ── Prerequisite check ────────────────────────────────────────────────────────
 
-def manual_verification_steps(org):
+def _required_actions_names(contract):
+    return tuple(contract["secrets"].values()), tuple(contract["variables"].values())
+
+
+def manual_verification_steps(org, contract):
     """Printable steps for verifying org secrets/variables by hand when no token is available.
 
     The org secrets/variables API requires an admin-scoped token; without one there is no way
     to query it automatically, so this is not a failure — it's the fallback path.
     """
     settings_url = f"https://github.com/organizations/{org}/settings/secrets/actions"
+    secrets, variables = _required_actions_names(contract)
     return [
         "  no GitHub auth token found (GH_TOKEN / GITHUB_TOKEN / gh auth) — org secrets and "
         "variables can't be checked automatically. Verify manually that these are configured:",
-        f"    secrets:   {', '.join(ORG_SECRETS)}",
-        f"    variables: {', '.join(ORG_VARS)}",
+        f"    secrets:   {', '.join(secrets)}",
+        f"    variables: {', '.join(variables)}",
         "",
         "  Web UI:",
         f"    {settings_url}",
@@ -342,16 +441,17 @@ def manual_verification_steps(org):
     ]
 
 
-def check_prerequisites(org, token=None, urlopen=urllib.request.urlopen):
+def check_prerequisites(org, contract, token=None, urlopen=urllib.request.urlopen):
     """Report-only check of org secrets and variables via the GitHub API. Never blocks.
 
     Without a token there is nothing to query — see ``manual_verification_steps``.
     """
     if not token:
-        return manual_verification_steps(org)
+        return manual_verification_steps(org, contract)
 
     report = []
     settings_url = f"https://github.com/organizations/{org}/settings/secrets/actions"
+    secrets, variables = _required_actions_names(contract)
 
     def _check(endpoint, collection_key, items, kind):
         try:
@@ -367,8 +467,8 @@ def check_prerequisites(org, token=None, urlopen=urllib.request.urlopen):
         except RuntimeError as exc:
             report.append(f"  could not verify org {kind}s: {exc} — verify manually.")
 
-    _check("secrets", "secrets", ORG_SECRETS, "secret")
-    _check("variables", "variables", ORG_VARS, "variable")
+    _check("secrets", "secrets", secrets, "secret")
+    _check("variables", "variables", variables, "variable")
     return report
 
 # ── Skills location selection ───────────────────────────────────────────────────
@@ -619,15 +719,44 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
             "  Private instance repos require a token. Set GH_TOKEN and re-run if this fails."
         )
 
-    default_branch = env.get("PANOPTICON_DEFAULT_BRANCH", DEFAULT_BRANCH)
+    default_branch = (
+        env.get("PANOPTICON_INSTANCE_REF")
+        or env.get("PANOPTICON_DEFAULT_BRANCH")
+        or DEFAULT_BRANCH
+    )
 
     # Read workflow_ref from the instance's org config. No manual tagging is required to get
     # started: when the org hasn't set workflow_ref, caller workflows pin to the instance repo's
     # default branch rather than a git tag (org owners can opt into a pinned tag/branch later).
     print(f"\nFetching org config from {instance}...")
-    org_config = fetch_org_config(owner, repo, default_branch, token, urlopen)
+    try:
+        org_config = fetch_org_config(owner, repo, default_branch, token, urlopen)
+    except RuntimeError as exc:
+        print(f"  error: could not read instance configuration: {exc}")
+        return 1
     ref = org_config.get("workflow_ref", default_branch)
     print(f"  workflow_ref: {ref}")
+
+    try:
+        contract = resolve_provider_contract(org_config.get("llm"))
+    except ProviderConfigError as exc:
+        print(f"\n  error: {exc}\n")
+        print(provider_remediation(instance, default_branch))
+        return 1
+    print(f"  llm provider: {contract['provider']}")
+
+    # Validate the selected trusted workflow at its effective ref before prompts or child writes.
+    try:
+        provider_tree = _fetch_tree(owner, repo, ref, token, urlopen)
+        validate_provider_workflow(provider_tree, contract, instance, ref)
+    except RuntimeError as exc:
+        print(f"  error: {exc}")
+        print(
+            "  After syncing/fixing the instance, rerun this from inside the child clone:\n"
+            f"    {child_bootstrap_command(instance)}\n"
+            "  Review and commit generated changes, push them, then rerun or await CI."
+        )
+        return 1
 
     # Determine the skills location before downloading anything — prompts even when piped, by
     # reading from /dev/tty (see select_skills_location).
@@ -638,7 +767,9 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
     # Download skills.
     print(f"\nDownloading skills from {instance}...")
     try:
-        tree = _fetch_tree(owner, repo, default_branch, token, urlopen)
+        tree = provider_tree if ref == default_branch else _fetch_tree(
+            owner, repo, default_branch, token, urlopen
+        )
         n_skills = download_skills(owner, repo, default_branch, tree, token, child_root,
                                    location, urlopen)
         print(f"  {n_skills} skill file(s) installed → {location}/")
@@ -669,7 +800,7 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
 
     # Wire workflows.
     print("\nWiring GitHub Actions workflows...")
-    wire_workflows(instance, ref, child_root, default_branch)
+    wire_workflows(instance, ref, contract, child_root, default_branch)
     print(f"  {len(CALLER_WORKFLOWS)} workflow(s) written → .github/workflows/")
 
     # Refresh instance_default_branch in an already-existing panopticon/config.json (never creates
@@ -680,7 +811,7 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
 
     # Check prerequisites (report-only, never blocks).
     print("\nChecking org CI prerequisites (report-only)...")
-    issues = check_prerequisites(owner, token, urlopen)
+    issues = check_prerequisites(owner, contract, token, urlopen)
     if not token:
         for issue in issues:
             print(issue)

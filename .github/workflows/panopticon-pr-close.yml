@@ -8,6 +8,9 @@ name: Panopticon PR close
 
 on:
   workflow_call:
+    secrets:
+      instance_token:
+        required: false
 
 jobs:
   cleanup:
@@ -21,19 +24,27 @@ jobs:
       - name: Delete instance branch for this PR
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+          GH_TOKEN: ${{ secrets.instance_token }}
         run: |
           set -euo pipefail
           if [ ! -f panopticon/config.json ]; then
             echo "repo not Panopticon-initialized; nothing to clean up"
             exit 0
           fi
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error::Panopticon: org-level secret PANOPTICON_INSTANCE_TOKEN is not available to this repo; configure it in the org's Actions secrets (docs/setup-guide.md)"
-            exit 1
-          fi
           repo=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["repo"])')
           instance=$(python3 -c 'import json;print(json.load(open("panopticon/config.json"))["instance"])')
+          if [ -z "${GH_TOKEN:-}" ]; then
+            {
+              echo "## Panopticon instance-token mapping is stale"
+              echo "Run this from inside the child clone:"
+              echo '~~~bash'
+              echo "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-eye/main/install.py | PANOPTICON_INSTANCE='$instance' python3"
+              echo '~~~'
+              echo "Review and commit the generated changes, push them, then rerun or await CI."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Panopticon instance token is unavailable; see the step summary for the exact bootstrap command"
+            exit 1
+          fi
           branch="$repo/${{ github.event.pull_request.head.ref }}"
           status=$(gh api -X DELETE "repos/$instance/git/refs/heads/$branch" 2>&1) && {
             echo "deleted instance branch $branch"

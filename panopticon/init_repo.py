@@ -33,13 +33,11 @@ from .config import load_repo_config, save_repo_config
 from .docs import validate_docs
 from .index import KIND_LOCAL, IndexValidationError, load_index
 
-ORG_SECRETS = ("PANOPTICON_LLM_API_KEY", "PANOPTICON_INSTANCE_TOKEN")
-ORG_VARS = ("PANOPTICON_LLM_ENDPOINT", "PANOPTICON_LLM_MODEL")
-
 _EXISTING_DOC_DIRS = ("docs", "doc", "documentation")
 
 CALLER_WORKFLOW_FOR_REF = Path(".github") / "workflows" / "panopticon-pr.yml"
 _USES_REF_RE = re.compile(r"^\s*uses:\s*\S+/\.github/workflows/\S+@(\S+)\s*$", re.MULTILINE)
+_ACTIONS_NAME_RE = re.compile(r"\$\{\{\s*(secrets|vars)\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
 FALLBACK_WORKFLOW_REF = "main"
 
@@ -115,7 +113,21 @@ def _gh_api_names(runner, url, jq_expr):
     return set(result.stdout.split())
 
 
-def _manual_verification_message(org, reason):
+def configured_actions_names(child_root):
+    """Derive the exact configured org names from the generated stable child caller."""
+    path = Path(child_root) / CALLER_WORKFLOW_FOR_REF
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return (), ()
+    names = {"secrets": [], "vars": []}
+    for kind, name in _ACTIONS_NAME_RE.findall(text):
+        if name not in names[kind]:
+            names[kind].append(name)
+    return tuple(names["secrets"]), tuple(names["vars"])
+
+
+def _manual_verification_message(org, reason, secrets, variables):
     """Concrete web-UI + gh-CLI steps for verifying org secrets/variables by hand.
 
     Used whenever automated verification isn't possible (``gh`` missing, unauthenticated, or
@@ -125,8 +137,8 @@ def _manual_verification_message(org, reason):
     settings_url = f"https://github.com/organizations/{org}/settings/secrets/actions"
     return (
         f"{reason} Verify manually that these are configured:\n"
-        f"    secrets:   {', '.join(ORG_SECRETS)}\n"
-        f"    variables: {', '.join(ORG_VARS)}\n"
+        f"    secrets:   {', '.join(secrets)}\n"
+        f"    variables: {', '.join(variables)}\n"
         f"  Web UI: {settings_url} (secrets and variables are separate tabs)\n"
         f"  Or locally via the gh CLI (run `gh auth login` first if not already authenticated):\n"
         f"    gh secret list --org {org}\n"
@@ -134,14 +146,14 @@ def _manual_verification_message(org, reason):
     )
 
 
-def _check_gh_api_kind(org, runner, endpoint, collection_key, items, kind):
+def _check_gh_api_kind(org, runner, endpoint, collection_key, items, kind, secrets, variables):
     """Check one kind (secrets or variables) via `gh api`; returns a list of report lines."""
     settings_url = f"https://github.com/organizations/{org}/settings/secrets/actions"
     existing = _gh_api_names(runner, f"orgs/{org}/actions/{endpoint}", f".{collection_key}[].name")
     if existing is None:
         return [_manual_verification_message(
             org, f"could not query org {kind}s via `gh api` (not authenticated, or lacking "
-            "org-admin permissions)."
+            "org-admin permissions).", secrets, variables
         )]
     return [
         f"missing org-level {kind} {name}: create it at {settings_url} and grant access to all "
@@ -207,18 +219,31 @@ def _resolve_instance_default_branch(instance, env=None, urlopen=urllib.request.
     return _fetch_default_branch(instance, token, urlopen)
 
 
-def verify_org_secrets(org, runner=subprocess.run):
+def verify_org_secrets(org, child_root=".", runner=subprocess.run):
     """Report-only org secret/variable verification via the gh CLI. Never blocks local init."""
+    secrets, variables = configured_actions_names(child_root)
+    if not secrets and not variables:
+        return [
+            "could not derive org-level Actions names because the generated "
+            ".github/workflows/panopticon-pr.yml caller is missing or invalid; rerun child "
+            "bootstrap before the first PR"
+        ]
     if shutil.which("gh") is None:
-        return [_manual_verification_message(org, "the 'gh' CLI is not installed.")]
+        return [_manual_verification_message(
+            org, "the 'gh' CLI is not installed.", secrets, variables
+        )]
 
-    report = _check_gh_api_kind(org, runner, "secrets", "secrets", ORG_SECRETS, "secret")
-    report += _check_gh_api_kind(org, runner, "variables", "variables", ORG_VARS, "variable")
+    report = _check_gh_api_kind(
+        org, runner, "secrets", "secrets", secrets, "secret", secrets, variables
+    )
+    report += _check_gh_api_kind(
+        org, runner, "variables", "variables", variables, "variable", secrets, variables
+    )
 
     if not report:
         report.append(
-            f"all org-level secrets present: {', '.join(ORG_SECRETS)}; "
-            f"all org-level variables present: {', '.join(ORG_VARS)}"
+            f"all org-level secrets present: {', '.join(secrets)}; "
+            f"all org-level variables present: {', '.join(variables)}"
         )
     return report
 
@@ -260,7 +285,7 @@ def initialize(child_root, repo_name, instance, docs_location=None, workflow_ref
         return 1, messages
 
     if not skip_secret_check:
-        messages.extend(verify_org_secrets(instance.split("/")[0], runner=runner))
+        messages.extend(verify_org_secrets(instance.split("/")[0], child_root, runner=runner))
 
     config = {
         "repo": repo_name,

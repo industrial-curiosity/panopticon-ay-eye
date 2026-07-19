@@ -10,6 +10,7 @@ from pathlib import Path
 from panopticon.config import load_repo_config
 from panopticon.index import save_index
 from panopticon.init_repo import (
+    configured_actions_names,
     detect_docs_location,
     discover_workflow_ref,
     initialize,
@@ -31,7 +32,12 @@ def write_caller_workflow(root, ref, instance="acme/panopticon-instance"):
         "jobs:\n"
         "  panopticon:\n"
         f"    uses: {instance}/.github/workflows/panopticon-pr.yml@{ref}\n"
-        "    secrets: inherit\n"
+        "    with:\n"
+        "      endpoint: ${{ vars.ACME_LLM_ENDPOINT }}\n"
+        "      model: ${{ vars.ACME_LLM_MODEL }}\n"
+        "    secrets:\n"
+        "      api_key: ${{ secrets.ACME_LLM_KEY }}\n"
+        "      instance_token: ${{ secrets.ACME_INSTANCE_TOKEN }}\n"
     )
 
 
@@ -229,6 +235,11 @@ class TestWorkflowRefDefaultsToDiscovery(unittest.TestCase):
 
 
 class TestSecretVerification(unittest.TestCase):
+    def verify(self, runner):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_caller_workflow(tmp, "v1")
+            return verify_org_secrets("acme", tmp, runner=runner)
+
     def gh_stub(self, returncode=0, stdout="", stderr=""):
         class Result:
             pass
@@ -253,44 +264,40 @@ class TestSecretVerification(unittest.TestCase):
         return runner
 
     def test_missing_secret_reported_with_instructions(self):
-        report = verify_org_secrets(
-            "acme",
-            runner=self.gh_stub_url_aware(
-                secrets_stdout="PANOPTICON_LLM_API_KEY\n",
-                vars_stdout="PANOPTICON_LLM_ENDPOINT\nPANOPTICON_LLM_MODEL\n",
-            ),
+        report = self.verify(
+            self.gh_stub_url_aware(
+                secrets_stdout="ACME_LLM_KEY\n",
+                vars_stdout="ACME_LLM_ENDPOINT\nACME_LLM_MODEL\n",
+            )
         )
         text = "\n".join(report)
-        self.assertIn("PANOPTICON_INSTANCE_TOKEN", text)
+        self.assertIn("ACME_INSTANCE_TOKEN", text)
         self.assertIn("settings/secrets/actions", text)
 
     def test_missing_variable_reported_with_instructions(self):
-        report = verify_org_secrets(
-            "acme",
-            runner=self.gh_stub_url_aware(
-                secrets_stdout="PANOPTICON_LLM_API_KEY\nPANOPTICON_INSTANCE_TOKEN\n",
-                vars_stdout="PANOPTICON_LLM_MODEL\n",
-            ),
+        report = self.verify(
+            self.gh_stub_url_aware(
+                secrets_stdout="ACME_LLM_KEY\nACME_INSTANCE_TOKEN\n",
+                vars_stdout="ACME_LLM_MODEL\n",
+            )
         )
         text = "\n".join(report)
-        self.assertIn("PANOPTICON_LLM_ENDPOINT", text)
+        self.assertIn("ACME_LLM_ENDPOINT", text)
         self.assertIn("settings/secrets/actions", text)
 
     def test_all_present(self):
-        report = verify_org_secrets(
-            "acme",
-            runner=self.gh_stub_url_aware(
-                secrets_stdout="PANOPTICON_LLM_API_KEY\nPANOPTICON_INSTANCE_TOKEN\n",
-                vars_stdout="PANOPTICON_LLM_ENDPOINT\nPANOPTICON_LLM_MODEL\n",
-            ),
+        report = self.verify(
+            self.gh_stub_url_aware(
+                secrets_stdout="ACME_LLM_KEY\nACME_INSTANCE_TOKEN\n",
+                vars_stdout="ACME_LLM_ENDPOINT\nACME_LLM_MODEL\n",
+            )
         )
         self.assertIn("all org-level secrets present", report[0])
 
     def test_gh_failure_is_report_only(self):
-        report = verify_org_secrets("acme", runner=self.gh_stub(returncode=1, stderr="HTTP 403"))
+        report = self.verify(self.gh_stub(returncode=1, stderr="HTTP 403"))
         text = "\n".join(report)
-        for name in ("PANOPTICON_LLM_API_KEY", "PANOPTICON_INSTANCE_TOKEN",
-                     "PANOPTICON_LLM_ENDPOINT", "PANOPTICON_LLM_MODEL"):
+        for name in ("ACME_LLM_KEY", "ACME_INSTANCE_TOKEN", "ACME_LLM_ENDPOINT", "ACME_LLM_MODEL"):
             self.assertIn(name, text)
         self.assertIn("gh secret list --org acme", text)
         self.assertIn("gh variable list --org acme", text)
@@ -298,10 +305,17 @@ class TestSecretVerification(unittest.TestCase):
 
     def test_gh_not_installed_reports_manual_steps(self):
         with unittest.mock.patch("shutil.which", return_value=None):
-            report = verify_org_secrets("acme", runner=self.gh_stub())
+            report = self.verify(self.gh_stub())
         text = "\n".join(report)
         self.assertIn("gh secret list --org acme", text)
         self.assertIn("settings/secrets/actions", text)
+
+    def test_names_are_derived_from_generated_caller(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_caller_workflow(tmp, "v1")
+            secrets, variables = configured_actions_names(tmp)
+        self.assertEqual(secrets, ("ACME_LLM_KEY", "ACME_INSTANCE_TOKEN"))
+        self.assertEqual(variables, ("ACME_LLM_ENDPOINT", "ACME_LLM_MODEL"))
 
     def test_missing_secrets_never_block_finalization(self):
         from unittest import mock

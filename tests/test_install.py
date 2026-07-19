@@ -18,8 +18,6 @@ from panopticon.bootstrap import (
     DEFAULT_SKILLS_LOCATION,
     GETTING_STARTED_GUIDE,
     LOCAL_TOOLING_MODULES,
-    ORG_SECRETS,
-    ORG_VARS,
     TOOL_LOCATIONS,
     _api_get,
     _apply_key,
@@ -33,17 +31,26 @@ from panopticon.bootstrap import (
     download_getting_started_guide,
     download_local_tooling,
     download_skills,
+    fetch_org_config,
     fetch_instance_default_branch,
     manual_verification_steps,
+    provider_remediation,
     refresh_instance_default_branch,
     resolve_instance,
     resolve_token,
     select_skills_location,
     sync_reminder,
+    validate_provider_workflow,
     wire_workflows,
     write_local_tooling_gitignore,
 )
 from panopticon.bootstrap import main as bootstrap_main
+from panopticon.providers import resolve_provider_contract
+
+
+LITELLM_CONTRACT = resolve_provider_contract({"provider": "litellm"})
+ORG_SECRETS = tuple(LITELLM_CONTRACT["secrets"].values())
+ORG_VARS = tuple(LITELLM_CONTRACT["variables"].values())
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -72,17 +79,26 @@ def _file_response(content_bytes):
 
 class TestCallerWorkflowText(unittest.TestCase):
     def test_pr_workflow_references_instance_at_ref(self):
-        text = caller_workflow_text("panopticon-pr.yml", "acme/instance", "v1")
-        self.assertIn("uses: acme/instance/.github/workflows/panopticon-pr.yml@v1", text)
-        self.assertIn("secrets: inherit", text)
-        self.assertNotIn("PANOPTICON_", text)
+        text = caller_workflow_text(
+            "panopticon-pr.yml", "acme/instance", "v1", LITELLM_CONTRACT
+        )
+        self.assertIn("uses: acme/instance/.github/workflows/panopticon-pr-litellm.yml@v1", text)
+        self.assertNotIn("secrets: inherit", text)
+        self.assertIn("api_key: ${{ secrets.PANOPTICON_LLM_API_KEY }}", text)
+        self.assertIn(f"configuration_revision: {LITELLM_CONTRACT['revision']}", text)
+        self.assertIn('configuration_names: \'{"api_key":"PANOPTICON_LLM_API_KEY"', text)
 
     def test_merge_workflow_uses_supplied_branch(self):
-        text = caller_workflow_text("panopticon-merge.yml", "acme/instance", "v1", "trunk")
+        text = caller_workflow_text(
+            "panopticon-merge.yml", "acme/instance", "v1", LITELLM_CONTRACT, "trunk"
+        )
         self.assertIn("branches: [trunk]", text)
+        self.assertIn("instance_token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}", text)
 
     def test_pr_close_workflow(self):
-        text = caller_workflow_text("panopticon-pr-close.yml", "acme/instance", "v2")
+        text = caller_workflow_text(
+            "panopticon-pr-close.yml", "acme/instance", "v2", LITELLM_CONTRACT
+        )
         self.assertIn("types: [closed]", text)
         self.assertIn("@v2", text)
 
@@ -90,14 +106,14 @@ class TestCallerWorkflowText(unittest.TestCase):
 class TestWireWorkflows(unittest.TestCase):
     def test_creates_all_three_workflow_files(self):
         with tempfile.TemporaryDirectory() as tmp:
-            wire_workflows("acme/instance", "v1", tmp)
+            wire_workflows("acme/instance", "v1", LITELLM_CONTRACT, tmp)
             names = {p.name for p in (Path(tmp) / ".github" / "workflows").iterdir()}
         self.assertEqual(names, set(CALLER_WORKFLOWS))
 
     def test_idempotent_rerun_updates_ref(self):
         with tempfile.TemporaryDirectory() as tmp:
-            wire_workflows("acme/instance", "v1", tmp)
-            wire_workflows("acme/instance", "v2", tmp)
+            wire_workflows("acme/instance", "v1", LITELLM_CONTRACT, tmp)
+            wire_workflows("acme/instance", "v2", LITELLM_CONTRACT, tmp)
             text = (Path(tmp) / ".github" / "workflows" / "panopticon-pr.yml").read_text()
             count = len(list((Path(tmp) / ".github" / "workflows").iterdir()))
         self.assertIn("@v2", text)
@@ -105,14 +121,14 @@ class TestWireWorkflows(unittest.TestCase):
 
     def test_creates_parent_directories(self):
         with tempfile.TemporaryDirectory() as tmp:
-            wire_workflows("acme/instance", "v1", tmp)
+            wire_workflows("acme/instance", "v1", LITELLM_CONTRACT, tmp)
             self.assertTrue((Path(tmp) / ".github" / "workflows").is_dir())
 
     def test_prints_per_file_progress(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = StringIO()
             with contextlib.redirect_stdout(out):
-                wire_workflows("acme/instance", "v1", tmp)
+                wire_workflows("acme/instance", "v1", LITELLM_CONTRACT, tmp)
         for i, name in enumerate(CALLER_WORKFLOWS, start=1):
             self.assertIn(f"[{i}/{len(CALLER_WORKFLOWS)}] {name}", out.getvalue())
 
@@ -463,18 +479,18 @@ class TestCheckPrerequisites(unittest.TestCase):
 
     def test_all_present_returns_empty_report(self):
         urlopen = self._make_urlopen_for_prereqs(ORG_SECRETS, ORG_VARS)
-        report = check_prerequisites("acme", token="tok", urlopen=urlopen)
+        report = check_prerequisites("acme", LITELLM_CONTRACT, token="tok", urlopen=urlopen)
         self.assertEqual(report, [])
 
     def test_missing_secret_reported(self):
         urlopen = self._make_urlopen_for_prereqs(["PANOPTICON_LLM_API_KEY"], list(ORG_VARS))
-        report = check_prerequisites("acme", token="tok", urlopen=urlopen)
+        report = check_prerequisites("acme", LITELLM_CONTRACT, token="tok", urlopen=urlopen)
         text = "\n".join(report)
         self.assertIn("PANOPTICON_INSTANCE_TOKEN", text)
 
     def test_missing_variable_reported(self):
         urlopen = self._make_urlopen_for_prereqs(list(ORG_SECRETS), ["PANOPTICON_LLM_MODEL"])
-        report = check_prerequisites("acme", token="tok", urlopen=urlopen)
+        report = check_prerequisites("acme", LITELLM_CONTRACT, token="tok", urlopen=urlopen)
         text = "\n".join(report)
         self.assertIn("PANOPTICON_LLM_ENDPOINT", text)
 
@@ -482,14 +498,14 @@ class TestCheckPrerequisites(unittest.TestCase):
         def urlopen(request, timeout=30):
             from urllib.error import HTTPError
             raise HTTPError(request.full_url, 403, "Forbidden", {}, BytesIO(b"denied"))
-        report = check_prerequisites("acme", token="tok", urlopen=urlopen)
+        report = check_prerequisites("acme", LITELLM_CONTRACT, token="tok", urlopen=urlopen)
         self.assertTrue(len(report) > 0)
         self.assertIn("could not verify", "\n".join(report))
 
     def test_no_token_returns_manual_steps_without_calling_api(self):
         def urlopen(request, timeout=30):
             raise AssertionError("should not call the API when no token is available")
-        report = check_prerequisites("acme", token=None, urlopen=urlopen)
+        report = check_prerequisites("acme", LITELLM_CONTRACT, token=None, urlopen=urlopen)
         text = "\n".join(report)
         for name in (*ORG_SECRETS, *ORG_VARS):
             self.assertIn(name, text)
@@ -498,7 +514,7 @@ class TestCheckPrerequisites(unittest.TestCase):
         self.assertIn("github.com/organizations/acme/settings/secrets/actions", text)
 
     def test_no_token_manual_steps_not_framed_as_error(self):
-        report = manual_verification_steps("acme")
+        report = manual_verification_steps("acme", LITELLM_CONTRACT)
         text = "\n".join(report)
         self.assertNotIn("error", text.lower())
         self.assertNotIn("fail", text.lower())
@@ -587,7 +603,11 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
                     raise HTTPError(url, 404, "Not Found", {}, BytesIO(b"{}"))
                 return BytesIO(json.dumps(_file_response(org_config_content)).encode())
             if "git/trees" in url:
-                return BytesIO(json.dumps({"tree": []}).encode())
+                return BytesIO(
+                    json.dumps(
+                        {"tree": [_tree_entry(".github/workflows/panopticon-pr-litellm.yml")]}
+                    ).encode()
+                )
             for name in LOCAL_TOOLING_MODULES:
                 if f"/contents/panopticon/{name}" in url:
                     return BytesIO(json.dumps(_file_response(f"# {name}".encode())).encode())
@@ -601,20 +621,27 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
 
         return urlopen
 
-    def test_no_org_config_wires_workflows_to_default_branch(self):
+    def test_no_org_config_fails_before_writing_with_complete_remediation(self):
         with tempfile.TemporaryDirectory() as tmp:
-            code = bootstrap_main(
-                env={
-                    "PANOPTICON_INSTANCE": "acme/instance",
-                    "GH_TOKEN": "tok",
-                    "PANOPTICON_SKILLS_LOCATION": ".agents/skills",
-                },
-                child_root=tmp,
-                urlopen=self._router(org_config_content=None),
-            )
-            text = (Path(tmp) / ".github" / "workflows" / "panopticon-pr.yml").read_text()
-        self.assertEqual(code, 0)
-        self.assertIn("uses: acme/instance/.github/workflows/panopticon-pr.yml@main", text)
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                code = bootstrap_main(
+                    env={
+                        "PANOPTICON_INSTANCE": "acme/instance",
+                        "GH_TOKEN": "tok",
+                        "PANOPTICON_SKILLS_LOCATION": ".agents/skills",
+                    },
+                    child_root=tmp,
+                    urlopen=self._router(org_config_content=b'{"schema_version": 1}'),
+                )
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+        self.assertEqual(code, 1)
+        self.assertIn("actions/workflows/configure-panopticon.yml", out.getvalue())
+        self.assertIn("gh workflow run configure-panopticon.yml --repo acme/instance", out.getvalue())
+        self.assertIn(
+            "| PANOPTICON_INSTANCE='acme/instance' python3", out.getvalue()
+        )
+        self.assertNotIn("export PANOPTICON_INSTANCE", out.getvalue())
 
     def test_org_config_workflow_ref_is_respected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -625,11 +652,104 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
                     "PANOPTICON_SKILLS_LOCATION": ".agents/skills",
                 },
                 child_root=tmp,
-                urlopen=self._router(org_config_content=json.dumps({"workflow_ref": "v2"}).encode()),
+                urlopen=self._router(
+                    org_config_content=json.dumps(
+                        {"workflow_ref": "v2", "llm": {"provider": "litellm"}}
+                    ).encode()
+                ),
             )
             text = (Path(tmp) / ".github" / "workflows" / "panopticon-pr.yml").read_text()
         self.assertEqual(code, 0)
-        self.assertIn("uses: acme/instance/.github/workflows/panopticon-pr.yml@v2", text)
+        self.assertIn("uses: acme/instance/.github/workflows/panopticon-pr-litellm.yml@v2", text)
+
+
+class TestProviderBootstrapErrors(unittest.TestCase):
+    def test_provider_change_changes_revision_and_remote_workflow(self):
+        litellm = resolve_provider_contract({"provider": "litellm"})
+        bedrock = resolve_provider_contract({"provider": "bedrock"})
+        litellm_text = caller_workflow_text(
+            "panopticon-pr.yml", "acme/instance", "release", litellm
+        )
+        bedrock_text = caller_workflow_text(
+            "panopticon-pr.yml", "acme/instance", "release", bedrock
+        )
+        self.assertNotEqual(litellm["revision"], bedrock["revision"])
+        self.assertIn("panopticon-pr-litellm.yml@release", litellm_text)
+        self.assertIn("panopticon-pr-bedrock.yml@release", bedrock_text)
+
+    def test_configured_name_change_updates_revision_and_explicit_mapping(self):
+        original = resolve_provider_contract({"provider": "litellm"})
+        renamed = resolve_provider_contract(
+            {
+                "provider": "litellm",
+                "secrets": {"api_key": "ACME_LLM_KEY"},
+            }
+        )
+        text = caller_workflow_text(
+            "panopticon-pr.yml", "acme/instance", "release", renamed
+        )
+        self.assertNotEqual(original["revision"], renamed["revision"])
+        self.assertIn("api_key: ${{ secrets.ACME_LLM_KEY }}", text)
+
+    def test_bedrock_caller_uses_custom_names_and_oidc_permissions(self):
+        contract = resolve_provider_contract(
+            {
+                "provider": "bedrock",
+                "secrets": {"instance_token": "ACME_INSTANCE_TOKEN"},
+                "variables": {
+                    "aws_region": "ACME_AWS_REGION",
+                    "aws_role_arn": "ACME_BEDROCK_ROLE",
+                    "model": "ACME_BEDROCK_MODEL",
+                },
+            }
+        )
+        text = caller_workflow_text(
+            "panopticon-pr.yml", "acme/instance", "release", contract
+        )
+        self.assertIn("panopticon-pr-bedrock.yml@release", text)
+        self.assertIn("id-token: write", text)
+        self.assertIn("aws_region: ${{ vars.ACME_AWS_REGION }}", text)
+        self.assertIn("instance_token: ${{ secrets.ACME_INSTANCE_TOKEN }}", text)
+        self.assertNotIn("api_key:", text)
+        self.assertNotIn("secrets: inherit", text)
+
+    def test_missing_selected_workflow_is_a_loud_prewrite_error(self):
+        with self.assertRaisesRegex(RuntimeError, "panopticon-pr-bedrock.yml"):
+            validate_provider_workflow(
+                [],
+                resolve_provider_contract({"provider": "bedrock"}),
+                "acme/instance",
+                "v2",
+            )
+
+    def test_fetch_org_config_preserves_access_failure(self):
+        from urllib.error import HTTPError
+
+        def urlopen(request, timeout=30):
+            raise HTTPError(request.full_url, 403, "Forbidden", {}, BytesIO(b"denied"))
+
+        with self.assertRaisesRegex(RuntimeError, "403"):
+            fetch_org_config("acme", "instance", "main", token="tok", urlopen=urlopen)
+
+    def test_fetch_org_config_reports_invalid_encoded_content(self):
+        def urlopen(request, timeout=30):
+            return BytesIO(
+                json.dumps({"encoding": "base64", "content": "//4="}).encode()
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "invalid panopticon.config.json"):
+            fetch_org_config("acme", "instance", "main", urlopen=urlopen)
+
+    def test_provider_remediation_has_ordered_console_and_cli_instructions(self):
+        text = provider_remediation("acme/instance", "trunk")
+        self.assertIn("1. Open https://github.com/acme/instance/actions/workflows/", text)
+        self.assertIn("3. Select branch trunk", text)
+        self.assertIn("gh workflow run configure-panopticon.yml --repo acme/instance --ref trunk", text)
+        self.assertIn("wait for the green completed run", text)
+        self.assertIn(
+            "| PANOPTICON_INSTANCE='acme/instance' python3",
+            text,
+        )
 
 
 # ── Skills location selection ───────────────────────────────────────────────────
@@ -792,9 +912,26 @@ class TestMainSkillsLocationFlow(unittest.TestCase):
         def urlopen(request, timeout=30):
             url = request.full_url
             if "contents/panopticon.config.json" in url:
-                raise HTTPError(url, 404, "Not Found", {}, BytesIO(b"{}"))
+                return BytesIO(
+                    json.dumps(
+                        _file_response(
+                            json.dumps({"llm": {"provider": "litellm"}}).encode()
+                        )
+                    ).encode()
+                )
             if "git/trees" in url:
-                return BytesIO(json.dumps({"tree": [_tree_entry(skill_path)]}).encode())
+                return BytesIO(
+                    json.dumps(
+                        {
+                            "tree": [
+                                _tree_entry(skill_path),
+                                _tree_entry(
+                                    ".github/workflows/panopticon-pr-litellm.yml"
+                                ),
+                            ]
+                        }
+                    ).encode()
+                )
             if "contents/" + skill_path in url:
                 return BytesIO(json.dumps(_file_response(b"# panopticon-foo")).encode())
             for name in LOCAL_TOOLING_MODULES:

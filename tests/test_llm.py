@@ -9,6 +9,8 @@ from pathlib import Path
 
 from panopticon.llm import (
     API_KEY_VAR,
+    AWS_REGION_VAR,
+    BedrockLLMClient,
     ENDPOINT_VAR,
     MAX_ATTEMPTS_VAR,
     MAX_CORRECTION_ATTEMPTS_VAR,
@@ -16,7 +18,10 @@ from panopticon.llm import (
     LLMConfigurationError,
     LLMRequestError,
     LLMResponseError,
+    LiteLLMAdapter,
     MissingRequirementError,
+    MODEL_VAR,
+    PROVIDER_VAR,
     TIMEOUT_VAR,
     require,
 )
@@ -106,11 +111,24 @@ class TestRequestShape(unittest.TestCase):
         client = LLMClient("http://example.test/v1/chat/completions", api_key="k")
         self.assertEqual(client.endpoint, "http://example.test/v1/chat/completions")
 
+    def test_litellm_preflight_does_not_send_a_request(self):
+        with StubLLMServer() as stub:
+            details = client_for(stub).preflight()
+        self.assertEqual(details["provider"], "litellm")
+        self.assertEqual(stub.requests, [])
+        self.assertIsInstance(client_for(stub)._adapter, LiteLLMAdapter)
+
     def test_pr_workflow_exposes_the_llm_request_budget(self):
-        workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/panopticon-pr.yml").read_text()
-        self.assertIn("timeout-minutes: ${{ fromJSON(vars.PANOPTICON_LLM_JOB_TIMEOUT_MINUTES || '20') }}", workflow)
-        for name in (TIMEOUT_VAR, MAX_ATTEMPTS_VAR, MAX_CORRECTION_ATTEMPTS_VAR):
-            self.assertEqual(workflow.count(f"{name}: ${{{{ vars.{name} }}}}"), 2)
+        workflows = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+        for provider in ("litellm", "bedrock"):
+            workflow = (workflows / f"panopticon-pr-{provider}.yml").read_text()
+            self.assertIn(
+                "fromJSON(inputs.job_timeout_minutes || '20') >= 10",
+                workflow,
+            )
+            self.assertIn("fromJSON(inputs.job_timeout_minutes || '20') <= 60", workflow)
+            for name in (TIMEOUT_VAR, MAX_ATTEMPTS_VAR, MAX_CORRECTION_ATTEMPTS_VAR):
+                self.assertIn(name, workflow)
 
 
 class TestRetries(unittest.TestCase):
@@ -200,6 +218,10 @@ class TestDegradationPaths(unittest.TestCase):
         self.assertIn(API_KEY_VAR, exc.names)
         self.assertIn("PANOPTICON_INSTANCE_TOKEN", exc.names)
 
+    def test_unknown_provider_fails_before_client_creation(self):
+        with self.assertRaisesRegex(LLMConfigurationError, PROVIDER_VAR):
+            LLMClient.from_env(env={PROVIDER_VAR: "unknown"})
+
     def test_malformed_response_is_a_loud_error(self):
         with StubLLMServer() as stub:
             stub.responses = [(200, {"unexpected": True})]
@@ -221,6 +243,7 @@ class TestCompleteJson(unittest.TestCase):
             )
         self.assertEqual(result, {"stale": True})
         self.assertEqual(len(stub.requests), 1)
+
 
     def test_malformed_first_response_corrected_on_retry(self):
         with StubLLMServer() as stub:
@@ -338,6 +361,161 @@ class TestCompleteJson(unittest.TestCase):
             )
         self.assertEqual(result, {"stale": True})
         self.assertEqual(len(stub.requests), 1)
+
+
+class FakeBedrockRuntime:
+    def __init__(self, responses=None):
+        self.requests = []
+        self.responses = list(responses or [])
+
+    def converse(self, **request):
+        self.requests.append(request)
+        if self.responses:
+            response = self.responses.pop(0)
+            if isinstance(response, Exception):
+                raise response
+            return response
+        return {"output": {"message": {"content": [{"text": "ok"}]}}}
+
+
+class FakeBoto3:
+    __version__ = "1.43.51"
+    __file__ = "/ci/site-packages/boto3/__init__.py"
+
+    def __init__(self, runtime):
+        self.runtime = runtime
+        self.client_calls = []
+
+    def client(self, service, region_name, config):
+        self.client_calls.append((service, region_name, config))
+        return self.runtime
+
+
+class TestBedrockAdapter(unittest.TestCase):
+    def client(self, runtime=None, **kwargs):
+        runtime = runtime or FakeBedrockRuntime()
+        module = FakeBoto3(runtime)
+        client = BedrockLLMClient(
+            region="us-east-1",
+            model="anthropic.claude-test-v1",
+            boto3_module=module,
+            client_config_factory=lambda **settings: settings,
+            sleep=lambda _: None,
+            **kwargs,
+        )
+        return client, runtime, module
+
+    def test_from_env_selects_bedrock(self):
+        client = LLMClient.from_env(
+            env={
+                PROVIDER_VAR: "bedrock",
+                AWS_REGION_VAR: "eu-west-1",
+                MODEL_VAR: "provider.model-v1",
+            }
+        )
+        self.assertIsInstance(client, BedrockLLMClient)
+        self.assertEqual(client.region, "eu-west-1")
+
+    def test_constructor_does_not_import_the_ci_only_sdk(self):
+        import builtins
+        from unittest.mock import patch
+
+        original_import = builtins.__import__
+
+        def reject_boto(name, *args, **kwargs):
+            if name == "boto3":
+                raise AssertionError("boto3 must remain lazy")
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=reject_boto):
+            BedrockLLMClient(region="us-east-1", model="provider.model-v1")
+
+    def test_injected_runtime_does_not_require_the_sdk(self):
+        client = BedrockLLMClient(
+            region="us-east-1",
+            model="provider.model-v1",
+            runtime_client=FakeBedrockRuntime(),
+        )
+        self.assertEqual(client.chat([{"role": "user", "content": "hello"}]), "ok")
+
+    def test_converse_maps_system_and_conversation_messages(self):
+        client, runtime, _ = self.client()
+        result = client.chat(
+            [
+                {"role": "system", "content": "follow the skill"},
+                {"role": "user", "content": "review this"},
+                {"role": "assistant", "content": "prior response"},
+            ],
+            temperature=0.2,
+        )
+        self.assertEqual(result, "ok")
+        self.assertEqual(
+            runtime.requests[0],
+            {
+                "modelId": "anthropic.claude-test-v1",
+                "system": [{"text": "follow the skill"}],
+                "messages": [
+                    {"role": "user", "content": [{"text": "review this"}]},
+                    {"role": "assistant", "content": [{"text": "prior response"}]},
+                ],
+                "inferenceConfig": {"temperature": 0.2},
+            },
+        )
+
+    def test_converse_text_blocks_are_joined(self):
+        runtime = FakeBedrockRuntime(
+            [{"output": {"message": {"content": [{"text": "one"}, {"text": " two"}]}}}]
+        )
+        client, _, _ = self.client(runtime)
+        self.assertEqual(client.chat([{"role": "user", "content": "hello"}]), "one two")
+
+    def test_preflight_reports_sdk_version_and_import_path(self):
+        client, _, module = self.client()
+        details = client.preflight()
+        self.assertEqual(details["boto3_version"], "1.43.51")
+        self.assertEqual(details["boto3_path"], module.__file__)
+
+    def test_preflight_rejects_runtime_without_converse(self):
+        module = FakeBoto3(object())
+        client = BedrockLLMClient(
+            region="us-east-1", model="model", boto3_module=module,
+            client_config_factory=lambda **settings: settings,
+        )
+        with self.assertRaises(LLMConfigurationError) as ctx:
+            client.preflight()
+        self.assertIn("1.43.51", str(ctx.exception))
+        self.assertIn(module.__file__, str(ctx.exception))
+        self.assertIn("requirements-bedrock.txt", str(ctx.exception))
+
+    def test_request_timeout_is_applied_to_the_sdk_client(self):
+        client, _, module = self.client(timeout=120)
+        client.preflight()
+        _, _, config = module.client_calls[0]
+        self.assertEqual(config["connect_timeout"], 120)
+        self.assertEqual(config["read_timeout"], 120)
+        self.assertEqual(config["retries"], {"max_attempts": 0})
+
+    def test_non_retryable_provider_error_is_classified(self):
+        class AccessDenied(Exception):
+            response = {"Error": {"Code": "AccessDeniedException"}}
+
+        client, _, _ = self.client(FakeBedrockRuntime([AccessDenied("denied")]))
+        with self.assertRaises(LLMRequestError) as ctx:
+            client.chat([{"role": "user", "content": "hello"}])
+        self.assertIn("bedrock", str(ctx.exception))
+        self.assertIn("AccessDeniedException", str(ctx.exception))
+
+    def test_throttling_is_retried(self):
+        class Throttled(Exception):
+            response = {"Error": {"Code": "ThrottlingException"}}
+
+        runtime = FakeBedrockRuntime(
+            [Throttled("slow down"), {"output": {"message": {"content": [{"text": "ok"}]}}}]
+        )
+        client, _, _ = self.client(runtime, max_attempts=2)
+        self.assertEqual(client.chat([{"role": "user", "content": "hello"}]), "ok")
+        self.assertEqual(len(runtime.requests), 2)
+
 
 
 class TestSkillLoading(unittest.TestCase):

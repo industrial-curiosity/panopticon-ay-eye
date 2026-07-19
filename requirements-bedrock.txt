@@ -1,0 +1,2 @@
+# CI-only dependency for the native Bedrock provider workflow. Child tooling does not install it.
+boto3==1.43.51

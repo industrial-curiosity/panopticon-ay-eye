@@ -1,0 +1,139 @@
+# Instance bootstrap: selects the organization-wide LLM provider and persists only the GitHub
+# Actions secret/variable names used to supply it. Credential values are never workflow inputs.
+name: Configure Panopticon
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: LLM provider (replace the sentinel before running)
+        required: true
+        type: choice
+        default: select-a-provider
+        options:
+          - select-a-provider
+          - litellm
+          - bedrock
+      instance_token_name:
+        description: Organization secret name for the instance checkout token
+        required: true
+        default: PANOPTICON_INSTANCE_TOKEN
+      api_key_name:
+        description: LiteLLM organization secret name (ignored for Bedrock)
+        required: true
+        default: PANOPTICON_LLM_API_KEY
+      model_variable_name:
+        description: Organization variable name for the provider model identifier
+        required: true
+        default: PANOPTICON_LLM_MODEL
+      endpoint_variable_name:
+        description: LiteLLM endpoint variable name (ignored for Bedrock)
+        required: true
+        default: PANOPTICON_LLM_ENDPOINT
+      aws_region_variable_name:
+        description: Bedrock AWS region variable name (ignored for LiteLLM)
+        required: true
+        default: PANOPTICON_AWS_REGION
+      aws_role_arn_variable_name:
+        description: Bedrock OIDC role ARN variable name (ignored for LiteLLM)
+        required: true
+        default: PANOPTICON_AWS_ROLE_ARN
+      budget_variable_names:
+        description: JSON object containing the four bounded request/job variable names
+        required: true
+        default: >-
+          {"timeout_seconds":"PANOPTICON_LLM_TIMEOUT_SECONDS","max_attempts":"PANOPTICON_LLM_MAX_ATTEMPTS","max_correction_attempts":"PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS","job_timeout_minutes":"PANOPTICON_LLM_JOB_TIMEOUT_MINUTES"}
+
+permissions:
+  contents: write
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the instance
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate and persist provider names
+        shell: python
+        env:
+          PROVIDER: ${{ inputs.provider }}
+          INSTANCE_TOKEN_NAME: ${{ inputs.instance_token_name }}
+          API_KEY_NAME: ${{ inputs.api_key_name }}
+          MODEL_VARIABLE_NAME: ${{ inputs.model_variable_name }}
+          ENDPOINT_VARIABLE_NAME: ${{ inputs.endpoint_variable_name }}
+          AWS_REGION_VARIABLE_NAME: ${{ inputs.aws_region_variable_name }}
+          AWS_ROLE_ARN_VARIABLE_NAME: ${{ inputs.aws_role_arn_variable_name }}
+          BUDGET_VARIABLE_NAMES: ${{ inputs.budget_variable_names }}
+        run: |
+          import json
+          import os
+
+          from panopticon.configure_instance import configure
+          from panopticon.providers import ProviderConfigError
+
+          try:
+              budgets = json.loads(os.environ["BUDGET_VARIABLE_NAMES"])
+          except json.JSONDecodeError as exc:
+              raise SystemExit(f"error: budget_variable_names must be valid JSON: {exc}") from exc
+          required_budgets = {
+              "timeout_seconds",
+              "max_attempts",
+              "max_correction_attempts",
+              "job_timeout_minutes",
+          }
+          if not isinstance(budgets, dict) or set(budgets) != required_budgets:
+              raise SystemExit(
+                  "error: budget_variable_names must contain exactly "
+                  + ", ".join(sorted(required_budgets))
+              )
+          names = {
+              "instance_token": os.environ["INSTANCE_TOKEN_NAME"],
+              "api_key": os.environ["API_KEY_NAME"],
+              "model": os.environ["MODEL_VARIABLE_NAME"],
+              "endpoint": os.environ["ENDPOINT_VARIABLE_NAME"],
+              "aws_region": os.environ["AWS_REGION_VARIABLE_NAME"],
+              "aws_role_arn": os.environ["AWS_ROLE_ARN_VARIABLE_NAME"],
+              **budgets,
+          }
+          try:
+              configured = configure(".", os.environ["PROVIDER"], names)
+          except (ProviderConfigError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"error: {exc}") from exc
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(f"## Panopticon provider: `{configured['provider']}`\n\n")
+              summary.write("Configure these organization-level Actions names with values:\n\n")
+              for logical, name in configured["secrets"].items():
+                  summary.write(f"- Secret `{name}` ({logical})\n")
+              for logical, name in configured["variables"].items():
+                  summary.write(f"- Variable `{name}` ({logical})\n")
+              summary.write("\nNo credential values were accepted or persisted by this workflow.\n")
+
+      - name: Commit instance configuration
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
+        run: |
+          if git diff --quiet -- panopticon.config.json; then
+            echo "Configuration already matches the requested provider contract." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add panopticon.config.json
+          git commit -m "chore: configure Panopticon LLM provider"
+          if ! git push origin "HEAD:${TARGET_BRANCH}"; then
+            {
+              echo
+              echo "## Configuration was validated but could not be pushed"
+              echo
+              echo "Branch protection may require a pull request. Apply this validated diff on a"
+              echo "local branch, open a PR, and merge it:"
+              echo
+              echo '```diff'
+              git show --format= -- panopticon.config.json
+              echo '```'
+              echo "Panopticon is not configured until that commit reaches ${TARGET_BRANCH}."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

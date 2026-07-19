@@ -48,4 +48,3 @@ before the job starts rather than silently coercing it.
 
 - **WHEN** the configured job-timeout variable maps the value `30`
 - **THEN** the selected provider workflow's evaluate job has a 30-minute timeout
-

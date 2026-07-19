@@ -23,17 +23,19 @@ simple as possible.
   state in the PR/design what it provides that the stdlib cannot, and pin it.
   Prefer zero-dependency tooling; treat each addition as a design decision,
   not a convenience.
-- **Checkout-and-run invocation.** Tooling must work on a bare CI runner with
+- **Checkout-and-run invocation.** Core and child-vendored tooling must work on a bare CI runner with
   a checkout and a system `python3` — no build step, no compiled extensions,
-  no framework bootstrapping. If dependencies exist, a single
-  `pip install -r requirements.txt` must be the entire setup.
+  no framework bootstrapping. A built-in provider adapter may have one pinned,
+  CI-only dependency file installed only by that provider's reusable workflow;
+  it must never enter child vendoring or local agent flows.
 - **Self-contained parsers.** Each deterministic parser must be independently
   contributable upstream to the template repo: no imports from org-specific
   code, no shared mutable state, dependencies limited to what the core
   tooling already requires.
-- **No heavy frameworks.** LLM access goes through the org-configured
-  endpoint (litellm-compatible HTTP first); do not add agent frameworks or
-  provider SDKs to the Python tooling.
+- **No heavy frameworks.** Do not add agent frameworks. Provider SDKs are
+  prohibited in core and child tooling; a built-in CI-only adapter may use one
+  narrowly scoped, pinned SDK when the standard library cannot implement the
+  provider's native authentication and transport contract.
 - **Importable logic, thin entry points.** Any script meant to be curl-runnable
   or invoked externally must put all logic in an importable module (e.g.,
   `panopticon/bootstrap.py`). The entry-point file (`install.py`) is a single

@@ -14,6 +14,9 @@ name: Panopticon merge sync
 
 on:
   workflow_call:
+    secrets:
+      instance_token:
+        required: false
 
 jobs:
   sync:
@@ -49,11 +52,19 @@ jobs:
       - name: Validate CI requirements
         shell: bash
         env:
-          PANOPTICON_INSTANCE_TOKEN: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+          PANOPTICON_INSTANCE_TOKEN: ${{ secrets.instance_token }}
         run: |
           set -euo pipefail
           if [ -z "${PANOPTICON_INSTANCE_TOKEN:-}" ]; then
-            echo "::error::Panopticon: org-level secret PANOPTICON_INSTANCE_TOKEN is not available to this repo; configure it in the org's Actions secrets (docs/setup-guide.md)"
+            {
+              echo "## Panopticon instance-token mapping is stale"
+              echo "Run this from inside the child clone:"
+              echo '~~~bash'
+              echo "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-eye/main/install.py | PANOPTICON_INSTANCE='$PANOPTICON_INSTANCE' python3"
+              echo '~~~'
+              echo "Review and commit the generated changes, push them, then rerun or await CI."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Panopticon instance token is unavailable; see the step summary for the exact bootstrap command"
             exit 1
           fi
 
@@ -61,7 +72,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ env.PANOPTICON_INSTANCE }}
-          token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+          token: ${{ secrets.instance_token }}
           path: .panopticon-instance
 
       - name: Sync docs and index shard (fetch-rebase-retry)
@@ -167,7 +178,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN_CHILD: ${{ github.token }}
-          GH_TOKEN_INSTANCE: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+          GH_TOKEN_INSTANCE: ${{ secrets.instance_token }}
         run: |
           set -euo pipefail
           title="Panopticon: interface conflicts involving $PANOPTICON_REPO"

@@ -2,6 +2,22 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## Unreleased
+
+### Added
+
+- Instance-owned **Configure Panopticon** workflow with explicit LiteLLM or Bedrock selection and
+  configurable organization secret/variable names; the template no longer selects a provider implicitly.
+- Separate LiteLLM and native Bedrock Converse/OIDC reusable PR workflows, including provider preflight,
+  caller configuration revisions, and a pinned CI-only boto3 dependency.
+
+### Changed
+
+- Child bootstrap validates provider configuration before writing, maps organization names explicitly
+  without `secrets: inherit`, and prints complete Actions-console, `gh`, and exact child-bootstrap recovery.
+- The legacy PR workflow now fails loudly with migration instructions so stale child callers never run
+  against an accidental provider contract.
+
 ## [0.1.6] - 2026-07-19
 
 ### Changed

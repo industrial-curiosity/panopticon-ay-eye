@@ -15,9 +15,11 @@ from panopticon.config import (
     load_diagram_config,
     load_org_config,
     load_repo_config,
+    provider_contract,
     require_supported_diagram_format,
     save_repo_config,
 )
+from panopticon.providers import PROVIDERS, ProviderConfigError, resolve_provider_contract
 
 
 class TestOrgConfig(unittest.TestCase):
@@ -31,6 +33,55 @@ class TestOrgConfig(unittest.TestCase):
         # No network access here, so there's no way to know the instance's default branch —
         # None signals "not pinned locally" rather than guessing a tag that may not exist.
         self.assertIsNone(config["workflow_ref"])
+        self.assertIsNone(config["llm"])
+
+    def test_unconfigured_template_loads_but_provider_resolution_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_org_config(tmp)
+        with self.assertRaisesRegex(ProviderConfigError, "no LLM provider"):
+            provider_contract(config)
+
+    def test_litellm_provider_defaults_are_resolved(self):
+        contract = resolve_provider_contract({"provider": "litellm"})
+        self.assertEqual(contract["workflow"], "panopticon-pr-litellm.yml")
+        self.assertEqual(contract["secrets"]["api_key"], "PANOPTICON_LLM_API_KEY")
+        self.assertEqual(contract["variables"]["endpoint"], "PANOPTICON_LLM_ENDPOINT")
+        self.assertNotIn("id-token", contract["permissions"])
+
+    def test_bedrock_provider_has_oidc_contract(self):
+        contract = resolve_provider_contract({"provider": "bedrock"})
+        self.assertEqual(contract["workflow"], "panopticon-pr-bedrock.yml")
+        self.assertEqual(contract["permissions"]["id-token"], "write")
+        self.assertEqual(contract["variables"]["aws_region"], "PANOPTICON_AWS_REGION")
+        self.assertEqual(contract["dependencies"], ["boto3==1.43.51"])
+
+    def test_unknown_provider_names_supported_values(self):
+        with self.assertRaises(ProviderConfigError) as ctx:
+            resolve_provider_contract({"provider": "mystery"})
+        for provider in PROVIDERS:
+            self.assertIn(provider, str(ctx.exception))
+
+    def test_unknown_provider_config_field_is_rejected(self):
+        with self.assertRaisesRegex(ProviderConfigError, "unknown fields"):
+            resolve_provider_contract({"provider": "litellm", "workflow": "arbitrary.yml"})
+
+    def test_revision_changes_when_caller_relevant_name_changes(self):
+        original = resolve_provider_contract({"provider": "litellm"})
+        renamed = resolve_provider_contract(
+            {"provider": "litellm", "secrets": {"api_key": "ACME_LLM_KEY"}}
+        )
+        self.assertNotEqual(original["revision"], renamed["revision"])
+
+    def test_revision_is_stable_for_equivalent_contracts(self):
+        first = resolve_provider_contract({"provider": "bedrock"})
+        second = resolve_provider_contract({"provider": "bedrock", "variables": {}})
+        self.assertEqual(first["revision"], second["revision"])
+
+    def test_invalid_actions_name_is_rejected(self):
+        with self.assertRaisesRegex(ProviderConfigError, "GitHub Actions name"):
+            resolve_provider_contract(
+                {"provider": "litellm", "secrets": {"api_key": "sk-secret-value"}}
+            )
 
     def test_workflow_ref_is_read_through_when_configured(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -147,6 +198,11 @@ class TestOrgConfig(unittest.TestCase):
         repo_root = Path(__file__).resolve().parent.parent
         raw = json.loads((repo_root / "panopticon.config.json").read_text())
         self.assertNotIn("workflow_ref", raw)
+
+    def test_template_root_config_ships_without_provider_selection(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        raw = json.loads((repo_root / "panopticon.config.json").read_text())
+        self.assertNotIn("llm", raw)
 
 
 class TestRepoConfig(unittest.TestCase):

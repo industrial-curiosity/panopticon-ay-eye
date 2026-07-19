@@ -49,7 +49,49 @@ Then run **Actions → Sync from template → Run workflow**. Instances created 
 published inherit it automatically and do not need this one-time step. If the instance deliberately customizes
 this workflow, merge the generated-path registration into that customization instead of replacing the file.
 
-## 2. Configure org-level secrets and variables
+## 2. Configure the instance LLM provider
+
+The template deliberately starts with no LLM provider selected. In the instance repo:
+
+1. Open **Actions → Configure Panopticon** at
+   `https://github.com/YOUR-ORG/YOUR-INSTANCE-REPO/actions/workflows/configure-panopticon.yml`.
+2. Select **Run workflow**, choose the instance's default branch, and replace
+   `select-a-provider` with `litellm` or `bedrock`.
+3. Review the organization secret and variable *names*. Keep the documented defaults or enter
+   your organization's names. Never enter credential values in these fields.
+4. Select **Run workflow** and wait for a green completed run that commits
+   `panopticon.config.json`.
+
+The equivalent CLI command with LiteLLM and the documented names is:
+
+```bash
+gh workflow run configure-panopticon.yml --repo YOUR-ORG/YOUR-INSTANCE-REPO --ref main -f provider=litellm
+gh run watch --repo YOUR-ORG/YOUR-INSTANCE-REPO
+```
+
+For Bedrock, grant the named OIDC role `bedrock:InvokeModel` access to the configured model and
+trust GitHub's OIDC identity for the child repositories. For LiteLLM, configure the endpoint and API key.
+
+### Bedrock OIDC checklist
+
+1. In AWS IAM, add the GitHub OIDC provider URL `https://token.actions.githubusercontent.com` with
+   audience `sts.amazonaws.com`; follow GitHub's
+   [AWS OIDC guide](https://docs.github.com/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws).
+2. Create a role whose trust policy restricts `token.actions.githubusercontent.com:sub` to the intended
+   child repositories. Copy the subject format from GitHub's current OIDC reference rather than guessing it.
+3. Grant that role `bedrock:InvokeModel` on the selected model or inference-profile resources. Converse uses
+   that permission; inference profiles may also require `bedrock:GetInferenceProfile`. See AWS's
+   [Bedrock inference prerequisites](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-prereq.html).
+4. Put the role ARN and region into the organization variables named by **Configure Panopticon**, and use a
+   model identifier documented as Converse-compatible. No long-lived AWS access-key secret is required.
+
+For an existing instance, sync the provider workflows first, run **Configure Panopticon**, and only then
+rerun bootstrap in every child. Review, commit, and push each generated caller change before removing old
+secret names or workflow versions. If the instance-token secret name changes, keep the old secret available
+until every child caller has been regenerated; removing it early can prevent instance checkout before the
+workflow can diagnose a stale revision.
+
+### 2.1 Configure org-level secrets and variables
 
 Go to your org's **Settings → Secrets and variables → Actions (https://github.com/organizations/YOUR-ORG/settings/secrets/actions)**
 (replace `YOUR-ORG` with your GitHub org slug).
@@ -61,22 +103,24 @@ For each secret and variable below, set **Repository access → Selected reposit
 Make sure that your token is visible to your instance repository as well as your child repositories.
 
 The instance repo needs access because the Sync from template workflow runs there.
-Child repos never configure per-repo secrets or variables — their caller workflows are
-trivial references to the shared workflows.
+Child repos never configure per-repo secrets or variables. Bootstrap generates thin callers that
+explicitly map these instance-selected organization names to canonical provider workflow inputs.
 
 **Secrets** (encrypted; never visible in logs):
 
 | Secret | What it is |
 | --- | --- |
-| `PANOPTICON_LLM_API_KEY` | Bearer token for the LLM endpoint |
+| `PANOPTICON_LLM_API_KEY` *(LiteLLM)* | Bearer token for the LLM endpoint |
 | `PANOPTICON_INSTANCE_TOKEN` | Fine-grained PAT scoped to the instance repo — [see instructions below](#creating-panopticon_instance_token) |
 
 **Variables** (plaintext; visible in logs):
 
 | Variable | What it is |
 | --- | --- |
-| `PANOPTICON_LLM_ENDPOINT` | Base URL of any litellm-compatible (OpenAI `/chat/completions`) endpoint |
-| `PANOPTICON_LLM_MODEL` | Model name passed to the endpoint (defaults to `default`, which litellm proxies commonly alias) |
+| `PANOPTICON_LLM_ENDPOINT` *(LiteLLM)* | Base URL of a LiteLLM-compatible OpenAI `/chat/completions` endpoint |
+| `PANOPTICON_AWS_REGION` *(Bedrock)* | AWS region containing the Bedrock model |
+| `PANOPTICON_AWS_ROLE_ARN` *(Bedrock)* | GitHub OIDC role ARN used by child PR workflows |
+| `PANOPTICON_LLM_MODEL` | LiteLLM model name or Bedrock Converse-compatible model identifier |
 | `PANOPTICON_LLM_TIMEOUT_SECONDS` *(optional)* | Per-request LLM timeout; defaults to `90`, permitted range `30`–`300` seconds |
 | `PANOPTICON_LLM_MAX_ATTEMPTS` *(optional)* | Transport attempts for timeout, connection, and retryable HTTP failures; defaults to `2`, permitted range `1`–`3` |
 | `PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS` *(optional)* | Additional attempts for malformed structured LLM responses; defaults to `2`, permitted range `0`–`2` |
@@ -167,22 +211,20 @@ instance repositories:
 
 ```bash
 cd my-service
-curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-eye/main/install.py | python3
+curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-eye/main/install.py | PANOPTICON_INSTANCE='YOUR-ORG/YOUR-INSTANCE-REPO' python3
 ```
 
 The launcher asks for any missing interactive inputs, authenticates when the selected instance is private,
-and then runs that instance repository's own installer. Set stable inputs before repeat or non-interactive
-runs:
+and then runs that instance repository's own installer. It stops before writing if the provider is
+unconfigured or invalid and prints exact console, `gh`, and child-bootstrap commands. Optional inputs are:
 
 ```bash
-export PANOPTICON_INSTANCE=YOUR-ORG/YOUR-INSTANCE-REPO
 export PANOPTICON_SKILLS_LOCATION=.agents/skills
 # Optional: select a branch, tag, or commit instead of the instance's default branch.
 export PANOPTICON_INSTANCE_REF=YOUR-INSTANCE-REF
 ```
 
-For example, use `PANOPTICON_INSTANCE=acme/panopticon-instance` and
-`PANOPTICON_INSTANCE_REF=release-2026-07`. Private instances use `GH_TOKEN`, `GITHUB_TOKEN`, or an existing
+For example, use `PANOPTICON_INSTANCE_REF=release-2026-07`. Private instances use `GH_TOKEN`, `GITHUB_TOKEN`, or an existing
 `gh auth` session. Supply tokens through your shell or CI secret environment; never place one directly in
 the command. The instance installer chooses where skills live (template default `.agents/skills/`; see
 [`docs/agentskills-support.md`](agentskills-support.md)). Set `PANOPTICON_SKILLS_LOCATION` to skip that

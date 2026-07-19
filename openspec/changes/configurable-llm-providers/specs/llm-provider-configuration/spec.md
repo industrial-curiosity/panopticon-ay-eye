@@ -103,4 +103,3 @@ requiring a preceding `export`.
   `https://github.com/acme/panopticon-instance/actions/workflows/configure-panopticon.yml`, a corresponding
   `gh workflow run` command, ordered console instructions, and
   `curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-eye/main/install.py | PANOPTICON_INSTANCE='acme/panopticon-instance' python3`
-

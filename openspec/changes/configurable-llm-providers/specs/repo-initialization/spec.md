@@ -51,7 +51,7 @@ workflows into the child or use blanket `secrets: inherit`.
 ### Requirement: Stale caller remediation prints an exact installer command
 
 Every bootstrap or workflow failure caused by stale provider, secret-name, variable-name, or revision SHALL
-wiring SHALL explain the cause and print a copy/paste child-bootstrap command using the resolved instance
+explain the cause and print a copy/paste child-bootstrap command using the resolved instance
 slug. The command SHALL set `PANOPTICON_INSTANCE` on the piped Python process itself, without an `export`,
 and SHALL instruct the user to run it from inside the child clone, review and commit the generated changes,
 push them, and rerun or await the PR workflow.

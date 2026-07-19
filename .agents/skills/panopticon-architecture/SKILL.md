@@ -41,14 +41,22 @@ the user's agent.
 
 ## Provider-agnostic agents
 
-CI agent steps are configured via `PANOPTICON_LLM_API_KEY` and
-`PANOPTICON_LLM_ENDPOINT` secrets. litellm-compatible endpoints are the first
-supported target. Never hardcode a specific LLM provider into workflows or
-tooling. All local actions — initialization, doc updates, interface indexing
-— run through the user's preferred AI agent with the bundled skills and need
-no Panopticon LLM secrets. When a CI requirement (endpoint, key, token) is
-missing or unreachable, fail loudly and clearly naming what is missing —
-never skip silently.
+An instance explicitly selects one built-in CI provider contract through the
+`Configure Panopticon` workflow; the template has no implicit provider.
+LiteLLM-compatible HTTP and native Bedrock Converse through GitHub OIDC are
+separate reusable workflow entrypoints. The trusted provider registry owns
+their workflow paths, permissions, logical inputs, and default Actions names;
+instance configuration may rename secrets and variables but may not supply an
+arbitrary workflow path. Child bootstrap maps configured names explicitly and
+never uses `secrets: inherit`.
+
+The shared prompting, validation, correction, and retry surface remains
+provider-neutral. Provider-specific authentication and transport stay inside
+the selected adapter/workflow. All local actions — initialization, doc updates,
+interface indexing — run through the user's preferred AI agent with the bundled
+skills and need no Panopticon LLM secrets. Missing, stale, unreachable, or
+incapable provider configuration fails loudly with exact instance-configuration
+or child-bootstrap recovery commands; it never skips or falls back.
 
 ## Sync and auth model
 
@@ -64,12 +72,12 @@ never skip silently.
   named `{repo}/{branch}` in the instance repo, so in-flight branch state is
   visible org-wide. Only merges to main touch the instance repo's default
   branch.
-- The default CI `GITHUB_TOKEN` cannot reach the private instance repo. An
-  org-level token secret (`PANOPTICON_INSTANCE_TOKEN`) grants instance-repo
-  read and write (PR simulation, branch pushes, merge push).
+- The default CI `GITHUB_TOKEN` cannot reach the private instance repo. A
+  configurable org-level token secret (`PANOPTICON_INSTANCE_TOKEN` by default)
+  grants instance-repo read and write (PR simulation, branch pushes, merge push).
 - All Panopticon secrets are org-level. Child repos never configure per-repo
-  secrets or env vars — their caller workflows are trivial references to the
-  shared workflows.
+  secrets or env vars — generated callers explicitly map the instance-selected
+  org names to canonical reusable-workflow inputs and secrets.
 
 ## Index lifecycle
 
