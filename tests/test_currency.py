@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from panopticon.currency import check_currency, collect_actions, format_report, main
 from panopticon.index import dumps_index
-from panopticon.llm import LLMResponseError
+from panopticon.llm import LLMConfigurationError, LLMResponseError
 
 from .helpers import load_fixture
 from .test_extraction import FakeClient
@@ -115,6 +115,14 @@ class TestMainExitCodes(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             code = self._run_main(Path(tmp), raise_response_error)
+        self.assertNotIn(code, (0, 2))
+
+    def test_invalid_llm_configuration_is_an_operational_failure(self):
+        def raise_configuration_error(*args, **kwargs):
+            raise LLMConfigurationError("invalid PANOPTICON_LLM_TIMEOUT_SECONDS")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            code = self._run_main(Path(tmp), raise_configuration_error)
         self.assertNotIn(code, (0, 2))
 
     def test_operational_failure_writes_failure_section_to_report_file(self):

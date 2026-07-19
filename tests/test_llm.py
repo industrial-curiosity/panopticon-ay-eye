@@ -10,10 +10,14 @@ from pathlib import Path
 from panopticon.llm import (
     API_KEY_VAR,
     ENDPOINT_VAR,
+    MAX_ATTEMPTS_VAR,
+    MAX_CORRECTION_ATTEMPTS_VAR,
     LLMClient,
+    LLMConfigurationError,
     LLMRequestError,
     LLMResponseError,
     MissingRequirementError,
+    TIMEOUT_VAR,
     require,
 )
 from panopticon.skills import SkillNotFoundError, load_skill, strip_frontmatter
@@ -102,6 +106,12 @@ class TestRequestShape(unittest.TestCase):
         client = LLMClient("http://example.test/v1/chat/completions", api_key="k")
         self.assertEqual(client.endpoint, "http://example.test/v1/chat/completions")
 
+    def test_pr_workflow_exposes_the_llm_request_budget(self):
+        workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/panopticon-pr.yml").read_text()
+        self.assertIn("timeout-minutes: ${{ fromJSON(vars.PANOPTICON_LLM_JOB_TIMEOUT_MINUTES || '20') }}", workflow)
+        for name in (TIMEOUT_VAR, MAX_ATTEMPTS_VAR, MAX_CORRECTION_ATTEMPTS_VAR):
+            self.assertEqual(workflow.count(f"{name}: ${{{{ vars.{name} }}}}"), 2)
+
 
 class TestRetries(unittest.TestCase):
     def test_retries_on_5xx_then_succeeds(self):
@@ -137,6 +147,43 @@ class TestRetries(unittest.TestCase):
 
 
 class TestDegradationPaths(unittest.TestCase):
+    def test_request_budget_defaults_are_applied_from_environment(self):
+        client = LLMClient.from_env(env={ENDPOINT_VAR: "http://example.test", API_KEY_VAR: "key"})
+        self.assertEqual(client.timeout, 90)
+        self.assertEqual(client.max_attempts, 2)
+        self.assertEqual(client.max_correction_attempts, 2)
+
+    def test_request_budget_overrides_are_applied_from_environment(self):
+        client = LLMClient.from_env(env={
+            ENDPOINT_VAR: "http://example.test", API_KEY_VAR: "key",
+            TIMEOUT_VAR: "120", MAX_ATTEMPTS_VAR: "3", MAX_CORRECTION_ATTEMPTS_VAR: "1",
+        })
+        self.assertEqual(client.timeout, 120)
+        self.assertEqual(client.max_attempts, 3)
+        self.assertEqual(client.max_correction_attempts, 1)
+
+    def test_explicit_constructor_overrides_win_over_environment_budget(self):
+        client = LLMClient.from_env(
+            env={ENDPOINT_VAR: "http://example.test", API_KEY_VAR: "key", TIMEOUT_VAR: "120"},
+            timeout=30,
+        )
+        self.assertEqual(client.timeout, 30)
+
+    def test_invalid_request_budget_values_fail_before_client_creation(self):
+        cases = (
+            (TIMEOUT_VAR, "five", "30 through 300"),
+            (TIMEOUT_VAR, "29", "30 through 300"),
+            (MAX_ATTEMPTS_VAR, "", "1 through 3"),
+            (MAX_ATTEMPTS_VAR, "4", "1 through 3"),
+            (MAX_CORRECTION_ATTEMPTS_VAR, "-1", "0 through 2"),
+            (MAX_CORRECTION_ATTEMPTS_VAR, "3", "0 through 2"),
+        )
+        for name, value, permitted_range in cases:
+            with self.subTest(name=name, value=value), self.assertRaises(LLMConfigurationError) as ctx:
+                LLMClient.from_env(env={ENDPOINT_VAR: "http://example.test", API_KEY_VAR: "key", name: value})
+            self.assertIn(name, str(ctx.exception))
+            self.assertIn(permitted_range, str(ctx.exception))
+
     def test_missing_configuration_names_every_missing_variable(self):
         with self.assertRaises(MissingRequirementError) as ctx:
             LLMClient.from_env(env={})
@@ -241,6 +288,18 @@ class TestCompleteJson(unittest.TestCase):
         self.assertEqual(len(stub.requests), 2)  # initial + 1 correction attempt
         self.assertIn("drift verdict", str(ctx.exception))
         self.assertIn("2 attempt(s)", str(ctx.exception))
+
+    def test_environment_correction_retry_budget_is_used(self):
+        with StubLLMServer() as stub:
+            stub.responses = [(200, completion("never valid json"))]
+            client = LLMClient.from_env(env={
+                ENDPOINT_VAR: stub.endpoint, API_KEY_VAR: "test-key", MAX_CORRECTION_ATTEMPTS_VAR: "0",
+            }, sleep=lambda seconds: None)
+            with self.assertRaises(LLMResponseError):
+                client.complete_json(
+                    "skill text", "user content", _validate_stale_shape, response_label="drift verdict",
+                )
+        self.assertEqual(len(stub.requests), 1)
 
     def test_expected_shape_named_in_corrective_message(self):
         def validate_array(parsed):

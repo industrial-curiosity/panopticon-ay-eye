@@ -20,7 +20,13 @@ import sys
 from pathlib import Path
 
 from .index import KIND_LOCAL, dumps_index, load_index
-from .llm import LLMClient, LLMRequestError, LLMResponseError, MissingRequirementError
+from .llm import (
+    LLMClient,
+    LLMConfigurationError,
+    LLMRequestError,
+    LLMResponseError,
+    MissingRequirementError,
+)
 from .report import format_operational_failure
 from .skills import load_skill
 
@@ -95,7 +101,7 @@ def main(argv=None):
         diff_text = Path(args.diff_file).read_text(encoding="utf-8", errors="replace")
         index_doc = load_index(args.index, kind=KIND_LOCAL, repo=args.repo)
         verdict = check_currency(diff_text, index_doc, client, skill_root=args.skill_root)
-    except (MissingRequirementError, LLMRequestError, LLMResponseError) as exc:
+    except (MissingRequirementError, LLMConfigurationError, LLMRequestError, LLMResponseError) as exc:
         print(f"::error::Panopticon index-currency check could not run: {exc}")
         # Written to --report-file so the combined report shows this failure (pr-evaluation spec:
         # "Checks run independently...") instead of silently omitting the check that crashed.

@@ -77,9 +77,22 @@ trivial references to the shared workflows.
 | --- | --- |
 | `PANOPTICON_LLM_ENDPOINT` | Base URL of any litellm-compatible (OpenAI `/chat/completions`) endpoint |
 | `PANOPTICON_LLM_MODEL` | Model name passed to the endpoint (defaults to `default`, which litellm proxies commonly alias) |
+| `PANOPTICON_LLM_TIMEOUT_SECONDS` *(optional)* | Per-request LLM timeout; defaults to `90`, permitted range `30`–`300` seconds |
+| `PANOPTICON_LLM_MAX_ATTEMPTS` *(optional)* | Transport attempts for timeout, connection, and retryable HTTP failures; defaults to `2`, permitted range `1`–`3` |
+| `PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS` *(optional)* | Additional attempts for malformed structured LLM responses; defaults to `2`, permitted range `0`–`2` |
+| `PANOPTICON_LLM_JOB_TIMEOUT_MINUTES` *(optional)* | PR-evaluation job timeout; defaults to `20`, permitted range `10`–`60` whole minutes |
 
 These are consumed only by the shared CI workflows. Local flows — initialization, doc generation,
 index updates — run in each developer's own AI agent harness and need none of them.
+
+Set these variables at organization scope so every instance and child repository uses the same request budget;
+a repository-level value overrides the organization value for that repository. The three request-budget values
+are validated by Panopticon before an LLM request is made. GitHub Actions evaluates the job-timeout value before
+the runner starts, so it must be a valid JSON integer in the documented range. Set the LiteLLM proxy’s own
+request timeout slightly above `PANOPTICON_LLM_TIMEOUT_SECONDS` so Panopticon reports client timeouts clearly.
+At the defaults, a structured check can make at most six 90-second requests plus retry backoff (543 seconds);
+the two sequential LLM checks therefore fit within the 20-minute job budget (1,086 seconds before deterministic
+workflow work).
 
 ### Creating PANOPTICON_INSTANCE_TOKEN
 

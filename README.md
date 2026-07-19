@@ -126,8 +126,9 @@ concept. Other ecosystems fall back to LLM extraction until a parser is contribu
 
 - **Hybrid execution** — deterministic Python for everything structural (checks, index merge/compile, parsers);
   LLM agents only where judgment is required (doc generation, drift detection, extraction fallback).
-- **Provider-agnostic agents** — CI agent steps are configured via `PANOPTICON_LLM_API_KEY` and
-  `PANOPTICON_LLM_ENDPOINT` secrets; litellm-compatible endpoints are supported first. Local flows
+- **Provider-agnostic agents** — CI agent steps are configured via `PANOPTICON_LLM_API_KEY` (secret),
+  `PANOPTICON_LLM_ENDPOINT` (variable), and optional bounded request-budget variables; litellm-compatible
+  endpoints are supported first. Local flows
   (initialization, doc updates) run the same skills in the user's preferred AI agent harness and need no LLM
   secrets. Every CI check that requires a structured JSON response (doc-drift, index-currency, interface
   extraction) goes through one shared, hardened runtime method (`LLMClient.complete_json`) that retries with a

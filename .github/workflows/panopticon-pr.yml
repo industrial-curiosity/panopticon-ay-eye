@@ -3,7 +3,9 @@
 # Lives in the instance repo (a copy of this template); child repos call it via a thin caller
 # written by the init tooling (`uses: <org>/<instance>/.github/workflows/panopticon-pr.yml@<ref>`
 # with `secrets: inherit`). Org-level secrets: PANOPTICON_LLM_API_KEY, PANOPTICON_INSTANCE_TOKEN.
-# Org-level variables: PANOPTICON_LLM_ENDPOINT, PANOPTICON_LLM_MODEL.
+# Org-level variables: PANOPTICON_LLM_ENDPOINT, PANOPTICON_LLM_MODEL,
+# PANOPTICON_LLM_TIMEOUT_SECONDS, PANOPTICON_LLM_MAX_ATTEMPTS,
+# PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS, PANOPTICON_LLM_JOB_TIMEOUT_MINUTES.
 #
 # Checks (pr-evaluation spec): initialization → doc drift → index currency → diagram existence →
 # pre-merge simulation → branch state push. Check outcomes honor the org gating configuration in
@@ -18,6 +20,7 @@ on:
 jobs:
   evaluate:
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(vars.PANOPTICON_LLM_JOB_TIMEOUT_MINUTES || '20') }}
     permissions:
       contents: read
       pull-requests: write
@@ -148,6 +151,9 @@ jobs:
           PANOPTICON_LLM_API_KEY: ${{ secrets.PANOPTICON_LLM_API_KEY }}
           PANOPTICON_LLM_ENDPOINT: ${{ vars.PANOPTICON_LLM_ENDPOINT }}
           PANOPTICON_LLM_MODEL: ${{ vars.PANOPTICON_LLM_MODEL }}
+          PANOPTICON_LLM_TIMEOUT_SECONDS: ${{ vars.PANOPTICON_LLM_TIMEOUT_SECONDS }}
+          PANOPTICON_LLM_MAX_ATTEMPTS: ${{ vars.PANOPTICON_LLM_MAX_ATTEMPTS }}
+          PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS: ${{ vars.PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS }}
         run: |
           set -euo pipefail
           set +e
@@ -176,6 +182,9 @@ jobs:
           PANOPTICON_LLM_API_KEY: ${{ secrets.PANOPTICON_LLM_API_KEY }}
           PANOPTICON_LLM_ENDPOINT: ${{ vars.PANOPTICON_LLM_ENDPOINT }}
           PANOPTICON_LLM_MODEL: ${{ vars.PANOPTICON_LLM_MODEL }}
+          PANOPTICON_LLM_TIMEOUT_SECONDS: ${{ vars.PANOPTICON_LLM_TIMEOUT_SECONDS }}
+          PANOPTICON_LLM_MAX_ATTEMPTS: ${{ vars.PANOPTICON_LLM_MAX_ATTEMPTS }}
+          PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS: ${{ vars.PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS }}
         run: |
           set -euo pipefail
           set +e

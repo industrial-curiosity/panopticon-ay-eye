@@ -3,7 +3,11 @@
 The agent runtime is the execution path for LLM tasks in CI workflows only. It SHALL read the LLM endpoint
 from `PANOPTICON_LLM_ENDPOINT` (an org-level Actions **variable**), the API key from `PANOPTICON_LLM_API_KEY`
 (an org-level Actions **secret**), and the optional model name from `PANOPTICON_LLM_MODEL` (an org-level
-Actions **variable**, defaulting to `default`). It SHALL speak the OpenAI-compatible `/chat/completions`
+Actions **variable**, defaulting to `default`). It SHALL read optional bounded request-budget variables
+`PANOPTICON_LLM_TIMEOUT_SECONDS`, `PANOPTICON_LLM_MAX_ATTEMPTS`, and
+`PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS` from org-level Actions variables, defaulting to 90 seconds,
+two transport attempts, and two correction retries. It SHALL reject a blank, non-integer, or out-of-range
+value before sending a request. It SHALL speak the OpenAI-compatible `/chat/completions`
 request shape so that any litellm-compatible endpoint works. The runtime MUST NOT depend on provider-specific
 SDKs or hardcode any provider.
 
@@ -17,6 +21,13 @@ SDKs or hardcode any provider.
 
 - **WHEN** an org repoints `PANOPTICON_LLM_ENDPOINT` at a different litellm-compatible endpoint
 - **THEN** all agent-dependent workflows continue to function with no changes to workflows or tooling
+
+#### Scenario: Configured timeout remains provider-agnostic
+
+- **WHEN** an organization changes its configured LLM request timeout while using any supported
+  litellm-compatible endpoint
+- **THEN** the runtime applies the timeout through its shared HTTP client without adding a provider-specific
+  request field
 
 ### Requirement: Local execution through the user's agent harness
 

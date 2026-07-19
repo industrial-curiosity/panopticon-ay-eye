@@ -11,6 +11,10 @@ Configuration comes from org-level Actions secrets and variables exposed as envi
 - ``PANOPTICON_LLM_API_KEY`` — bearer token for that endpoint; org-level **secret**
 - ``PANOPTICON_LLM_MODEL`` — optional model name passed through to the endpoint; defaults to
   ``default`` (litellm proxies commonly route a default alias); org-level **variable**
+- ``PANOPTICON_LLM_TIMEOUT_SECONDS`` — optional per-request timeout; defaults to ``90`` seconds
+- ``PANOPTICON_LLM_MAX_ATTEMPTS`` — optional transport retry budget; defaults to ``2`` attempts
+- ``PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS`` — optional JSON-correction retry budget; defaults
+  to ``2`` retries
 
 No provider SDKs, no agent frameworks, no provider-specific code paths. Missing or unreachable
 requirements fail loudly (``MissingRequirementError`` / ``LLMRequestError``) naming exactly what
@@ -27,7 +31,19 @@ import urllib.request
 ENDPOINT_VAR = "PANOPTICON_LLM_ENDPOINT"
 API_KEY_VAR = "PANOPTICON_LLM_API_KEY"
 MODEL_VAR = "PANOPTICON_LLM_MODEL"
+TIMEOUT_VAR = "PANOPTICON_LLM_TIMEOUT_SECONDS"
+MAX_ATTEMPTS_VAR = "PANOPTICON_LLM_MAX_ATTEMPTS"
+MAX_CORRECTION_ATTEMPTS_VAR = "PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS"
 DEFAULT_MODEL = "default"
+DEFAULT_TIMEOUT_SECONDS = 90
+DEFAULT_MAX_ATTEMPTS = 2
+DEFAULT_MAX_CORRECTION_ATTEMPTS = 2
+
+_REQUEST_BUDGETS = {
+    TIMEOUT_VAR: (DEFAULT_TIMEOUT_SECONDS, 30, 300),
+    MAX_ATTEMPTS_VAR: (DEFAULT_MAX_ATTEMPTS, 1, 3),
+    MAX_CORRECTION_ATTEMPTS_VAR: (DEFAULT_MAX_CORRECTION_ATTEMPTS, 0, 2),
+}
 
 SETUP_HINT = (
     "Configure PANOPTICON_LLM_API_KEY and PANOPTICON_INSTANCE_TOKEN as org-level GitHub Actions "
@@ -76,6 +92,27 @@ class LLMResponseError(Exception):
     """The endpoint answered, but not with a usable chat completion."""
 
 
+class LLMConfigurationError(Exception):
+    """An optional LLM runtime setting is malformed or outside its safe range."""
+
+
+def _request_budget_from_env(name, env):
+    """Read one bounded integer runtime setting, retaining its default when unset."""
+    default, minimum, maximum = _REQUEST_BUDGETS[name]
+    raw = env.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw, 10)
+    except (TypeError, ValueError):
+        value = None
+    if value is None or not minimum <= value <= maximum:
+        raise LLMConfigurationError(
+            f"invalid {name}: expected an integer from {minimum} through {maximum}; got {raw!r}"
+        )
+    return value
+
+
 def _strip_code_fence(text):
     """Strip a wrapping markdown code fence (```...```) if the whole response is fenced. Shared by
     every structured-response call site (design D1) — previously duplicated identically in
@@ -89,7 +126,9 @@ def _strip_code_fence(text):
 
 
 class LLMClient:
-    def __init__(self, endpoint, api_key, model=DEFAULT_MODEL, timeout=60, max_attempts=3, sleep=time.sleep):
+    def __init__(self, endpoint, api_key, model=DEFAULT_MODEL, timeout=DEFAULT_TIMEOUT_SECONDS,
+                 max_attempts=DEFAULT_MAX_ATTEMPTS,
+                 max_correction_attempts=DEFAULT_MAX_CORRECTION_ATTEMPTS, sleep=time.sleep):
         missing = [name for name, value in ((ENDPOINT_VAR, endpoint), (API_KEY_VAR, api_key)) if not value]
         if missing:
             raise MissingRequirementError(missing, PURPOSES)
@@ -101,15 +140,22 @@ class LLMClient:
         self.model = model
         self.timeout = timeout
         self.max_attempts = max_attempts
+        self.max_correction_attempts = max_correction_attempts
         self._sleep = sleep
 
     @classmethod
     def from_env(cls, env=os.environ, **kwargs):
+        request_budget = {
+            "timeout": _request_budget_from_env(TIMEOUT_VAR, env),
+            "max_attempts": _request_budget_from_env(MAX_ATTEMPTS_VAR, env),
+            "max_correction_attempts": _request_budget_from_env(MAX_CORRECTION_ATTEMPTS_VAR, env),
+        }
+        request_budget.update(kwargs)
         return cls(
             endpoint=env.get(ENDPOINT_VAR),
             api_key=env.get(API_KEY_VAR),
             model=env.get(MODEL_VAR, DEFAULT_MODEL),
-            **kwargs,
+            **request_budget,
         )
 
     def chat(self, messages, temperature=0):
@@ -168,7 +214,7 @@ class LLMClient:
         )
 
     def complete_json(self, skill_text, user_content, validate, *, response_label,
-                       expected_shape="object", temperature=0, max_correction_attempts=2):
+                       expected_shape="object", temperature=0, max_correction_attempts=None):
         """Chat with a skill file's content as the system prompt, expecting a strict JSON response
         (agent-runtime spec: "Structured-response retry for non-compliant model output").
 
@@ -182,6 +228,8 @@ class LLMClient:
         ``LLMResponseError`` naming ``response_label``. This never relaxes validation: a response
         that fails ``validate`` is corrected via retry, never silently accepted.
         """
+        if max_correction_attempts is None:
+            max_correction_attempts = self.max_correction_attempts
         messages = [
             {"role": "system", "content": skill_text},
             {"role": "user", "content": user_content},
