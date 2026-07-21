@@ -66,13 +66,24 @@ class TestProviderWorkflows(unittest.TestCase):
         self.assertNotIn("GITHUB_REF_NAME", text)
         self.assertNotIn("export PANOPTICON_INSTANCE", text)
 
-    def test_configuration_workflow_uses_sentinel_and_name_inputs_only(self):
+    def test_configuration_workflow_uses_clear_optional_name_inputs(self):
         text = self.workflow("configure-panopticon.yml")
         self.assertIn("default: select-a-provider", text)
         self.assertIn("- bedrock", text)
         self.assertIn("- litellm", text)
         self.assertIn("instance_token_name:", text)
-        self.assertIn("budget_variable_names:", text)
+        self.assertIn("GitHub token that checks out the private instance repo", text)
+        self.assertIn("e.g. value gpt-4o-mini for LiteLLM", text)
+        for input_name in (
+            "timeout_seconds_variable_name:",
+            "max_attempts_variable_name:",
+            "max_correction_attempts_variable_name:",
+            "job_timeout_minutes_variable_name:",
+        ):
+            with self.subTest(input_name=input_name):
+                self.assertIn(input_name, text)
+        self.assertNotIn("budget_variable_names", text)
+        self.assertNotIn("json.loads", text)
         self.assertNotIn("secret_value", text)
         self.assertNotIn("api_key_value", text)
 

@@ -26,10 +26,14 @@ sync, SHALL remain able to load an otherwise valid unconfigured file.
 
 The template SHALL provide `.github/workflows/configure-panopticon.yml` with a manual
 `workflow_dispatch` interface. It SHALL require a deliberate provider choice from the supported provider
-registry and SHALL accept provider-relevant GitHub Actions secret and variable *names* with documented
-Panopticon defaults. It MUST NOT accept, print, or persist secret values. It SHALL validate every name and
-provider-specific requirement before deterministically updating `panopticon.config.json`, committing the
-change, and summarizing the org-level values the maintainer must configure.
+registry and SHALL accept one independently optional provider-relevant GitHub Actions secret or variable
+*name* input for each configured name, with the documented Panopticon name as its logical default. It SHALL
+describe the instance checkout input as the name of an organization secret containing a GitHub token and
+state that the token needs access to the instance repository. It SHALL describe the model-variable input
+with a concrete example of the variable's value appropriate to the selected provider. It MUST NOT accept,
+print, or persist secret values. It SHALL validate every name and provider-specific requirement before
+deterministically updating `panopticon.config.json`, committing the change, and summarizing the org-level
+values the maintainer must configure.
 
 #### Scenario: Maintainer configures Bedrock with default names
 
@@ -37,6 +41,20 @@ change, and summarizing the org-level values the maintainer must configure.
   provider's default secret and variable names
 - **THEN** the workflow commits a Bedrock provider contract containing those names but no credential
   values
+
+#### Scenario: Maintainer reviews clear optional name inputs
+
+- **WHEN** the maintainer opens `Configure Panopticon`
+- **THEN** it presents separate optional inputs for the request timeout, transport-attempt,
+  correction-attempt, and job-timeout variable names, each prefilled with its documented default rather
+  than requiring a JSON object, and it identifies the instance-token field as a GitHub token secret with
+  instance-repository access
+
+#### Scenario: Maintainer sees a model-value example
+
+- **WHEN** the maintainer selects a provider and reviews the model-variable input
+- **THEN** the workflow explains that the input is the organization variable's name and gives a concrete
+  example of the value to store in that variable for the selected provider
 
 #### Scenario: Maintainer leaves the provider sentinel selected
 

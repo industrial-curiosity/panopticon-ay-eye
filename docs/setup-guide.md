@@ -58,7 +58,16 @@ The template deliberately starts with no LLM provider selected. In the instance 
 2. Select **Run workflow**, choose the instance's default branch, and replace
    `select-a-provider` with `litellm` or `bedrock`.
 3. Review the organization secret and variable *names*. Keep the documented defaults or enter
-   your organization's names. Never enter credential values in these fields.
+   your organization's names. Never enter credential values in these fields:
+   - **Instance checkout token secret** is the name of the organization secret holding the GitHub
+     fine-grained PAT that child workflows use to check out the private instance repo. Leave
+     `PANOPTICON_INSTANCE_TOKEN` unless your organization uses another secret name.
+   - **Model variable** is the name of the organization variable, not the model identifier itself.
+     With the default `PANOPTICON_LLM_MODEL`, set its value to a LiteLLM model such as
+     `gpt-4o-mini`, or to the selected Bedrock model's Converse-compatible identifier.
+   - Each request and job budget has its own optional input with a default: request timeout,
+     transport attempts, structured-response correction attempts, and PR-evaluation job timeout.
+     Leave each default unless you use a custom organization variable name; no JSON is required.
 4. Select **Run workflow** and wait for a green completed run that commits
    `panopticon.config.json`.
 
@@ -120,7 +129,7 @@ explicitly map these instance-selected organization names to canonical provider 
 | `PANOPTICON_LLM_ENDPOINT` *(LiteLLM)* | Base URL of a LiteLLM-compatible OpenAI `/chat/completions` endpoint |
 | `PANOPTICON_AWS_REGION` *(Bedrock)* | AWS region containing the Bedrock model |
 | `PANOPTICON_AWS_ROLE_ARN` *(Bedrock)* | GitHub OIDC role ARN used by child PR workflows |
-| `PANOPTICON_LLM_MODEL` | LiteLLM model name or Bedrock Converse-compatible model identifier |
+| `PANOPTICON_LLM_MODEL` | LiteLLM model name (for example, `gpt-4o-mini`) or Bedrock Converse-compatible model identifier |
 | `PANOPTICON_LLM_TIMEOUT_SECONDS` *(optional)* | Per-request LLM timeout; defaults to `90`, permitted range `30`–`300` seconds |
 | `PANOPTICON_LLM_MAX_ATTEMPTS` *(optional)* | Transport attempts for timeout, connection, and retryable HTTP failures; defaults to `2`, permitted range `1`–`3` |
 | `PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS` *(optional)* | Additional attempts for malformed structured LLM responses; defaults to `2`, permitted range `0`–`2` |

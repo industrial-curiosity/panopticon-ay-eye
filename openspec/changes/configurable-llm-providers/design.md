@@ -47,11 +47,14 @@ configuration this change is intended to eliminate.
 
 ### D2: A manual workflow writes names, not values
 
-`.github/workflows/configure-panopticon.yml` exposes a sentinel provider choice plus name inputs with
-provider-specific defaults. An importable standard-library module validates and normalizes the document;
-the workflow checks out the instance, invokes that module, commits only `panopticon.config.json`, and writes
-the next setup steps to its summary. Secret values remain solely in GitHub Actions secrets and never appear
-in dispatch inputs, logs, commits, or outputs.
+`.github/workflows/configure-panopticon.yml` exposes a sentinel provider choice plus separate optional
+name inputs with provider-specific defaults. It identifies the instance-token input as the name of a
+GitHub-token secret with instance-repository access, and gives a provider-appropriate example model value
+alongside the model-variable-name input. An importable standard-library module
+validates and normalizes the document; the workflow checks out the instance,
+invokes that module, commits only `panopticon.config.json`, and writes the next
+setup steps to its summary. Secret values remain solely in GitHub Actions
+secrets and never appear in dispatch inputs, logs, commits, or outputs.
 
 The provider registry owns workflow paths, logical fields, defaults, permissions, and dependency metadata.
 Configuration stores the selected provider and name overrides, not an executable workflow path.

@@ -15,34 +15,45 @@ on:
           - litellm
           - bedrock
       instance_token_name:
-        description: Organization secret name for the instance checkout token
-        required: true
+        description: Organization secret name for the GitHub token that checks out the private instance repo
+        required: false
         default: PANOPTICON_INSTANCE_TOKEN
       api_key_name:
         description: LiteLLM organization secret name (ignored for Bedrock)
-        required: true
+        required: false
         default: PANOPTICON_LLM_API_KEY
       model_variable_name:
-        description: Organization variable name for the provider model identifier
-        required: true
+        description: Organization variable name for the model (e.g. value gpt-4o-mini for LiteLLM)
+        required: false
         default: PANOPTICON_LLM_MODEL
       endpoint_variable_name:
         description: LiteLLM endpoint variable name (ignored for Bedrock)
-        required: true
+        required: false
         default: PANOPTICON_LLM_ENDPOINT
       aws_region_variable_name:
         description: Bedrock AWS region variable name (ignored for LiteLLM)
-        required: true
+        required: false
         default: PANOPTICON_AWS_REGION
       aws_role_arn_variable_name:
         description: Bedrock OIDC role ARN variable name (ignored for LiteLLM)
-        required: true
+        required: false
         default: PANOPTICON_AWS_ROLE_ARN
-      budget_variable_names:
-        description: JSON object containing the four bounded request/job variable names
-        required: true
-        default: >-
-          {"timeout_seconds":"PANOPTICON_LLM_TIMEOUT_SECONDS","max_attempts":"PANOPTICON_LLM_MAX_ATTEMPTS","max_correction_attempts":"PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS","job_timeout_minutes":"PANOPTICON_LLM_JOB_TIMEOUT_MINUTES"}
+      timeout_seconds_variable_name:
+        description: Organization variable name for the per-request timeout
+        required: false
+        default: PANOPTICON_LLM_TIMEOUT_SECONDS
+      max_attempts_variable_name:
+        description: Organization variable name for transport attempts
+        required: false
+        default: PANOPTICON_LLM_MAX_ATTEMPTS
+      max_correction_attempts_variable_name:
+        description: Organization variable name for structured-response correction attempts
+        required: false
+        default: PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS
+      job_timeout_minutes_variable_name:
+        description: Organization variable name for the PR-evaluation job timeout
+        required: false
+        default: PANOPTICON_LLM_JOB_TIMEOUT_MINUTES
 
 permissions:
   contents: write
@@ -64,7 +75,10 @@ jobs:
           ENDPOINT_VARIABLE_NAME: ${{ inputs.endpoint_variable_name }}
           AWS_REGION_VARIABLE_NAME: ${{ inputs.aws_region_variable_name }}
           AWS_ROLE_ARN_VARIABLE_NAME: ${{ inputs.aws_role_arn_variable_name }}
-          BUDGET_VARIABLE_NAMES: ${{ inputs.budget_variable_names }}
+          TIMEOUT_SECONDS_VARIABLE_NAME: ${{ inputs.timeout_seconds_variable_name }}
+          MAX_ATTEMPTS_VARIABLE_NAME: ${{ inputs.max_attempts_variable_name }}
+          MAX_CORRECTION_ATTEMPTS_VARIABLE_NAME: ${{ inputs.max_correction_attempts_variable_name }}
+          JOB_TIMEOUT_MINUTES_VARIABLE_NAME: ${{ inputs.job_timeout_minutes_variable_name }}
         run: |
           import json
           import os
@@ -72,21 +86,6 @@ jobs:
           from panopticon.configure_instance import configure
           from panopticon.providers import ProviderConfigError
 
-          try:
-              budgets = json.loads(os.environ["BUDGET_VARIABLE_NAMES"])
-          except json.JSONDecodeError as exc:
-              raise SystemExit(f"error: budget_variable_names must be valid JSON: {exc}") from exc
-          required_budgets = {
-              "timeout_seconds",
-              "max_attempts",
-              "max_correction_attempts",
-              "job_timeout_minutes",
-          }
-          if not isinstance(budgets, dict) or set(budgets) != required_budgets:
-              raise SystemExit(
-                  "error: budget_variable_names must contain exactly "
-                  + ", ".join(sorted(required_budgets))
-              )
           names = {
               "instance_token": os.environ["INSTANCE_TOKEN_NAME"],
               "api_key": os.environ["API_KEY_NAME"],
@@ -94,7 +93,10 @@ jobs:
               "endpoint": os.environ["ENDPOINT_VARIABLE_NAME"],
               "aws_region": os.environ["AWS_REGION_VARIABLE_NAME"],
               "aws_role_arn": os.environ["AWS_ROLE_ARN_VARIABLE_NAME"],
-              **budgets,
+              "timeout_seconds": os.environ["TIMEOUT_SECONDS_VARIABLE_NAME"],
+              "max_attempts": os.environ["MAX_ATTEMPTS_VARIABLE_NAME"],
+              "max_correction_attempts": os.environ["MAX_CORRECTION_ATTEMPTS_VARIABLE_NAME"],
+              "job_timeout_minutes": os.environ["JOB_TIMEOUT_MINUTES_VARIABLE_NAME"],
           }
           try:
               configured = configure(".", os.environ["PROVIDER"], names)

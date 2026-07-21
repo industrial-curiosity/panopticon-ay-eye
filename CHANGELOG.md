@@ -13,6 +13,8 @@ All notable changes to Panopticon are documented in this file.
 
 ### Changed
 
+- Configure Panopticon now presents separate optional inputs for each request/job-budget variable name,
+  clearly identifies the instance checkout secret as a GitHub-token secret, and gives a model-value example.
 - Child bootstrap validates provider configuration before writing, maps organization names explicitly
   without `secrets: inherit`, and prints complete Actions-console, `gh`, and exact child-bootstrap recovery.
 - The legacy PR workflow now fails loudly with migration instructions so stale child callers never run

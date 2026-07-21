@@ -128,7 +128,8 @@ concept. Other ecosystems fall back to LLM extraction until a parser is contribu
   LLM agents only where judgment is required (doc generation, drift detection, extraction fallback).
 - **Provider-agnostic agents** — each instance explicitly selects LiteLLM-compatible HTTP or native
   Bedrock Converse/OIDC through **Configure Panopticon**. Instance configuration owns customizable
-  organization secret/variable names; generated child callers map them explicitly. Local flows
+  organization secret/variable names, using individual optional name inputs with documented defaults;
+  generated child callers map them explicitly. Local flows
   (initialization, doc updates) run the same skills in the user's preferred AI agent harness and need no LLM
   secrets. Every CI check that requires a structured JSON response (doc-drift, index-currency, interface
   extraction) goes through one shared, hardened runtime method (`LLMClient.complete_json`) that retries with a

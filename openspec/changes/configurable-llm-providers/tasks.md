@@ -14,9 +14,12 @@
 - [x] 2.1 Add an importable, standard-library instance-configuration module that validates dispatch inputs
   and updates only the provider contract in `panopticon.config.json` without accepting credential values.
 - [x] 2.2 Add `.github/workflows/configure-panopticon.yml` with the provider sentinel, provider-specific name
-  defaults, early input validation, contents-write commit behavior, and end-to-end failure summaries.
-- [x] 2.3 Test deterministic config updates, no-op reruns, invalid input, secret-value exclusion, commit/push
-  failure reporting, and the direct Actions URL plus equivalent `gh workflow run` instructions.
+  defaults, separate optional bounded-budget variable-name inputs, clear GitHub instance-token guidance,
+  provider-appropriate model-value examples, early input validation, contents-write commit behavior, and
+  end-to-end failure summaries.
+- [x] 2.3 Test deterministic config updates, no-op reruns, invalid input, secret-value exclusion, separate
+  optional bounded-budget inputs and defaults, clear instance-token/model guidance, commit/push failure
+  reporting, and the direct Actions URL plus equivalent `gh workflow run` instructions.
 
 ## 3. Provider-aware child bootstrap
 
@@ -85,8 +88,9 @@
   `oidc-caller-permissions.md`, `runtime-preflight.md`, `configurable-instance-token.md`, and
   `docs/explore/workflow-customization.md` with the accepted instance-configured, separate-workflow design.
 - [x] 7.3 Update `docs/setup-guide.md`, `docs/testing.md`, `docs/planned-work.md`, and `CHANGELOG.md` with both
-  provider setup paths, exact console/CLI/bootstrap recovery, safe secret-name rotation, migration ordering,
-  and test coverage.
+  provider setup paths, the separate optional name inputs and their defaults, clear GitHub instance-token
+  and model-value guidance, exact console/CLI/bootstrap recovery, safe secret-name rotation, migration
+  ordering, and test coverage.
 - [x] 7.4 Run the full unit suite, strict OpenSpec validation, workflow validation, and markdown lint; fix all
   in-scope failures and verify no archived OpenSpec history was rewritten.
 - [x] Update README.md and the OpenSpec deltas to reflect user-facing and architectural changes
