@@ -94,6 +94,8 @@ def caller_workflow_text(name, instance, ref, contract, default_branch=DEFAULT_B
                 + "'\n",
             ]
         )
+        if contract.get("credential_mode"):
+            lines.append(f"      credential_mode: {contract['credential_mode']}\n")
         for logical, configured_name in contract["variables"].items():
             lines.append(
                 f"      {logical}: {_actions_expression('vars', configured_name)}\n"
@@ -282,6 +284,13 @@ def validate_provider_workflow(tree, contract, instance, ref):
         raise RuntimeError(
             f"configured provider {contract['provider']!r} requires {expected}, but it is absent "
             f"from {instance}@{ref}; sync the instance from the template and rerun child bootstrap"
+        )
+    credential_action = contract.get("credential_action")
+    if credential_action and credential_action not in paths:
+        raise RuntimeError(
+            f"configured provider {contract['provider']!r} requires the instance-managed "
+            f"credential action {credential_action}, but it is absent from {instance}@{ref}; "
+            "add the action or select github-oidc, then rerun child bootstrap"
         )
 
 # ── instance_default_branch refresh (tooling-currency capability) ──────────────

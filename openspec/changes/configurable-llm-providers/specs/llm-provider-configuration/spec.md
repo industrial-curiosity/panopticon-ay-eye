@@ -33,7 +33,9 @@ state that the token needs access to the instance repository. It SHALL describe 
 with a concrete example of the variable's value appropriate to the selected provider. It MUST NOT accept,
 print, or persist secret values. It SHALL validate every name and provider-specific requirement before
 deterministically updating `panopticon.config.json`, committing the change, and summarizing the org-level
-values the maintainer must configure.
+values the maintainer must configure. Every dispatch field SHALL identify whether it accepts a name or a
+value, state its purpose, and provide a concrete valid example whenever its accepted value is not obvious
+from its label and default.
 
 #### Scenario: Maintainer configures Bedrock with default names
 
@@ -55,6 +57,12 @@ values the maintainer must configure.
 - **WHEN** the maintainer selects a provider and reviews the model-variable input
 - **THEN** the workflow explains that the input is the organization variable's name and gives a concrete
   example of the value to store in that variable for the selected provider
+
+#### Scenario: Maintainer chooses Bedrock authentication
+
+- **WHEN** the maintainer selects Bedrock
+- **THEN** the workflow presents clearly labelled choices for a GitHub OIDC role and an
+  instance-managed credential action, explaining the configuration each choice requires
 
 #### Scenario: Maintainer leaves the provider sentinel selected
 
@@ -87,6 +95,40 @@ from the trusted registry.
 - **WHEN** `panopticon.config.json` contains a provider identifier absent from the registry
 - **THEN** provider validation fails loudly, names the unknown value and supported providers, and writes
   no child workflow
+
+### Requirement: Bedrock authentication supports trusted organization choices
+
+The Bedrock provider contract SHALL persist one selected credential mode from a closed registry. In
+`github-oidc` mode, it SHALL require an AWS region variable and an AWS IAM role-ARN variable, and the
+configuration interface SHALL explain that the role is assumed through GitHub OIDC and is not a Bedrock
+model or inference-profile ARN. In `instance-managed` mode, it SHALL require neither variable and SHALL
+invoke only the fixed instance-local credential action
+`.github/actions/panopticon-aws-credentials/action.yml`. That action SHALL provide temporary AWS
+credentials and the canonical Bedrock region environment before provider preflight. Configuration SHALL
+not select an arbitrary action path.
+
+#### Scenario: Organization uses a GitHub OIDC role
+
+- **WHEN** an organization selects `github-oidc` for Bedrock
+- **THEN** it configures an AWS region such as `us-east-1` and an IAM role ARN such as
+  `arn:aws:iam::123456789012:role/panopticon-bedrock`, and the provider workflow assumes that role through
+  GitHub OIDC
+
+#### Scenario: Organization manages credentials in its instance
+
+- **WHEN** an organization selects `instance-managed` for Bedrock and provides the fixed credential action
+- **THEN** its provider workflow invokes that action without requiring an org-level AWS region or role-ARN
+  variable
+
+#### Scenario: Instance-managed credential action is absent
+
+- **WHEN** an organization selects `instance-managed` but its instance lacks the fixed credential action
+- **THEN** bootstrap or provider evaluation fails before LLM work and names the required action path
+
+#### Scenario: Configuration attempts to override the credential action
+
+- **WHEN** instance configuration supplies an action path or other credential-action override
+- **THEN** provider validation rejects the configuration before child bootstrap writes a workflow
 
 ### Requirement: Provider configuration has a deterministic revision
 

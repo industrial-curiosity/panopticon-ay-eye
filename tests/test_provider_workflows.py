@@ -46,11 +46,15 @@ class TestProviderWorkflows(unittest.TestCase):
         self.assertNotIn("requirements-bedrock.txt", text)
         self.assertNotIn("id-token: write", text)
 
-    def test_bedrock_workflow_uses_oidc_and_pinned_ci_dependency(self):
+    def test_bedrock_workflow_supports_trusted_credential_modes_and_pinned_dependency(self):
         text = self.workflow("panopticon-pr-bedrock.yml")
         self.assertIn("PANOPTICON_LLM_PROVIDER: bedrock", text)
         self.assertIn("id-token: write", text)
         self.assertIn("aws-actions/configure-aws-credentials@v6.1.2", text)
+        self.assertIn("credential_mode:", text)
+        self.assertIn("inputs.credential_mode == 'github-oidc'", text)
+        self.assertIn("inputs.credential_mode == 'instance-managed'", text)
+        self.assertIn(".github/actions/panopticon-aws-credentials/action.yml", text)
         self.assertIn("actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1", text)
         self.assertIn("pip install --upgrade -r", text)
         self.assertIn("requirements-bedrock.txt", text)
@@ -74,6 +78,9 @@ class TestProviderWorkflows(unittest.TestCase):
         self.assertIn("instance_token_name:", text)
         self.assertIn("GitHub token that checks out the private instance repo", text)
         self.assertIn("e.g. value gpt-4o-mini for LiteLLM", text)
+        self.assertIn("Bedrock AWS region variable name", text)
+        self.assertIn("Bedrock IAM role ARN variable name", text)
+        self.assertIn("instance-managed uses the fixed instance action", text)
         for input_name in (
             "timeout_seconds_variable_name:",
             "max_attempts_variable_name:",

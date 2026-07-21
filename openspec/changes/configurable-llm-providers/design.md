@@ -72,6 +72,16 @@ nested workflow was rejected because a portable template cannot dynamically self
 private instance slug/ref in `jobs.<id>.uses`, and credentials or step state cannot be passed from a provider
 setup job into a different reusable-workflow job.
 
+### D3a: Bedrock credentials have two trusted modes
+
+Bedrock configuration chooses either `github-oidc` or `instance-managed`. The first maps an AWS region and
+an IAM role ARN into `aws-actions/configure-aws-credentials`, which assumes the role through GitHub OIDC.
+The second invokes the fixed checked-out instance action at
+`.github/actions/panopticon-aws-credentials/action.yml`; that action owns any organization-specific
+credential setup and exports temporary credentials plus the canonical Bedrock region. The path is fixed,
+not configured, so organizations can adapt their own credential mechanisms without turning provider
+configuration into an arbitrary-action execution surface.
+
 ### D4: Generated callers map configured names explicitly
 
 Bootstrap evolves from a tuple of matching filenames to logical caller definitions. For the PR role it

@@ -57,7 +57,14 @@ The template deliberately starts with no LLM provider selected. In the instance 
    `https://github.com/YOUR-ORG/YOUR-INSTANCE-REPO/actions/workflows/configure-panopticon.yml`.
 2. Select **Run workflow**, choose the instance's default branch, and replace
    `select-a-provider` with `litellm` or `bedrock`.
-3. Review the organization secret and variable *names*. Keep the documented defaults or enter
+3. For Bedrock, choose the credential path that matches your organization:
+   - **github-oidc** (the default) has Panopticon assume an IAM role directly. It requires the
+     AWS region and IAM role ARN organization variables described below.
+   - **instance-managed** uses the fixed, reviewed instance action at
+     `.github/actions/panopticon-aws-credentials/action.yml`. Choose it when your organization
+     already centralizes AWS authentication in an instance-local action (for example, a wrapper
+     around its own credentials action). This path does not require either AWS variable.
+4. Review the organization secret and variable *names*. Keep the documented defaults or enter
    your organization's names. Never enter credential values in these fields:
    - **Instance checkout token secret** is the name of the organization secret holding the GitHub
      fine-grained PAT that child workflows use to check out the private instance repo. Leave
@@ -65,6 +72,10 @@ The template deliberately starts with no LLM provider selected. In the instance 
    - **Model variable** is the name of the organization variable, not the model identifier itself.
      With the default `PANOPTICON_LLM_MODEL`, set its value to a LiteLLM model such as
      `gpt-4o-mini`, or to the selected Bedrock model's Converse-compatible identifier.
+   - **AWS region variable** and **AWS IAM role ARN variable** are names, not AWS values. In
+     `github-oidc` mode their respective values can be `us-east-1` and
+     `arn:aws:iam::123456789012:role/panopticon-bedrock`; both are ignored in
+     `instance-managed` mode.
    - Each request and job budget has its own optional input with a default: request timeout,
      transport attempts, structured-response correction attempts, and PR-evaluation job timeout.
      Leave each default unless you use a custom organization variable name; no JSON is required.
@@ -78,10 +89,13 @@ gh workflow run configure-panopticon.yml --repo YOUR-ORG/YOUR-INSTANCE-REPO --re
 gh run watch --repo YOUR-ORG/YOUR-INSTANCE-REPO
 ```
 
-For Bedrock, grant the named OIDC role `bedrock:InvokeModel` access to the configured model and
-trust GitHub's OIDC identity for the child repositories. For LiteLLM, configure the endpoint and API key.
+For Bedrock with `github-oidc`, grant the named IAM role `bedrock:InvokeModel` access to the
+configured model and trust GitHub's OIDC identity for the child repositories. With
+`instance-managed`, implement the fixed action named above so it obtains credentials and writes
+`PANOPTICON_AWS_REGION` (for example `us-east-1`) to `$GITHUB_ENV`. For LiteLLM, configure the
+endpoint and API key.
 
-### Bedrock OIDC checklist
+### Bedrock GitHub OIDC checklist
 
 1. In AWS IAM, add the GitHub OIDC provider URL `https://token.actions.githubusercontent.com` with
    audience `sts.amazonaws.com`; follow GitHub's
@@ -93,6 +107,16 @@ trust GitHub's OIDC identity for the child repositories. For LiteLLM, configure 
    [Bedrock inference prerequisites](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-prereq.html).
 4. Put the role ARN and region into the organization variables named by **Configure Panopticon**, and use a
    model identifier documented as Converse-compatible. No long-lived AWS access-key secret is required.
+
+### Bedrock instance-managed credential action checklist
+
+1. Add `.github/actions/panopticon-aws-credentials/action.yml` to the instance repository. This
+   fixed path is deliberate: child repositories cannot select an arbitrary action.
+2. Have the action configure AWS credentials using your organization's approved mechanism.
+3. Have the action write the selected region to `$GITHUB_ENV`, for example
+   `echo "PANOPTICON_AWS_REGION=us-east-1" >> "$GITHUB_ENV"`.
+4. Select `instance-managed` in **Configure Panopticon**. Do not create
+   `PANOPTICON_AWS_REGION` or `PANOPTICON_AWS_ROLE_ARN` solely for Panopticon in this mode.
 
 For an existing instance, sync the provider workflows first, run **Configure Panopticon**, and only then
 rerun bootstrap in every child. Review, commit, and push each generated caller change before removing old
@@ -127,8 +151,8 @@ explicitly map these instance-selected organization names to canonical provider 
 | Variable | What it is |
 | --- | --- |
 | `PANOPTICON_LLM_ENDPOINT` *(LiteLLM)* | Base URL of a LiteLLM-compatible OpenAI `/chat/completions` endpoint |
-| `PANOPTICON_AWS_REGION` *(Bedrock)* | AWS region containing the Bedrock model |
-| `PANOPTICON_AWS_ROLE_ARN` *(Bedrock)* | GitHub OIDC role ARN used by child PR workflows |
+| `PANOPTICON_AWS_REGION` *(Bedrock github-oidc only)* | AWS region containing the Bedrock model, for example `us-east-1` |
+| `PANOPTICON_AWS_ROLE_ARN` *(Bedrock github-oidc only)* | IAM role ARN that child PR workflows assume through GitHub OIDC, for example `arn:aws:iam::123456789012:role/panopticon-bedrock` |
 | `PANOPTICON_LLM_MODEL` | LiteLLM model name (for example, `gpt-4o-mini`) or Bedrock Converse-compatible model identifier |
 | `PANOPTICON_LLM_TIMEOUT_SECONDS` *(optional)* | Per-request LLM timeout; defaults to `90`, permitted range `30`–`300` seconds |
 | `PANOPTICON_LLM_MAX_ATTEMPTS` *(optional)* | Transport attempts for timeout, connection, and retryable HTTP failures; defaults to `2`, permitted range `1`–`3` |

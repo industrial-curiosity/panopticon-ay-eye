@@ -2,7 +2,8 @@
 #
 # Lives in the instance repo (a copy of this template); child repos call it via a thin caller
 # written by the bootstrap installer with explicit secret and variable mappings.
-# Org-level variables: PANOPTICON_AWS_REGION, PANOPTICON_AWS_ROLE_ARN, PANOPTICON_LLM_MODEL,
+# Org-level variables for github-oidc: PANOPTICON_AWS_REGION, PANOPTICON_AWS_ROLE_ARN.
+# Both credential modes use: PANOPTICON_LLM_MODEL,
 # PANOPTICON_LLM_TIMEOUT_SECONDS, PANOPTICON_LLM_MAX_ATTEMPTS,
 # PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS, PANOPTICON_LLM_JOB_TIMEOUT_MINUTES.
 #
@@ -28,6 +29,11 @@ on:
       configuration_names:
         required: true
         type: string
+      credential_mode:
+        description: Bedrock credential mode selected by the trusted instance configuration
+        required: false
+        type: string
+        default: github-oidc
       model:
         required: false
         type: string
@@ -77,6 +83,7 @@ jobs:
       # instance-only modules (drift, currency, merge) fail with "No module named panopticon.X".
       PYTHONSAFEPATH: "1"
       PANOPTICON_LLM_PROVIDER: bedrock
+      PANOPTICON_BEDROCK_CREDENTIAL_MODE: ${{ inputs.credential_mode }}
       PANOPTICON_AWS_REGION: ${{ inputs.aws_region }}
       PANOPTICON_AWS_ROLE_ARN: ${{ inputs.aws_role_arn }}
       PANOPTICON_LLM_MODEL: ${{ inputs.model }}
@@ -126,11 +133,17 @@ jobs:
         env:
           CONFIGURATION_NAMES: ${{ inputs.configuration_names }}
           INSTANCE: ${{ inputs.instance }}
+          CREDENTIAL_MODE: ${{ inputs.credential_mode }}
         run: |
           import json
           import os
 
-          required = {"aws_region": "PANOPTICON_AWS_REGION", "aws_role_arn": "PANOPTICON_AWS_ROLE_ARN", "model": "PANOPTICON_LLM_MODEL", "instance_token": "PANOPTICON_INSTANCE_TOKEN"}
+          mode = os.environ["CREDENTIAL_MODE"]
+          if mode not in {"github-oidc", "instance-managed"}:
+              raise SystemExit(f"::error::unsupported Bedrock credential mode: {mode}")
+          required = {"model": "PANOPTICON_LLM_MODEL", "instance_token": "PANOPTICON_INSTANCE_TOKEN"}
+          if mode == "github-oidc":
+              required.update({"aws_region": "PANOPTICON_AWS_REGION", "aws_role_arn": "PANOPTICON_AWS_ROLE_ARN"})
           configured_names = json.loads(os.environ["CONFIGURATION_NAMES"])
           missing = [
               (logical, configured_names.get(logical, canonical))
@@ -168,6 +181,17 @@ jobs:
           ref: ${{ inputs.workflow_ref }}
           path: .panopticon-instance
 
+      - name: Validate instance-managed credential action
+        if: steps.init.outputs.initialized == 'true' && inputs.credential_mode == 'instance-managed'
+        shell: bash
+        run: |
+          set -euo pipefail
+          action="$PANOPTICON_INSTANCE_DIR/.github/actions/panopticon-aws-credentials/action.yml"
+          if [ ! -f "$action" ]; then
+            echo "::error::Bedrock instance-managed credentials require $action in the instance repo"
+            exit 1
+          fi
+
       - name: Set up Python for the Bedrock adapter
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
@@ -176,11 +200,16 @@ jobs:
       - name: Install the pinned Bedrock SDK
         run: python -m pip install --upgrade -r "$PANOPTICON_INSTANCE_DIR/requirements-bedrock.txt"
 
-      - name: Configure AWS credentials through OIDC
+      - name: Configure AWS credentials through GitHub OIDC
+        if: steps.init.outputs.initialized == 'true' && inputs.credential_mode == 'github-oidc'
         uses: aws-actions/configure-aws-credentials@v6.1.2
         with:
           role-to-assume: ${{ inputs.aws_role_arn }}
           aws-region: ${{ inputs.aws_region }}
+
+      - name: Configure AWS credentials through the instance action
+        if: steps.init.outputs.initialized == 'true' && inputs.credential_mode == 'instance-managed'
+        uses: ./.panopticon-instance/.github/actions/panopticon-aws-credentials
 
       - name: Validate provider configuration revision
         if: steps.init.outputs.initialized == 'true'

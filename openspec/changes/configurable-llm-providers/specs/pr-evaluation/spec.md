@@ -37,8 +37,27 @@ SHALL remain shared.
 #### Scenario: Bedrock PR evaluation
 
 - **WHEN** a correctly wired Bedrock child opens or updates a PR
-- **THEN** the Bedrock workflow first configures OIDC credentials and its isolated dependency, preflights
-  Converse, and then runs the same complete PR evaluation contract
+- **THEN** the Bedrock workflow obtains credentials through the selected trusted credential mode, installs
+  its isolated dependency, preflights Converse, and then runs the same complete PR evaluation contract
+
+### Requirement: Bedrock credential modes preserve the evaluation contract
+
+The Bedrock reusable workflow SHALL obtain AWS credentials after checking out the instance and before
+provider preflight. In `github-oidc` mode, it SHALL configure the selected AWS IAM role and region through
+GitHub OIDC. In `instance-managed` mode, it SHALL invoke only the fixed checked-out instance action at
+`.github/actions/panopticon-aws-credentials/action.yml`, which SHALL set temporary credentials and the
+canonical Bedrock region environment. Both modes SHALL preserve the same evaluation, reporting, gating,
+and branch-push behavior.
+
+#### Scenario: Instance-managed credentials run provider evaluation
+
+- **WHEN** a Bedrock instance selects `instance-managed` and its fixed credential action succeeds
+- **THEN** provider preflight and the subsequent PR evaluation use the credentials and region it supplied
+
+#### Scenario: Credential action cannot be redirected
+
+- **WHEN** a provider configuration contains a credential-action path override
+- **THEN** the workflow rejects the invalid contract before invoking any action or LLM work
 
 ### Requirement: Legacy and stale callers fail with complete recovery instructions
 

@@ -32,8 +32,9 @@ name, and selected workflow absent at `workflow_ref`. Any such failure MUST leav
 The child SHALL retain a stable local `.github/workflows/panopticon-pr.yml` caller. Bootstrap SHALL point
 that caller at only the provider workflow selected by live instance configuration and SHALL emit explicit
 canonical input and secret mappings from the configured org-level names, the exact permissions required by
-that provider workflow, and the effective configuration revision. It SHALL NOT copy unselected provider
-workflows into the child or use blanket `secrets: inherit`.
+that provider workflow, the selected trusted credential mode, and the effective configuration revision. It
+SHALL map AWS region and role-ARN variables only for Bedrock `github-oidc` mode. It SHALL NOT copy
+unselected provider workflows into the child or use blanket `secrets: inherit`.
 
 #### Scenario: Bedrock child caller generated
 
@@ -47,6 +48,12 @@ workflows into the child or use blanket `secrets: inherit`.
 - **WHEN** the instance selects LiteLLM and child bootstrap succeeds
 - **THEN** the local PR caller references only the instance's LiteLLM workflow, omits Bedrock-only setup,
   and maps the configured endpoint, model, API-key, and budget names explicitly
+
+#### Scenario: Instance-managed Bedrock child caller generated
+
+- **WHEN** the instance selects Bedrock `instance-managed` credentials and child bootstrap succeeds
+- **THEN** the local caller records that credential mode, maps no AWS region or role-ARN variable, and
+  references the selected instance workflow only
 
 ### Requirement: Stale caller remediation prints an exact installer command
 
@@ -69,11 +76,11 @@ push them, and rerun or await the PR workflow.
 
 The init tooling SHALL derive required org-level Actions secrets and variables from the validated instance
 provider contract, including the configured instance-token name, provider credentials, model and endpoint
-or AWS settings, and bounded request/job budget names. These values are consumed only by shared CI
-workflows. Child repos MUST NOT require per-repo secret or variable configuration; generated callers SHALL
-map org-level names explicitly to canonical provider workflow inputs and secrets. Missing values SHALL NOT
-block documentation or index initialization, but provider configuration itself MUST be valid before
-bootstrap writes any child artifact.
+or selected credential-mode settings, and bounded request/job budget names. These values are consumed only
+by shared CI workflows. Child repos MUST NOT require per-repo secret or variable configuration; generated
+callers SHALL map org-level names explicitly to canonical provider workflow inputs and secrets. Missing
+values SHALL NOT block documentation or index initialization, but provider configuration itself MUST be
+valid before bootstrap writes any child artifact.
 
 Verifying org-level secrets and variables requires a GitHub auth token with permission to read org-level
 Actions secrets and variables. With a resolved `GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`, tooling SHALL
@@ -92,6 +99,11 @@ tooling SHALL report no auth error and SHALL print the visible org Actions setti
 - **GIVEN** a GitHub auth token is available
 - **WHEN** initialization checks an org missing a variable required by the selected provider contract
 - **THEN** it reports that exact variable name and its provider purpose
+
+#### Scenario: Instance-managed credentials need no AWS variables
+
+- **WHEN** initialization checks an instance using Bedrock `instance-managed` credentials
+- **THEN** it does not report an AWS region or role-ARN variable as a missing prerequisite
 
 #### Scenario: Auth token available
 

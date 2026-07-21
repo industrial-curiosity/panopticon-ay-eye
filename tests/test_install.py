@@ -722,6 +722,14 @@ class TestProviderBootstrapErrors(unittest.TestCase):
                 "v2",
             )
 
+    def test_missing_instance_managed_action_is_a_loud_prewrite_error(self):
+        contract = resolve_provider_contract(
+            {"provider": "bedrock", "credential_mode": "instance-managed"}
+        )
+        tree = [{"type": "blob", "path": ".github/workflows/panopticon-pr-bedrock.yml"}]
+        with self.assertRaisesRegex(RuntimeError, "instance-managed credential action"):
+            validate_provider_workflow(tree, contract, "acme/instance", "v2")
+
     def test_fetch_org_config_preserves_access_failure(self):
         from urllib.error import HTTPError
 

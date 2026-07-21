@@ -127,7 +127,8 @@ concept. Other ecosystems fall back to LLM extraction until a parser is contribu
 - **Hybrid execution** — deterministic Python for everything structural (checks, index merge/compile, parsers);
   LLM agents only where judgment is required (doc generation, drift detection, extraction fallback).
 - **Provider-agnostic agents** — each instance explicitly selects LiteLLM-compatible HTTP or native
-  Bedrock Converse/OIDC through **Configure Panopticon**. Instance configuration owns customizable
+  Bedrock Converse through **Configure Panopticon**. Bedrock offers either direct GitHub OIDC or a
+  fixed instance-managed credential action, so organizations can use their established AWS setup. Instance configuration owns customizable
   organization secret/variable names, using individual optional name inputs with documented defaults;
   generated child callers map them explicitly. Local flows
   (initialization, doc updates) run the same skills in the user's preferred AI agent harness and need no LLM

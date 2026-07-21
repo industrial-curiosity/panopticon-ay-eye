@@ -91,6 +91,13 @@ class TestConfigureInstance(unittest.TestCase):
         self.assertEqual(llm["secrets"]["instance_token"], "PANOPTICON_INSTANCE_TOKEN")
         self.assertEqual(llm["variables"]["aws_region"], "PANOPTICON_AWS_REGION")
 
+    def test_instance_managed_bedrock_needs_no_aws_variable_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            llm = configure(tmp, "bedrock", {}, "instance-managed")
+        self.assertEqual(llm["credential_mode"], "instance-managed")
+        self.assertNotIn("aws_region", llm["variables"])
+        self.assertNotIn("aws_role_arn", llm["variables"])
+
     def test_equivalent_rerun_is_byte_for_byte_deterministic(self):
         with tempfile.TemporaryDirectory() as tmp:
             configure(tmp, "litellm", self.litellm_names())

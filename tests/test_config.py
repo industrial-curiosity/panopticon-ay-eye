@@ -55,6 +55,22 @@ class TestOrgConfig(unittest.TestCase):
         self.assertEqual(contract["variables"]["aws_region"], "PANOPTICON_AWS_REGION")
         self.assertEqual(contract["dependencies"], ["boto3==1.43.51"])
 
+    def test_bedrock_instance_managed_contract_has_no_oidc_variables(self):
+        contract = resolve_provider_contract(
+            {"provider": "bedrock", "credential_mode": "instance-managed"}
+        )
+        self.assertEqual(contract["credential_mode"], "instance-managed")
+        self.assertNotIn("aws_region", contract["variables"])
+        self.assertNotIn("aws_role_arn", contract["variables"])
+        self.assertEqual(
+            contract["credential_action"],
+            ".github/actions/panopticon-aws-credentials/action.yml",
+        )
+
+    def test_bedrock_rejects_unknown_credential_mode(self):
+        with self.assertRaisesRegex(ProviderConfigError, "unknown Bedrock credential mode"):
+            resolve_provider_contract({"provider": "bedrock", "credential_mode": "untrusted"})
+
     def test_unknown_provider_names_supported_values(self):
         with self.assertRaises(ProviderConfigError) as ctx:
             resolve_provider_contract({"provider": "mystery"})
