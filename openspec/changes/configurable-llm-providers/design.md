@@ -59,6 +59,15 @@ secrets and never appear in dispatch inputs, logs, commits, or outputs.
 The provider registry owns workflow paths, logical fields, defaults, permissions, and dependency metadata.
 Configuration stores the selected provider and name overrides, not an executable workflow path.
 
+### D2a: Template sync falls back to the default GitHub token
+
+Template sync prefers the `PANOPTICON_INSTANCE_TOKEN` GitHub-token secret because GitHub requires a PAT
+with Contents and Workflows write permission to push workflow-file changes. When that secret is absent, it
+uses the workflow's default token so ordinary template updates can still run. After the merge and before
+push, it rejects any pending `.github/workflows/` change with concise setup instructions instead of failing
+at checkout with an opaque missing-token error. This preserves low-friction sync for non-workflow updates
+without pretending the default token can write workflow files.
+
 ### D3: Provider workflows are independent reusable entrypoints
 
 The instance contains `panopticon-pr-litellm.yml` and `panopticon-pr-bedrock.yml`. Each declares canonical

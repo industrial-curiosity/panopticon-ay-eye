@@ -80,6 +80,8 @@
 - [ ] 6.4 Add exact-output tests for missing provider, legacy caller, changed provider, changed name,
   credential-mode/action failure, revision mismatch, empty old instance-token mapping, private instance,
   and custom workflow-ref recovery paths.
+- [x] 6.6 Make template sync fall back to the default GitHub token, reject workflow-file pushes without the
+  configured GitHub-token secret, and test both paths and remediation output.
 - [x] 6.5 Implement and test the staged compatibility rollout so configuration support lands before strict
   enforcement and old provider workflows/secrets remain usable until child callers are regenerated.
 

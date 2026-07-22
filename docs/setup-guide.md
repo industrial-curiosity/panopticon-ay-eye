@@ -26,6 +26,10 @@ GitHub does not allow private forks of public repositories, so the instance is c
    how to declare instance-level customizations. Separately, the template always preserves an existing
    instance `docs/architecture.md` as generated instance-owned output; if the instance does not have that
    file yet, sync installs the template's empty-state placeholder.
+   Sync uses GitHub's default token when the update does not change a workflow file. To sync changes under
+   `.github/workflows/`, add `PANOPTICON_INSTANCE_TOKEN`: an organization or repository Actions secret
+   containing a GitHub fine-grained PAT with Contents and Workflows read/write access to the instance repo.
+   If it is missing, the workflow stops before pushing and shows these instructions in its step summary.
 4. No tagging is required to get started — child caller workflows default to the instance repo's
    default branch until you opt into pinning a ref (see step 3's `workflow_ref`).
 

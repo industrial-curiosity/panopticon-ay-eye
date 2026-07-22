@@ -70,6 +70,34 @@ push them, and rerun or await the PR workflow.
 - **THEN** it fails before instance checkout and prints the exact public-installer command for that child’s
   recorded instance plus the commit, push, and rerun instructions
 
+### Requirement: Template sync has a usable token fallback
+
+The instance template-sync workflow SHALL use `PANOPTICON_INSTANCE_TOKEN` when that secret is available
+and SHALL otherwise use the workflow's default GitHub token for checkout and ordinary template updates. If
+the merged update changes a file under `.github/workflows/` and no instance-token secret is available, the
+workflow SHALL fail before pushing and write a step summary that identifies
+`PANOPTICON_INSTANCE_TOKEN` as a GitHub token secret and explains the required repository permissions. It
+SHALL NOT expose either token value.
+
+#### Scenario: Ordinary template update without an instance token
+
+- **GIVEN** `PANOPTICON_INSTANCE_TOKEN` is not configured
+- **WHEN** template sync merges changes outside `.github/workflows/`
+- **THEN** it pushes the update using the default GitHub token
+
+#### Scenario: Workflow update without an instance token
+
+- **GIVEN** `PANOPTICON_INSTANCE_TOKEN` is not configured
+- **WHEN** template sync merges a change under `.github/workflows/`
+- **THEN** it does not push, emits a concise error, and writes setup instructions for a GitHub token secret
+  with Contents and Workflows read/write permission
+
+#### Scenario: Instance token is configured
+
+- **GIVEN** `PANOPTICON_INSTANCE_TOKEN` contains a GitHub token with the required repository permissions
+- **WHEN** template sync merges an update including workflow files
+- **THEN** it pushes the update using that token
+
 ## MODIFIED Requirements
 
 ### Requirement: Org-level CI prerequisites

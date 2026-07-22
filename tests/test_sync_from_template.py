@@ -12,6 +12,10 @@ import unittest
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parent.parent
+SYNC_WORKFLOW = ROOT / ".github" / "workflows" / "sync-from-template.yml"
+
+
 def _git(args, cwd, check=True):
     result = subprocess.run(
         ["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=30
@@ -34,6 +38,27 @@ def _commit_all(path, message):
 
 
 GENERATED_PATHS = ("docs/architecture.md",)
+
+
+class TestTemplateSyncAuthentication(unittest.TestCase):
+    def test_default_token_fallback_prevents_empty_checkout_token(self):
+        text = SYNC_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN || github.token }}", text
+        )
+        self.assertIn("Record template-sync authentication", text)
+        self.assertIn("PANOPTICON_SYNC_START_SHA", text)
+
+    def test_workflow_changes_are_blocked_without_instance_token_before_push(self):
+        text = SYNC_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("Validate token before pushing workflow changes", text)
+        self.assertIn(
+            'git diff --quiet "$PANOPTICON_SYNC_START_SHA" HEAD -- .github/workflows', text
+        )
+        self.assertIn("PANOPTICON_INSTANCE_TOKEN GitHub-token secret", text)
+        self.assertLess(
+            text.index("Validate token before pushing workflow changes"), text.index("- name: Push")
+        )
 
 
 def _register_runtime_attributes(instance_root, protected_paths=()):

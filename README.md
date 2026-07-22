@@ -140,7 +140,8 @@ concept. Other ecosystems fall back to LLM extraction until a parser is contribu
 - **Minimal Python requirements** — stdlib-first, checkout-and-run on a bare CI runner; Bedrock's pinned
   SDK is installed only in its reusable CI workflow and is never child-vendored.
 - **Cross-repo auth** — a configurable org-level token secret (`PANOPTICON_INSTANCE_TOKEN` by default) grants read/write access to the private
-  instance repo (PR simulation, `{repo}/{branch}` branch pushes, and the merge push). All Panopticon secrets are
+  instance repo (PR simulation, `{repo}/{branch}` branch pushes, merge push, and template-sync workflow updates).
+  Template sync falls back to the default GitHub token when no workflow file changes. All Panopticon secrets are
   org-level: generated child callers map them explicitly and never need per-repo secret or env configuration.
 
 ## Repository layout

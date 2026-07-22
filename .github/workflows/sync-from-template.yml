@@ -49,9 +49,22 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # Fine-grained PAT with Contents R/W on this repo — required because GITHUB_TOKEN
-          # cannot push to .github/workflows/ regardless of permissions granted to the job.
-          token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+          # A PAT is required only when this sync pushes workflow-file changes. The fallback keeps
+          # ordinary template updates usable before an instance has configured that optional secret.
+          token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN || github.token }}
+
+      - name: Record template-sync authentication
+        shell: bash
+        env:
+          INSTANCE_TOKEN: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "PANOPTICON_SYNC_START_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          if [ -n "${INSTANCE_TOKEN:-}" ]; then
+            echo "Template sync is using the configured GitHub-token secret." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Template sync is using the default GitHub token for this run." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Configure git identity
         run: |
@@ -178,6 +191,31 @@ jobs:
                   print(f"::warning::{path}: the template added field(s) {added} not present in your copy")
               if removed:
                   print(f"::warning::{path}: the template removed field(s) {removed} still present in your copy")
+
+      - name: Validate token before pushing workflow changes
+        shell: bash
+        env:
+          INSTANCE_TOKEN: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet "$PANOPTICON_SYNC_START_SHA" HEAD -- .github/workflows; then
+            exit 0
+          fi
+          if [ -n "${INSTANCE_TOKEN:-}" ]; then
+            exit 0
+          fi
+          {
+            echo "## Panopticon: GitHub token required for workflow updates"
+            echo
+            echo "This template sync changed a file under `.github/workflows/`."
+            echo "The default GitHub token cannot push workflow-file changes."
+            echo
+            echo "Create the organization or repository Actions secret \`PANOPTICON_INSTANCE_TOKEN\`"
+            echo "with a GitHub fine-grained PAT that has Contents and Workflows read/write access"
+            echo "to this instance repository, then rerun **Sync from template**."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Workflow updates require the PANOPTICON_INSTANCE_TOKEN GitHub-token secret; see the step summary"
+          exit 1
 
       - name: Push
         run: git push origin main
