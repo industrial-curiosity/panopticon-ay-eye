@@ -13,7 +13,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-SYNC_WORKFLOW = ROOT / ".github" / "workflows" / "sync-from-template.yml"
+INSTANCE_CALLER_WORKFLOW = ROOT / ".github" / "workflows" / "sync-from-template.yml"
+SHARED_SYNC_WORKFLOW = (
+    ROOT / ".github" / "workflows" / "shared-template-sync-caller-only.yml"
+)
 
 
 def _git(args, cwd, check=True):
@@ -40,17 +43,31 @@ def _commit_all(path, message):
 GENERATED_PATHS = ("docs/architecture.md",)
 
 
-class TestTemplateSyncAuthentication(unittest.TestCase):
-    def test_default_token_fallback_prevents_empty_checkout_token(self):
-        text = SYNC_WORKFLOW.read_text(encoding="utf-8")
+class TestTemplateSyncWorkflowContracts(unittest.TestCase):
+    def test_instance_workflow_is_a_fixed_minimal_shared_workflow_caller(self):
+        text = INSTANCE_CALLER_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", text)
         self.assertIn(
-            "token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN || github.token }}", text
+            "uses: industrial-curiosity/panopticon-ay-eye/.github/workflows/"
+            "shared-template-sync-caller-only.yml@main",
+            text,
+        )
+        self.assertIn("instance_token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}", text)
+        self.assertNotIn("runs-on:", text)
+        self.assertNotIn("git merge", text)
+        self.assertNotIn("workflow_dispatch:\n    inputs:", text)
+
+    def test_shared_workflow_uses_default_token_fallback(self):
+        text = SHARED_SYNC_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("workflow_call:", text)
+        self.assertIn(
+            "token: ${{ secrets.instance_token || github.token }}", text
         )
         self.assertIn("Record template-sync authentication", text)
         self.assertIn("PANOPTICON_SYNC_START_SHA", text)
 
     def test_workflow_changes_are_blocked_without_instance_token_before_push(self):
-        text = SYNC_WORKFLOW.read_text(encoding="utf-8")
+        text = SHARED_SYNC_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("Validate token before pushing workflow changes", text)
         self.assertIn(
             'git diff --quiet "$PANOPTICON_SYNC_START_SHA" HEAD -- .github/workflows', text
@@ -59,6 +76,20 @@ class TestTemplateSyncAuthentication(unittest.TestCase):
         self.assertLess(
             text.index("Validate token before pushing workflow changes"), text.index("- name: Push")
         )
+
+    def test_shared_workflow_prints_fixed_local_recovery_instructions_on_failure(self):
+        text = SHARED_SYNC_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("- name: Prepare local recovery instructions", text)
+        self.assertIn("- name: Write local recovery instructions", text)
+        self.assertIn("if: failure()", text)
+        self.assertIn(
+            "https://github.com/industrial-curiosity/panopticon-ay-eye.git", text
+        )
+        self.assertIn("git fetch template main", text)
+        self.assertIn("git config merge.ours.driver true", text)
+        self.assertIn("git merge template/main", text)
+        self.assertIn("git add -A", text)
+        self.assertIn("git push origin HEAD", text)
 
 
 def _register_runtime_attributes(instance_root, protected_paths=()):

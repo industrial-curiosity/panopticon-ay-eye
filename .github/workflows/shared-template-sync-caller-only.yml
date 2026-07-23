@@ -1,0 +1,208 @@
+# Shared, caller-only implementation for the fixed Sync from template workflow in every instance repository.
+# `actions/checkout` operates on the calling instance repository when invoked from this workflow.
+name: Shared template sync (caller only)
+
+on:
+  workflow_call:
+    secrets:
+      instance_token:
+        description: Optional GitHub fine-grained PAT used only when the sync changes workflow files.
+        required: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Prepare local recovery instructions
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/panopticon-template-sync-recovery.md" <<'EOF'
+          ## Panopticon: recover this template sync locally
+
+          The shared template sync failed before it could push. From a local clone of this instance
+          repository, run the following commands. They use the same fixed template source and
+          protected-path setup as the shared workflow.
+
+          ```bash
+          git remote add template https://github.com/industrial-curiosity/panopticon-ay-eye.git 2>/dev/null || git remote set-url template https://github.com/industrial-curiosity/panopticon-ay-eye.git
+          git fetch template main
+          git config merge.ours.driver true
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, ".")
+          from panopticon.config import load_org_config
+
+          paths = dict.fromkeys(("docs/architecture.md", *load_org_config(".")["protected_paths"]))
+          attributes = Path(".git/info/attributes")
+          attributes.parent.mkdir(parents=True, exist_ok=True)
+          attributes.write_text("".join(f"{path} merge=ours\\n" for path in paths), encoding="utf-8")
+          PY
+          if git merge-base HEAD template/main >/dev/null 2>&1; then
+            git merge template/main --no-edit
+          else
+            git merge template/main --no-edit --allow-unrelated-histories -X theirs
+          fi
+          # If Git reports conflicts, resolve them, then run:
+          git add -A
+          git commit -m "chore: sync from template"
+          git push origin HEAD
+          ```
+
+          Review `git status` and `git diff` before committing. If the failed sync changed a workflow
+          file, configure the `PANOPTICON_INSTANCE_TOKEN` Actions secret with a GitHub fine-grained
+          PAT that has Contents and Workflows read/write access, then retry.
+          EOF
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # A PAT is required only when this sync pushes workflow-file changes. The fallback keeps
+          # ordinary template updates usable before an instance has configured that optional secret.
+          token: ${{ secrets.instance_token || github.token }}
+
+      - name: Record template-sync authentication
+        shell: bash
+        env:
+          INSTANCE_TOKEN: ${{ secrets.instance_token }}
+        run: |
+          set -euo pipefail
+          echo "PANOPTICON_SYNC_START_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          if [ -n "${INSTANCE_TOKEN:-}" ]; then
+            echo "Template sync is using the configured GitHub-token secret." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Template sync is using the default GitHub token for this run." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch template
+        run: |
+          git remote add template https://github.com/industrial-curiosity/panopticon-ay-eye.git 2>/dev/null || true
+          git fetch template main
+
+      - name: Register protected-config merge driver
+        run: git config merge.ours.driver true
+
+      - name: Register generated and org-declared protected paths
+        shell: python
+        run: |
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, ".")
+          from panopticon.config import load_org_config
+
+          generated_paths = ("docs/architecture.md",)
+          protected_paths = load_org_config(".")["protected_paths"]
+          attributed_paths = dict.fromkeys((*generated_paths, *protected_paths))
+
+          attrs_path = Path(".git/info/attributes")
+          attrs_path.parent.mkdir(parents=True, exist_ok=True)
+          attrs_path.write_text(
+              "".join(f"{path} merge=ours\\n" for path in attributed_paths), encoding="utf-8"
+          )
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## Template-declared instance-owned generated paths\\n\\n")
+              handle.write(
+                  "These generated paths keep the instance version when both sides change; "
+                  "they are not org customizations:\\n\\n"
+              )
+              for path in generated_paths:
+                  handle.write(f"- `{path}`\\n")
+
+              handle.write("\\n## Org-declared protected paths\\n\\n")
+              if protected_paths:
+                  handle.write(
+                      "The following `protected_paths` entries were protected from this sync "
+                      "(never visible in the tracked tree — this step summary is the audit trail):\\n\\n"
+                  )
+                  for path in protected_paths:
+                      handle.write(f"- `{path}`\\n")
+              else:
+                  handle.write("No `protected_paths` entries declared in `panopticon.config.json`.\\n")
+
+      - name: Merge template changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git merge-base HEAD template/main > /dev/null 2>&1; then
+            git merge template/main --no-edit
+          else
+            echo "No common ancestor detected — first-time sync. Template version wins for any conflicts."
+            git merge template/main --no-edit --allow-unrelated-histories -X theirs
+          fi
+
+      - name: Warn on protected-config field drift
+        shell: python
+        run: |
+          import json
+          import subprocess
+          import sys
+
+          sys.path.insert(0, ".")
+          from panopticon.config import PROTECTED_CONFIG_FILES
+
+          for path in PROTECTED_CONFIG_FILES:
+              incoming = subprocess.run(
+                  ["git", "show", f"template/main:{path}"], capture_output=True, text=True,
+              )
+              if incoming.returncode != 0:
+                  continue
+              try:
+                  incoming_fields = set(json.loads(incoming.stdout))
+              except json.JSONDecodeError:
+                  print(f"::warning::{path}: incoming template version is not valid JSON; skipping field-diff check")
+                  continue
+              try:
+                  with open(path, encoding="utf-8") as handle:
+                      current_fields = set(json.load(handle))
+              except FileNotFoundError:
+                  continue
+              added = sorted(incoming_fields - current_fields)
+              removed = sorted(current_fields - incoming_fields)
+              if added:
+                  print(f"::warning::{path}: the template added field(s) {added} not present in your copy")
+              if removed:
+                  print(f"::warning::{path}: the template removed field(s) {removed} still present in your copy")
+
+      - name: Validate token before pushing workflow changes
+        shell: bash
+        env:
+          INSTANCE_TOKEN: ${{ secrets.instance_token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet "$PANOPTICON_SYNC_START_SHA" HEAD -- .github/workflows; then
+            exit 0
+          fi
+          if [ -n "${INSTANCE_TOKEN:-}" ]; then
+            exit 0
+          fi
+          {
+            echo "## Panopticon: GitHub token required for workflow updates"
+            echo
+            echo "This template sync changed a file under `.github/workflows/`."
+            echo "The default GitHub token cannot push workflow-file changes."
+            echo
+            echo "Create the organization or repository Actions secret `PANOPTICON_INSTANCE_TOKEN`"
+            echo "with a GitHub fine-grained PAT that has Contents and Workflows read/write access"
+            echo "to this instance repository, then rerun **Sync from template**."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Workflow updates require the PANOPTICON_INSTANCE_TOKEN GitHub-token secret; see the step summary"
+          exit 1
+
+      - name: Push
+        run: git push origin HEAD
+
+      - name: Write local recovery instructions
+        if: failure()
+        shell: bash
+        run: cat "$RUNNER_TEMP/panopticon-template-sync-recovery.md" >> "$GITHUB_STEP_SUMMARY"

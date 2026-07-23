@@ -59,14 +59,43 @@ secrets and never appear in dispatch inputs, logs, commits, or outputs.
 The provider registry owns workflow paths, logical fields, defaults, permissions, and dependency metadata.
 Configuration stores the selected provider and name overrides, not an executable workflow path.
 
-### D2a: Template sync falls back to the default GitHub token
+### D2a: Template sync calls shared template logic
 
-Template sync prefers the `PANOPTICON_INSTANCE_TOKEN` GitHub-token secret because GitHub requires a PAT
-with Contents and Workflows write permission to push workflow-file changes. When that secret is absent, it
-uses the workflow's default token so ordinary template updates can still run. After the merge and before
-push, it rejects any pending `.github/workflows/` change with concise setup instructions instead of failing
-at checkout with an opaque missing-token error. This preserves low-friction sync for non-workflow updates
-without pretending the default token can write workflow files.
+Every instance keeps only a minimal `sync-from-template.yml` caller, fixed to invoke the template's
+`shared-template-sync-caller-only.yml@main` reusable workflow. Its explicit `shared` and `caller-only`
+filename prevents it being mistaken for a directly runnable instance workflow. The shared workflow performs checkout, merge,
+protected-path handling, token fallback, and recovery summaries against the calling instance repository.
+Referencing `@main` is intentional: a template fix must be usable by the next instance sync without a local
+workflow copy or instance-template merge first. The fixed repository, workflow path, and ref prevent an
+instance configuration from redirecting privileged sync execution to an arbitrary workflow.
+
+The shared workflow prefers `PANOPTICON_INSTANCE_TOKEN` because GitHub requires a PAT with Contents and
+Workflows write permission to push workflow-file changes. When the secret is absent, it uses the workflow's
+default token for ordinary updates and rejects pending workflow-file changes before push with concise setup
+instructions. Existing instances need a one-time replacement of the old direct workflow with the minimal
+caller; after that migration, future shared-workflow fixes require no copy step.
+
+Sync protection is deliberately path-based. The instance's `protected_paths`, the protected diagram
+configuration, and an existing generated `docs/architecture.md` retain the instance version; other
+template-managed customizations can merge normally or conflict when both sides change them. This applies
+only to template-to-instance sync: child-repository `python3 -m panopticon.sync` retains its own managed-file
+overwrite behavior. The setup documentation makes that boundary explicit before an organization relies on
+the protection.
+
+Every shared-workflow failure writes local recovery instructions to the step summary. The instructions use
+the fixed template remote and cover fetching, equivalent merge, conflict resolution, review, commit, and
+push from a local clone of the instance repository. This keeps the escape hatch usable even when hosted CI
+cannot complete the sync.
+
+### D2b: README is an orientation layer
+
+The README gives a new maintainer a short, navigable mental model: its established logo and a prominent
+organization-architecture link at the top, Panopticon's purpose, the template, instance, and child roles,
+the primary lifecycle, and links to purpose-named detailed guides. It does not duplicate setup procedures,
+enumerate implementation internals, or track incomplete feature wiring. Those details either belong in a
+focused guide or are omitted when they are only transient implementation state.
+The end of the README embeds the specified Panopticon YouTube video, providing an optional visual
+introduction without displacing the concise written orientation.
 
 ### D3: Provider workflows are independent reusable entrypoints
 

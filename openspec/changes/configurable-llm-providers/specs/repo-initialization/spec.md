@@ -70,33 +70,115 @@ push them, and rerun or await the PR workflow.
 - **THEN** it fails before instance checkout and prints the exact public-installer command for that child’s
   recorded instance plus the commit, push, and rerun instructions
 
-### Requirement: Template sync has a usable token fallback
+### Requirement: Template sync uses a shared repairable workflow
 
-The instance template-sync workflow SHALL use `PANOPTICON_INSTANCE_TOKEN` when that secret is available
-and SHALL otherwise use the workflow's default GitHub token for checkout and ordinary template updates. If
-the merged update changes a file under `.github/workflows/` and no instance-token secret is available, the
-workflow SHALL fail before pushing and write a step summary that identifies
-`PANOPTICON_INSTANCE_TOKEN` as a GitHub token secret and explains the required repository permissions. It
-SHALL NOT expose either token value.
+The instance `sync-from-template.yml` SHALL be a minimal, fixed caller that invokes only the template-owned
+reusable workflow `.github/workflows/shared-template-sync-caller-only.yml` from
+`industrial-curiosity/panopticon-ay-eye@main`. The shared workflow SHALL check out and update the calling
+instance repository, retain the `PANOPTICON_INSTANCE_TOKEN` fallback and pre-push validation contract, and
+keep all merge, protected-path, and recovery logic in the template repository. The instance caller SHALL
+not duplicate that logic or accept a configurable repository, workflow path, or ref. It SHALL pass the
+optional instance-token secret explicitly and SHALL NOT expose either token value. On every sync failure,
+the shared workflow SHALL write a step-summary recovery section with commands for performing the sync from
+a local clone of the instance repository: fetch the fixed template remote, perform the equivalent merge,
+resolve any conflict, review the result, commit, and push. The shared workflow filename SHALL identify it
+as shared and caller-only, and it SHALL accept only `workflow_call` rather than a direct trigger.
+
+User-facing documentation SHALL explain that the sync preserves every exact path listed in
+`protected_paths`, the protected diagram configuration, and an existing generated
+`docs/architecture.md`. It SHALL also explain that other customized template-managed files can receive a
+template update or produce a merge conflict, and that `protected_paths` does not protect child-repository
+files from `python3 -m panopticon.sync`.
+
+#### Scenario: Shared sync logic is fixed after an instance is created
+
+- **GIVEN** an instance contains the minimal sync caller
+- **WHEN** the template fixes its shared reusable sync workflow
+- **THEN** the instance's next sync run uses the fixed workflow without copying workflow code into the instance
 
 #### Scenario: Ordinary template update without an instance token
 
 - **GIVEN** `PANOPTICON_INSTANCE_TOKEN` is not configured
-- **WHEN** template sync merges changes outside `.github/workflows/`
+- **WHEN** the shared workflow merges changes outside `.github/workflows/`
 - **THEN** it pushes the update using the default GitHub token
 
 #### Scenario: Workflow update without an instance token
 
 - **GIVEN** `PANOPTICON_INSTANCE_TOKEN` is not configured
-- **WHEN** template sync merges a change under `.github/workflows/`
+- **WHEN** the shared workflow merges a change under `.github/workflows/`
 - **THEN** it does not push, emits a concise error, and writes setup instructions for a GitHub token secret
   with Contents and Workflows read/write permission
 
-#### Scenario: Instance token is configured
+#### Scenario: Shared sync fails
 
-- **GIVEN** `PANOPTICON_INSTANCE_TOKEN` contains a GitHub token with the required repository permissions
-- **WHEN** template sync merges an update including workflow files
-- **THEN** it pushes the update using that token
+- **WHEN** the shared sync workflow fails during checkout, fetch, merge, validation, or push
+- **THEN** its step summary contains a local instance-repository recovery section with the fixed template
+  remote, equivalent merge, conflict-resolution, review, commit, and push commands
+
+#### Scenario: Shared sync caller cannot be redirected
+
+- **WHEN** instance configuration or workflow-dispatch input attempts to select another sync repository,
+  workflow path, or ref
+- **THEN** the caller rejects the unsupported configuration and invokes no alternative workflow
+
+#### Scenario: Shared workflow is not directly runnable
+
+- **WHEN** a user views the template workflow list
+- **THEN** the shared workflow is named `shared-template-sync-caller-only.yml` and has no direct trigger
+  such as `workflow_dispatch`
+
+#### Scenario: Maintainer protects an instance customization
+
+- **GIVEN** an instance customizes a template-managed skill or workflow
+- **WHEN** its maintainer adds that exact path to `protected_paths` and runs the template sync
+- **THEN** the sync preserves the instance copy and the setup documentation explains that the same setting
+  does not protect child-repository tooling syncs
+
+#### Scenario: Maintainer has an unprotected instance customization
+
+- **GIVEN** an instance customizes a template-managed file that is absent from `protected_paths`
+- **WHEN** the template also changes that file during sync
+- **THEN** the setup documentation explains that Git may update the file or report a merge conflict for
+  local resolution
+
+### Requirement: README provides concise project orientation
+
+The README SHALL provide a quickly scannable overview of the project's purpose, repository roles, primary
+workflow, and links to the setup guide and other detailed documentation. It SHALL use clear sections that
+separate at-a-glance orientation from navigation. Detailed setup instructions, configuration reference,
+implementation inventories, and operational procedures SHALL live in purpose-named documentation files
+rather than in the README. The README SHALL NOT include temporary implementation status, incomplete-work
+notes, or feature-wiring details. At the top of the README, it SHALL retain the project logo and an obvious
+link to the organization's architecture documentation. At the end of the README, it SHALL embed the
+specified Panopticon YouTube video using its provided iframe URL.
+
+#### Scenario: New maintainer opens the README
+
+- **WHEN** a maintainer reads the README for the first time
+- **THEN** they can understand Panopticon's purpose, the template/instance/child roles, and the primary
+  lifecycle at a glance, then follow clearly labelled links for setup and deeper reference
+
+#### Scenario: Maintainer finds the organization architecture
+
+- **WHEN** a maintainer opens the README
+- **THEN** they see the project logo and an obvious link to `docs/architecture.md` before the detailed
+  orientation and navigation sections
+
+#### Scenario: Reader needs detailed setup or configuration
+
+- **WHEN** a reader needs instructions for configuring an instance, synchronizing a template, or using a
+  feature in detail
+- **THEN** the README directs them to a purpose-named guide instead of embedding the detailed procedure
+
+#### Scenario: A feature has incomplete automation
+
+- **WHEN** an implementation detail or workflow integration is incomplete
+- **THEN** the README does not include its status, workaround, or follow-up description
+
+#### Scenario: Reader reaches the end of the README
+
+- **WHEN** a reader reaches the end of the README
+- **THEN** they see an iframe embedding `https://www.youtube.com/embed/sIJ9XhBSkI8?si=R6KDsnYqZAwt5mra`
 
 ## MODIFIED Requirements
 

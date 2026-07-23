@@ -80,8 +80,9 @@
 - [ ] 6.4 Add exact-output tests for missing provider, legacy caller, changed provider, changed name,
   credential-mode/action failure, revision mismatch, empty old instance-token mapping, private instance,
   and custom workflow-ref recovery paths.
-- [x] 6.6 Make template sync fall back to the default GitHub token, reject workflow-file pushes without the
-  configured GitHub-token secret, and test both paths and remediation output.
+- [x] 6.6 Rename the template-owned reusable sync workflow to the explicit
+  `shared-template-sync-caller-only.yml`; update the fixed instance caller, documentation, and tests while
+  retaining token fallback, protected-path merge behavior, and recovery in the shared workflow.
 - [x] 6.5 Implement and test the staged compatibility rollout so configuration support lands before strict
   enforcement and old provider workflows/secrets remain usable until child callers are regenerated.
 
@@ -94,10 +95,15 @@
   `docs/explore/workflow-customization.md` with the accepted instance-configured, separate-workflow design.
 - [ ] 7.3 Update `docs/setup-guide.md`, `docs/testing.md`, `docs/planned-work.md`, and `CHANGELOG.md` with both
   provider setup paths, trusted Bedrock credential-mode choices, clear field labels and examples, exact
-  console/CLI/bootstrap recovery, safe secret-name rotation, migration ordering, and test coverage.
+  console/CLI/bootstrap recovery, safe secret-name rotation, migration ordering, test coverage, and the
+  template-sync protection boundary: protected paths/config/generated diagram survive, unprotected
+  template-managed customizations can update or conflict, and child tooling sync is not protected.
 - [ ] 7.5 Run the full unit suite, strict OpenSpec validation, workflow validation, and markdown lint after
   credential-mode implementation; fix all in-scope failures and verify no archived OpenSpec history changed.
 - [x] 7.4 Run the full unit suite, strict OpenSpec validation, workflow validation, and markdown lint; fix all
   in-scope failures and verify no archived OpenSpec history was rewritten.
-- [x] Update README.md and the OpenSpec deltas to reflect user-facing and architectural changes
-  (`docs/spec.md` is not present in this repository)
+- [x] Restructure `README.md` as concise orientation and navigation: retain the project logo and prominent
+  organization-architecture link at the top, plus purpose, roles, and the primary
+  lifecycle; link detailed setup and reference documentation; remove detailed procedures, implementation
+  inventories, and transient implementation-status sections such as dependency-indexing CI wiring status;
+  add the specified YouTube iframe embed at the end. (`docs/spec.md` is not present in this repository)

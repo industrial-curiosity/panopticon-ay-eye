@@ -17,15 +17,22 @@ GitHub does not allow private forks of public repositories, so the instance is c
    - `interfaces/{repo}.json` — one interface index shard per child repo
    - `interfaces/index.json` — the compiled org-wide index (with its `conflicts` array)
    - `panopticon.config.json` — org configuration (see step 3)
-3. To pull template updates later, go to your instance repo's **Actions** tab, select
-   **Sync from template**, and click **Run workflow**. If the merge produces conflicts
-   (e.g. both sides modified `panopticon.config.json`), the workflow fails with
-   instructions to resolve them locally. You can also enable the weekly schedule
-   in the workflow file to receive updates automatically. Any path listed in your org config's
-   `protected_paths` (step 3 below) always survives this sync unchanged — see that section for
-   how to declare instance-level customizations. Separately, the template always preserves an existing
-   instance `docs/architecture.md` as generated instance-owned output; if the instance does not have that
-   file yet, sync installs the template's empty-state placeholder.
+3. To pull template updates later, open **Actions → Sync from template → Run workflow** at
+   `https://github.com/YOUR-ORG/YOUR-INSTANCE-REPO/actions/workflows/sync-from-template.yml`
+   (replace `YOUR-ORG/YOUR-INSTANCE-REPO` with your instance). The small instance workflow calls the
+   template's shared, caller-only sync workflow, so fixes to the sync logic take effect on the next run without
+   copying another full workflow into your instance. The shared workflow is not directly runnable. If checkout,
+   fetch, merge, validation, or push fails, the run summary provides equivalent local recovery commands. You can
+   also enable the weekly schedule in the workflow file to receive updates automatically.
+
+   Template sync preserves the instance version of every exact path in `protected_paths`, the protected
+   `panopticon.diagram.config.json`, and an existing generated `docs/architecture.md`. Any other customized
+   template-managed file follows normal Git merge behavior: a template-only change can update it, while a change
+   on both sides can require local conflict resolution. Add any customization that must always win to
+   `protected_paths` before syncing. This protection applies only to template-to-instance sync;
+   `python3 -m panopticon.sync` in a child repository manages its own files and does not consult
+   `protected_paths`.
+
    Sync uses GitHub's default token when the update does not change a workflow file. To sync changes under
    `.github/workflows/`, add `PANOPTICON_INSTANCE_TOKEN`: an organization or repository Actions secret
    containing a GitHub fine-grained PAT with Contents and Workflows read/write access to the instance repo.
@@ -35,9 +42,9 @@ GitHub does not allow private forks of public repositories, so the instance is c
 
 ### One-time workflow update for existing instances
 
-An existing instance runs the copy of `sync-from-template.yml` already on its default branch, so that old
-workflow cannot protect the same merge that would update it. Before the first sync containing this generated
-diagram rule, replace the instance's workflow once from a local clone of the instance repo:
+An existing instance has an older, full copy of `sync-from-template.yml`, which cannot repair itself if it
+breaks before pushing its own update. Replace it once from a local clone of the instance repo with the fixed
+shared-workflow caller:
 
 ```bash
 gh api \
@@ -45,13 +52,13 @@ gh api \
   --jq '.content' | base64 --decode > .github/workflows/sync-from-template.yml
 
 git add .github/workflows/sync-from-template.yml
-git commit -m "fix: preserve generated architecture during template sync"
+git commit -m "fix: use the shared template sync workflow"
 git push
 ```
 
 Then run **Actions → Sync from template → Run workflow**. Instances created after the updated workflow is
-published inherit it automatically and do not need this one-time step. If the instance deliberately customizes
-this workflow, merge the generated-path registration into that customization instead of replacing the file.
+published inherit it automatically and do not need this one-time step. Keep this caller fixed: it deliberately
+does not offer a repository, workflow path, or ref input, so it cannot redirect privileged sync credentials.
 
 ## 2. Configure the instance LLM provider
 
