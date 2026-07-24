@@ -55,6 +55,8 @@ validates and normalizes the document; the workflow checks out the instance,
 invokes that module, commits only `panopticon.config.json`, and writes the next
 setup steps to its summary. Secret values remain solely in GitHub Actions
 secrets and never appear in dispatch inputs, logs, commits, or outputs.
+Because GitHub Actions executes inline `shell: python` blocks from temporary files, the configuration step
+sets `PYTHONPATH` to the checked-out workspace before importing the module.
 
 The provider registry owns workflow paths, logical fields, defaults, permissions, and dependency metadata.
 Configuration stores the selected provider and name overrides, not an executable workflow path.

@@ -96,6 +96,7 @@ class TestProviderWorkflows(unittest.TestCase):
 
     def test_configuration_workflow_reports_noop_and_push_failure(self):
         text = self.workflow("configure-panopticon.yml")
+        self.assertIn("PYTHONPATH: ${{ github.workspace }}", text)
         self.assertIn("git diff --quiet -- panopticon.config.json", text)
         self.assertIn("Configuration already matches", text)
         self.assertIn("could not be pushed", text)

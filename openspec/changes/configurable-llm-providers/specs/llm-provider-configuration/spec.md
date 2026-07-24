@@ -88,6 +88,19 @@ annotation SHALL direct the maintainer to that summary. The summary SHALL not ex
 - **THEN** the workflow exits non-zero without changing `panopticon.config.json`, and its step summary
   identifies the invalid input and instructs the maintainer to correct the dispatch values and rerun
 
+### Requirement: Configuration workflow imports checked-out tooling
+
+The configuration workflow SHALL expose the checked-out workspace on the inline Python step's import path
+before importing Panopticon configuration modules, so the validation and persistence step SHALL run against
+the checked-out implementation on a clean GitHub Actions runner.
+
+#### Scenario: Clean runner imports the configuration module
+
+- **GIVEN** the workflow has checked out an instance repository containing the Panopticon package
+- **WHEN** the `Validate and persist provider names` step starts on a clean runner
+- **THEN** its inline Python process imports `panopticon.configure_instance` successfully before validating
+  the dispatch inputs
+
 ### Requirement: Provider contracts select separate reusable workflows
 
 The provider registry SHALL map each supported provider to a template-owned reusable PR workflow and

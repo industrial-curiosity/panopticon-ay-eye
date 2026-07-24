@@ -17,7 +17,8 @@
 - [x] 2.2 Add `.github/workflows/configure-panopticon.yml` with clear labels and examples for every
   non-obvious dispatch field, the provider and trusted Bedrock credential-mode choices, provider-specific
   name defaults, separate optional bounded-budget variable-name inputs, early input validation,
-  contents-write commit behavior, and end-to-end validation, persistence, and recovery failure summaries.
+  checked-out workspace import-path setup, contents-write commit behavior, and end-to-end validation,
+  persistence, and recovery failure summaries.
 - [x] 2.3 Test deterministic config updates, no-op reruns, invalid input, secret-value exclusion, clear
   field labels/examples, credential-mode validation, separate optional bounded-budget inputs and defaults,
   commit/push failure reporting, and the direct Actions URL plus equivalent `gh workflow run` instructions.

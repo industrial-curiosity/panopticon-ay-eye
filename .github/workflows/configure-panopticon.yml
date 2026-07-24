@@ -76,6 +76,7 @@ jobs:
       - name: Validate and persist provider names
         shell: python
         env:
+          PYTHONPATH: ${{ github.workspace }}
           PROVIDER: ${{ inputs.provider }}
           BEDROCK_CREDENTIAL_MODE: ${{ inputs.bedrock_credential_mode }}
           INSTANCE_TOKEN_NAME: ${{ inputs.instance_token_name }}
