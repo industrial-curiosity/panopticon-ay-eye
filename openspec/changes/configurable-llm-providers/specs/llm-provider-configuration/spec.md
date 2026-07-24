@@ -76,6 +76,18 @@ from its label and default.
   identifier rules
 - **THEN** the workflow rejects the input before writing or logging it as configuration
 
+### Requirement: Configuration workflow failures have actionable summaries
+
+The `Configure Panopticon` workflow SHALL write the detected validation or persistence failure reason and
+the corrective action to the GitHub Actions step summary before it exits non-zero. Its concise workflow
+annotation SHALL direct the maintainer to that summary. The summary SHALL not expose credential values.
+
+#### Scenario: Invalid configuration input
+
+- **WHEN** a maintainer dispatches the workflow with an invalid provider or configured name
+- **THEN** the workflow exits non-zero without changing `panopticon.config.json`, and its step summary
+  identifies the invalid input and instructs the maintainer to correct the dispatch values and rerun
+
 ### Requirement: Provider contracts select separate reusable workflows
 
 The provider registry SHALL map each supported provider to a template-owned reusable PR workflow and

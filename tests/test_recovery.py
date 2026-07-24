@@ -27,6 +27,31 @@ class TestRecoveryOutput(unittest.TestCase):
         )
         self.assertNotIn("export PANOPTICON_INSTANCE", text)
 
+    def test_private_instance_recovery_uses_its_custom_branch_everywhere(self):
+        instance = "acme/private-instance"
+        branch = "release/2026-07"
+        self.assertEqual(
+            configuration_recovery(instance, branch),
+            "Configure the Panopticon instance before bootstrapping a child repository.\n\n"
+            "GitHub Actions console:\n"
+            "  1. Open https://github.com/acme/private-instance/actions/workflows/"
+            "configure-panopticon.yml\n"
+            "  2. Select Run workflow.\n"
+            "  3. Select branch release/2026-07.\n"
+            "  4. Replace select-a-provider with litellm or bedrock.\n"
+            "  5. Review the secret and variable name fields; enter names only, never values.\n"
+            "  6. Select Run workflow and wait for the green completed run that commits "
+            "panopticon.config.json.\n\n"
+            "Equivalent GitHub CLI command (example selects LiteLLM with documented default names):\n"
+            "  gh workflow run configure-panopticon.yml --repo acme/private-instance "
+            "--ref release/2026-07 -f provider=litellm\n"
+            "  gh run watch --repo acme/private-instance\n\n"
+            "Then rerun child bootstrap from inside the child repository clone:\n"
+            "  curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
+            "panopticon-ay-eye/main/install.py | "
+            "PANOPTICON_INSTANCE='acme/private-instance' python3\n",
+        )
+
     def test_missing_provider_recovery_names_missing_values_and_exact_command(self):
         text = missing_provider_recovery(
             "acme/instance",
@@ -44,6 +69,19 @@ class TestRecoveryOutput(unittest.TestCase):
         self.assertIn("## Panopticon child caller is stale", text)
         self.assertIn(child_bootstrap_command("acme/instance"), text)
         self.assertIn("Keep old secret names available until regeneration finishes.", text)
+
+    def test_stale_provider_or_name_change_recovery_is_exact(self):
+        self.assertEqual(
+            stale_caller_recovery("acme/instance"),
+            "## Panopticon child caller is stale\n\n"
+            "Run this from inside the child clone:\n\n"
+            "~~~bash\n"
+            "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
+            "panopticon-ay-eye/main/install.py | PANOPTICON_INSTANCE='acme/instance' python3\n"
+            "~~~\n\n"
+            "Review and commit the generated changes, push them, then rerun or await this PR workflow. "
+            "Keep old secret names available until regeneration finishes.\n",
+        )
 
 
 if __name__ == "__main__":

@@ -102,6 +102,21 @@ class TestProviderWorkflows(unittest.TestCase):
         self.assertIn("git show --format= -- panopticon.config.json", text)
         self.assertIn("exit 1", text)
 
+    def test_workflow_failure_paths_write_actionable_summaries(self):
+        expected_summary_text = {
+            "configure-panopticon.yml": "Panopticon provider configuration is invalid",
+            "panopticon-pr-close.yml": "Panopticon instance branch cleanup failed",
+            "panopticon-merge.yml": "Panopticon merge sync failed",
+            "panopticon-pr-bedrock.yml": "Unsupported Bedrock credential mode",
+            "panopticon-pr-litellm.yml": "Panopticon branch-state push failed",
+        }
+        for name, reason in expected_summary_text.items():
+            with self.subTest(workflow=name):
+                text = self.workflow(name)
+                self.assertIn(reason, text)
+                self.assertIn("GITHUB_STEP_SUMMARY", text)
+                self.assertIn("see the step summary", text)
+
     def test_merge_and_close_accept_only_canonical_instance_token(self):
         for name in ("panopticon-merge.yml", "panopticon-pr-close.yml"):
             text = self.workflow(name)

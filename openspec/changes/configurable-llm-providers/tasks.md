@@ -17,7 +17,7 @@
 - [x] 2.2 Add `.github/workflows/configure-panopticon.yml` with clear labels and examples for every
   non-obvious dispatch field, the provider and trusted Bedrock credential-mode choices, provider-specific
   name defaults, separate optional bounded-budget variable-name inputs, early input validation,
-  contents-write commit behavior, and end-to-end failure summaries.
+  contents-write commit behavior, and end-to-end validation, persistence, and recovery failure summaries.
 - [x] 2.3 Test deterministic config updates, no-op reruns, invalid input, secret-value exclusion, clear
   field labels/examples, credential-mode validation, separate optional bounded-budget inputs and defaults,
   commit/push failure reporting, and the direct Actions URL plus equivalent `gh workflow run` instructions.
@@ -33,7 +33,8 @@
   stable local PR caller for only the selected provider using explicit inputs, secrets, credential-mode
   mappings, permissions, and configuration revision.
 - [x] 3.4 Resolve merge and PR-close instance-token mappings from the same configured name while preserving
-  their provider-independent reusable workflow targets.
+  their provider-independent reusable workflow targets and actionable summaries for explicit shared-workflow
+  failures.
 - [x] 3.5 Make prerequisite reporting consume provider- and credential-mode-resolved secret and variable
   names, including complete manual verification URLs and commands when org-level APIs cannot be queried.
 - [x] 3.6 Add atomicity and caller-generation tests covering unconfigured instances, both providers and
@@ -64,9 +65,11 @@
   resolves its recorded instance, and fails with complete instance-configuration and child-bootstrap
   remediation instead of a workflow-load error.
 - [x] 5.4 Add early provider-workflow validation for empty canonical secrets/inputs, credential-mode
-  requirements, and mismatched config revisions before instance checkout or LLM work.
+  requirements, mismatched config revisions, and actionable summaries for explicit credential-action and
+  branch-state failures before or after provider work as applicable.
 - [x] 5.5 Add workflow parity and contract tests that validate required inputs, secrets, permissions, common
-  PR phases, timeout mapping, independent-check behavior, reporting, gating, and both credential modes.
+  PR phases, timeout mapping, independent-check behavior, reporting, gating, both credential modes, and
+  actionable failure summaries.
 
 ## 6. Recovery and migration behavior
 
@@ -78,7 +81,7 @@
 - [x] 6.3 Ensure stale and renamed-secret failures print the exact one-line command
   `curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-eye/main/install.py | PANOPTICON_INSTANCE='<owner/repo>' python3`
   plus child-root, review, commit, push, and workflow-rerun instructions.
-- [ ] 6.4 Add exact-output tests for missing provider, legacy caller, changed provider, changed name,
+- [x] 6.4 Add exact-output tests for missing provider, legacy caller, changed provider, changed name,
   credential-mode/action failure, revision mismatch, empty old instance-token mapping, private instance,
   and custom workflow-ref recovery paths.
 - [x] 6.6 Rename the template-owned reusable sync workflow to the explicit
@@ -91,15 +94,16 @@
 
 - [x] 7.1 Update the Panopticon architecture and Python-tooling skills to permit only justified, pinned,
   CI-only SDKs inside built-in provider adapters while preserving the stdlib-only child/local contract.
-- [ ] 7.2 Reconcile `docs/action-plans/llm-provider-plugins.md`, `ci-dependency-isolation.md`,
-  `oidc-caller-permissions.md`, `runtime-preflight.md`, `configurable-instance-token.md`, and
-  `docs/explore/workflow-customization.md` with the accepted instance-configured, separate-workflow design.
-- [ ] 7.3 Update `docs/setup-guide.md`, `docs/testing.md`, `docs/planned-work.md`, and `CHANGELOG.md` with both
+- [x] 7.2 Reconcile the active `docs/explore/workflow-customization.md` record with the accepted
+  instance-configured, separate-workflow design. The historical action-plan files
+  `llm-provider-plugins.md`, `ci-dependency-isolation.md`, `oidc-caller-permissions.md`,
+  `runtime-preflight.md`, and `configurable-instance-token.md` are not present in this repository.
+- [x] 7.3 Update `docs/setup-guide.md`, `docs/testing.md`, `docs/planned-work.md`, and `CHANGELOG.md` with both
   provider setup paths, trusted Bedrock credential-mode choices, clear field labels and examples, exact
   console/CLI/bootstrap recovery, safe secret-name rotation, migration ordering, test coverage, and the
   template-sync protection boundary: protected paths/config/generated diagram survive, unprotected
   template-managed customizations can update or conflict, and child tooling sync is not protected.
-- [ ] 7.5 Run the full unit suite, strict OpenSpec validation, workflow validation, and markdown lint after
+- [x] 7.5 Run the full unit suite, strict OpenSpec validation, workflow validation, and markdown lint after
   credential-mode implementation; fix all in-scope failures and verify no archived OpenSpec history changed.
 - [x] 7.4 Run the full unit suite, strict OpenSpec validation, workflow validation, and markdown lint; fix all
   in-scope failures and verify no archived OpenSpec history was rewritten.
@@ -107,5 +111,5 @@
   organization-architecture link at the top, plus purpose, roles, and the primary
   lifecycle; link detailed setup and reference documentation; remove detailed procedures, implementation
   inventories, and transient implementation-status sections such as dependency-indexing CI wiring status;
-  add the specified YouTube thumbnail linking to its watch page at the end. (`docs/spec.md` is not present
+  add the specified YouTube thumbnail that opens its watch page in a new browser tab or window at the end. (`docs/spec.md` is not present
   in this repository)

@@ -730,6 +730,60 @@ class TestProviderBootstrapErrors(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "instance-managed credential action"):
             validate_provider_workflow(tree, contract, "acme/instance", "v2")
 
+    def test_missing_instance_managed_action_prints_custom_ref_recovery(self):
+        def urlopen(request, timeout=30):
+            url = request.full_url
+            if "contents/panopticon.config.json" in url:
+                return BytesIO(
+                    json.dumps(
+                        _file_response(
+                            json.dumps(
+                                {
+                                    "workflow_ref": "release/2026-07",
+                                    "llm": {
+                                        "provider": "bedrock",
+                                        "credential_mode": "instance-managed",
+                                    },
+                                }
+                            ).encode()
+                        )
+                    ).encode()
+                )
+            if "git/trees/release/2026-07" in url:
+                return BytesIO(
+                    json.dumps(
+                        {
+                            "tree": [
+                                _tree_entry(".github/workflows/panopticon-pr-bedrock.yml"),
+                            ]
+                        }
+                    ).encode()
+                )
+            raise AssertionError(f"unexpected URL: {url}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = StringIO()
+            with contextlib.redirect_stdout(output):
+                code = bootstrap_main(
+                    env={
+                        "PANOPTICON_INSTANCE": "acme/private-instance",
+                        "PANOPTICON_SKILLS_LOCATION": ".agents/skills",
+                    },
+                    child_root=tmp,
+                    urlopen=urlopen,
+                )
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+        self.assertEqual(code, 1)
+        self.assertIn("workflow_ref: release/2026-07", output.getvalue())
+        self.assertIn("instance-managed credential action", output.getvalue())
+        self.assertIn(
+            "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
+            "panopticon-ay-eye/main/install.py | "
+            "PANOPTICON_INSTANCE='acme/private-instance' python3",
+            output.getvalue(),
+        )
+
     def test_fetch_org_config_preserves_access_failure(self):
         from urllib.error import HTTPError
 

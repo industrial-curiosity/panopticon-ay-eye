@@ -140,7 +140,11 @@ jobs:
 
           mode = os.environ["CREDENTIAL_MODE"]
           if mode not in {"github-oidc", "instance-managed"}:
-              raise SystemExit(f"::error::unsupported Bedrock credential mode: {mode}")
+              reason = f"Unsupported Bedrock credential mode: {mode}"
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                  summary.write(f"## {reason}\n\n")
+                  summary.write("Set `credential_mode` to `github-oidc` or `instance-managed`, then rerun this workflow.\n")
+              raise SystemExit(f"::error::{reason}; see the step summary")
           required = {"model": "PANOPTICON_LLM_MODEL", "instance_token": "PANOPTICON_INSTANCE_TOKEN"}
           if mode == "github-oidc":
               required.update({"aws_region": "PANOPTICON_AWS_REGION", "aws_role_arn": "PANOPTICON_AWS_ROLE_ARN"})
@@ -192,7 +196,12 @@ jobs:
           set -euo pipefail
           action="$PANOPTICON_INSTANCE_DIR/.github/actions/panopticon-aws-credentials/action.yml"
           if [ ! -f "$action" ]; then
-            echo "::error::Bedrock instance-managed credentials require $action in the instance repo"
+            {
+              echo "## Bedrock instance-managed credential action is missing"
+              echo
+              echo "This mode requires \`$action\` in the instance repository. Add or restore that action, or choose \`github-oidc\`, then rerun this workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Bedrock instance-managed credentials require the instance action; see the step summary"
             exit 1
           fi
 
@@ -492,7 +501,12 @@ jobs:
           status=$?
           set -e
           if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
-            echo "::error::Panopticon branch-state push: index merge failed (exit $status)"
+            {
+              echo "## Panopticon branch-state push failed"
+              echo
+              echo "The index merge exited with status $status. Review the branch-state step log, correct the reported index or configuration problem, and rerun this workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Panopticon branch-state push: index merge failed; see the step summary"
             exit "$status"
           fi
           git config user.name "panopticon[bot]"

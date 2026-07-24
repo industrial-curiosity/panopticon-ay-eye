@@ -112,7 +112,11 @@ jobs:
                   ".", os.environ["PROVIDER"], names, os.environ["BEDROCK_CREDENTIAL_MODE"]
               )
           except (ProviderConfigError, json.JSONDecodeError) as exc:
-              raise SystemExit(f"error: {exc}") from exc
+              reason = f"Panopticon provider configuration is invalid: {exc}"
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                  summary.write(f"## {reason}\n\n")
+                  summary.write("Correct the workflow-dispatch inputs, then rerun this workflow.\n")
+              raise SystemExit(f"::error::{reason}; see the step summary") from exc
 
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
               summary.write(f"## Panopticon provider: `{configured['provider']}`\n\n")

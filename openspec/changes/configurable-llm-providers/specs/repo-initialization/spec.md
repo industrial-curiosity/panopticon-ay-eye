@@ -174,8 +174,8 @@ implementation inventories, and operational procedures SHALL live in purpose-nam
 rather than in the README. The README SHALL NOT include temporary implementation status, incomplete-work
 notes, or feature-wiring details. At the top of the README, it SHALL retain the project logo and an obvious
 link to the organization's architecture documentation. At the end of the README, it SHALL display a
-thumbnail for the specified Panopticon YouTube video that links to
-`https://www.youtube.com/watch?v=sIJ9XhBSkI8`.
+thumbnail for the specified Panopticon YouTube video that opens
+`https://www.youtube.com/watch?v=sIJ9XhBSkI8` in a new browser tab or window.
 
 #### Scenario: New maintainer opens the README
 
@@ -203,8 +203,9 @@ thumbnail for the specified Panopticon YouTube video that links to
 #### Scenario: Reader reaches the end of the README
 
 - **WHEN** a reader reaches the end of the README
-- **THEN** they see the thumbnail at `https://img.youtube.com/vi/sIJ9XhBSkI8/hqdefault.jpg` linking to
-  `https://www.youtube.com/watch?v=sIJ9XhBSkI8`
+- **THEN** they see the thumbnail at `https://img.youtube.com/vi/sIJ9XhBSkI8/hqdefault.jpg` in an anchor
+  with `target="_blank"` that opens `https://www.youtube.com/watch?v=sIJ9XhBSkI8` in a new browser tab or
+  window
 
 ## MODIFIED Requirements
 

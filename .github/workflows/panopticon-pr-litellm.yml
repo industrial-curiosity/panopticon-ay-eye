@@ -446,7 +446,12 @@ jobs:
           status=$?
           set -e
           if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
-            echo "::error::Panopticon branch-state push: index merge failed (exit $status)"
+            {
+              echo "## Panopticon branch-state push failed"
+              echo
+              echo "The index merge exited with status $status. Review the branch-state step log, correct the reported index or configuration problem, and rerun this workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Panopticon branch-state push: index merge failed; see the step summary"
             exit "$status"
           fi
           git config user.name "panopticon[bot]"

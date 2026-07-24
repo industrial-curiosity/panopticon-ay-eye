@@ -80,3 +80,23 @@ bootstrap command plus commit, push, and rerun instructions when caller regenera
 - **WHEN** a provider workflow receives a configuration revision different from the live instance contract
 - **THEN** it fails before LLM checks and prints an exact installer command in the form
   `curl -fsSL <public-installer-url> | PANOPTICON_INSTANCE='<owner/repo>' python3`
+
+### Requirement: Provider workflow failures have actionable summaries
+
+Each provider-specific PR-evaluation workflow SHALL write the detected failure reason and a corrective
+action to the GitHub Actions step summary before any explicit non-zero exit caused by invalid provider
+configuration, a missing required credential action, or a failed branch-state index merge. Its concise
+workflow annotation SHALL direct the maintainer to the summary.
+
+#### Scenario: Bedrock credential action is unavailable
+
+- **GIVEN** the instance selects `instance-managed` Bedrock credentials
+- **WHEN** the checked-out instance lacks `.github/actions/panopticon-aws-credentials/action.yml`
+- **THEN** the Bedrock workflow exits non-zero before provider preflight and its step summary identifies
+  the required action path and the available credential-mode recovery
+
+#### Scenario: Branch-state merge fails
+
+- **WHEN** either provider workflow cannot merge the PR branch state into the instance branch
+- **THEN** it exits non-zero and its step summary identifies the failed merge, its exit status, and the
+  instruction to correct the reported index or configuration problem before rerunning

@@ -94,9 +94,9 @@ organization-architecture link at the top, Panopticon's purpose, the template, i
 the primary lifecycle, and links to purpose-named detailed guides. It does not duplicate setup procedures,
 enumerate implementation internals, or track incomplete feature wiring. Those details either belong in a
 focused guide or are omitted when they are only transient implementation state.
-The end of the README displays a thumbnail linking to the specified Panopticon YouTube video, providing an
-optional visual introduction without displacing the concise written orientation. GitHub README rendering
-does not support playable iframe embeds.
+The end of the README displays a thumbnail that opens the specified Panopticon YouTube video in a new
+browser tab or window, providing an optional visual introduction without displacing the concise written
+orientation. GitHub README rendering does not support playable iframe embeds.
 
 ### D3: Provider workflows are independent reusable entrypoints
 
@@ -162,6 +162,11 @@ Stale-caller output uses the same one-liner and explicitly instructs the user to
 clone, review generated changes, commit, push, and rerun or await CI. The instance slug and branch are
 substituted dynamically. Detailed recovery lives in the step summary; `::error::` remains one concise line.
 Tests assert commands and URLs, not vague keywords.
+
+Every explicit CI failure path follows the same reporting contract: write the detected cause and a concrete
+recovery action to `GITHUB_STEP_SUMMARY` before emitting its concise `::error::` annotation and exiting
+non-zero. This applies to configuration, provider evaluation, merge sync, and PR-close workflows so the
+workflow summary remains useful even when a later reporting step cannot run.
 
 The formatter is a standard-library module vendored by a successful child bootstrap, so current provider
 workflows can use one implementation for their recovery summaries. It cannot be a prerequisite of bootstrap

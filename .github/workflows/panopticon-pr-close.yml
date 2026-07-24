@@ -54,5 +54,12 @@ jobs:
             echo "instance branch $branch does not exist; nothing to delete"
             exit 0
           fi
-          echo "::error::Panopticon: could not delete instance branch $branch: $status"
+          {
+            echo "## Panopticon instance branch cleanup failed"
+            echo
+            echo "Could not delete \`$branch\` from \`$instance\`: $status"
+            echo
+            echo "Verify that the configured instance token can delete repository contents, then rerun this workflow."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Panopticon: could not delete instance branch $branch; see the step summary"
           exit 1

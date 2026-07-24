@@ -40,7 +40,12 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -f panopticon/config.json ]; then
-            echo "::error::Panopticon: repo not initialized (panopticon/config.json missing); run the init tooling from your org's instance checkout (docs/setup-guide.md)"
+            {
+              echo "## Panopticon repository is not initialized"
+              echo
+              echo "\`panopticon/config.json\` is missing. Run the init tooling from your organization's instance checkout, following \`docs/setup-guide.md\`, then rerun this workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Panopticon: repo not initialized; see the step summary"
             exit 1
           fi
           {
@@ -102,7 +107,12 @@ jobs:
             status=$?
             set -e
             if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
-              echo "::error::Panopticon merge sync: shard merge failed (exit $status); see the step log"
+              {
+                echo "## Panopticon merge sync failed"
+                echo
+                echo "The index-shard merge exited with status $status. Review the merge-step log, correct the reported index or configuration problem, and rerun this workflow."
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::Panopticon merge sync: shard merge failed; see the step summary"
               exit "$status"
             fi
             if [ -z "$(git status --porcelain)" ]; then
@@ -119,7 +129,12 @@ jobs:
             echo "::warning::push attempt $attempt rejected (concurrent merge); fetching and rebuilding"
           done
           if [ "$pushed" != "true" ]; then
-            echo "::error::Panopticon merge sync: could not push to the instance repo after $MAX_PUSH_ATTEMPTS attempts; re-run this workflow"
+            {
+              echo "## Panopticon merge sync could not push"
+              echo
+              echo "The instance branch changed during all $MAX_PUSH_ATTEMPTS retry attempts. Rerun this workflow to rebuild from the latest instance state."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Panopticon merge sync: could not push to the instance repo; see the step summary"
             exit 1
           fi
           cat /tmp/panopticon-merge-report.md >> "$GITHUB_STEP_SUMMARY"
@@ -133,6 +148,9 @@ jobs:
           import sys
 
           def fail(reason):
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                  summary.write(f"## {reason}\n\n")
+                  summary.write("Review the merge-sync report and rerun after correcting the underlying problem.\n")
               print(f"::error::{reason}")
               sys.exit(1)
 
