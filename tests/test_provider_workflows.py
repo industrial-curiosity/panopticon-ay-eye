@@ -120,9 +120,14 @@ class TestProviderWorkflows(unittest.TestCase):
         for provider in ("litellm", "bedrock"):
             text = self.workflow(f"panopticon-pr-{provider}.yml")
             self.assertIn("provider configuration revision changed", text)
-            self.assertIn("panopticon-ay-eye/main/install.py | ", text)
-            self.assertIn("PANOPTICON_INSTANCE='{os.environ['INSTANCE']}' python3", text)
-            self.assertIn("Review and commit the generated changes, push them", text)
+            self.assertIn("from panopticon.recovery import stale_caller_recovery", text)
+            self.assertIn("from panopticon.recovery import missing_provider_recovery", text)
+            self.assertIn("except ModuleNotFoundError", text)
+
+    def test_legacy_guard_retains_a_self_contained_recovery_fallback(self):
+        text = self.workflow("panopticon-pr.yml")
+        self.assertNotIn("panopticon.recovery", text)
+        self.assertIn("PANOPTICON_INSTANCE='{instance}' python3", text)
 
 
 if __name__ == "__main__":

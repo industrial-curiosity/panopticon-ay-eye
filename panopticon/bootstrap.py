@@ -36,6 +36,7 @@ from pathlib import Path
 
 from . import SCHEMA_VERSION
 from .providers import ProviderConfigError, resolve_provider_contract
+from .recovery import child_bootstrap_command, configuration_recovery
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -244,37 +245,9 @@ def fetch_org_config(owner, repo, ref, token=None, urlopen=urllib.request.urlope
     return document
 
 
-def child_bootstrap_command(instance):
-    return (
-        "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
-        "panopticon-ay-eye/main/install.py | "
-        f"PANOPTICON_INSTANCE='{instance}' python3"
-    )
-
-
 def provider_remediation(instance, branch):
     """Complete maintainer recovery instructions for an unconfigured provider."""
-    actions_url = (
-        f"https://github.com/{instance}/actions/workflows/configure-panopticon.yml"
-    )
-    installer = child_bootstrap_command(instance)
-    return f"""Configure the Panopticon instance before bootstrapping a child repository.
-
-GitHub Actions console:
-  1. Open {actions_url}
-  2. Select Run workflow.
-  3. Select branch {branch}.
-  4. Replace select-a-provider with litellm or bedrock.
-  5. Review the secret and variable name fields; enter names only, never values.
-  6. Select Run workflow and wait for the green completed run that commits panopticon.config.json.
-
-Equivalent GitHub CLI command (example selects LiteLLM with documented default names):
-  gh workflow run configure-panopticon.yml --repo {instance} --ref {branch} -f provider=litellm
-  gh run watch --repo {instance}
-
-Then rerun child bootstrap from inside the child repository clone:
-  {installer}
-"""
+    return configuration_recovery(instance, branch)
 
 
 def validate_provider_workflow(tree, contract, instance, ref):
@@ -373,10 +346,11 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
 # merge.py, extraction.py, dependency_extraction.py, dependency_lookup.py, skills.py, bootstrap.py,
 # tooling_currency.py, parsers/) is used only by the reusable GitHub Actions workflows that check
 # out the instance repo directly, and has no role in local Phase 2/3 work — it SHALL NOT be
-# vendored into child repos.
+# vendored into child repos. `recovery.py` is the exception because current workflows use it before
+# checking out the instance repository.
 LOCAL_TOOLING_MODULES = (
     "__init__.py", "config.py", "dependencies.py", "docs.py", "index.py", "init_repo.py",
-    "sync.py", "org_diagram_link.py",
+    "sync.py", "org_diagram_link.py", "recovery.py",
 )
 
 

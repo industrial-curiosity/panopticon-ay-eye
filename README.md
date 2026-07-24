@@ -60,4 +60,4 @@ The workflow is intentionally simple:
 For configuration details, supported providers, sync protection rules, and operational procedures, use the
 [org-owner setup guide](docs/setup-guide.md) rather than relying on this overview.
 
-<iframe width="560" height="315" src="https://www.youtube.com/embed/sIJ9XhBSkI8?si=R6KDsnYqZAwt5mra" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+[![Watch the Panopticon introduction on YouTube](https://img.youtube.com/vi/sIJ9XhBSkI8/hqdefault.jpg)](https://www.youtube.com/watch?v=sIJ9XhBSkI8)

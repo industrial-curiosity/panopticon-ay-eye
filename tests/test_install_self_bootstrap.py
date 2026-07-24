@@ -268,10 +268,12 @@ class TestInstanceRetrieval(unittest.TestCase):
 
 class TestDefaultInstancePayload(unittest.TestCase):
     FAKE_INIT = "SCHEMA_VERSION = 1\n"
+    FAKE_RECOVERY = "def configuration_recovery(instance, branch):\n    return 'recovery'\n"
     FAKE_BOOTSTRAP = (
         "from . import SCHEMA_VERSION\n"
+        "from .recovery import configuration_recovery\n"
         "def main():\n"
-        "    print(f'DEFAULT_BOOTSTRAP_RAN schema={SCHEMA_VERSION}')\n"
+        "    print(f'DEFAULT_BOOTSTRAP_RAN schema={SCHEMA_VERSION} {configuration_recovery(None, None)}')\n"
         "    return 0\n"
     )
 
@@ -282,6 +284,8 @@ class TestDefaultInstancePayload(unittest.TestCase):
             requests.append(request.full_url)
             if "/contents/panopticon/__init__.py" in request.full_url:
                 return _contents_response(self.FAKE_INIT)
+            if "/contents/panopticon/recovery.py" in request.full_url:
+                return _contents_response(self.FAKE_RECOVERY)
             if "/contents/panopticon/bootstrap.py" in request.full_url:
                 return _contents_response(self.FAKE_BOOTSTRAP)
             raise AssertionError(f"unexpected URL: {request.full_url}")
@@ -301,8 +305,8 @@ class TestDefaultInstancePayload(unittest.TestCase):
                                 INSTALL_SOURCE, "acme/instance", "trunk"
                             )
         self.assertEqual(caught.exception.code, 0)
-        self.assertIn("DEFAULT_BOOTSTRAP_RAN schema=1", output.getvalue())
-        self.assertEqual(len(requests), 2)
+        self.assertIn("DEFAULT_BOOTSTRAP_RAN schema=1 recovery", output.getvalue())
+        self.assertEqual(len(requests), 3)
 
     def test_invalid_or_missing_instance_fails_in_a_real_subprocess(self):
         result = _run_isolated(

@@ -70,8 +70,9 @@
 
 ## 6. Recovery and migration behavior
 
-- [ ] 6.1 Centralize user-facing unconfigured/stale credential-mode remediation rendering for terminal and
-  GitHub step-summary contexts without exposing credential values.
+- [x] 6.1 Centralize user-facing unconfigured/stale credential-mode remediation in a shared formatter,
+  vendored after successful bootstrap; retain self-contained fallbacks before vendoring and in the legacy
+  caller guard, without exposing credential values.
 - [x] 6.2 Ensure unconfigured failures print the resolved `Configure Panopticon` Actions URL, ordered console
   steps, equivalent `gh workflow run`/run-watch commands, and the resolved default branch.
 - [x] 6.3 Ensure stale and renamed-secret failures print the exact one-line command
@@ -106,4 +107,5 @@
   organization-architecture link at the top, plus purpose, roles, and the primary
   lifecycle; link detailed setup and reference documentation; remove detailed procedures, implementation
   inventories, and transient implementation-status sections such as dependency-indexing CI wiring status;
-  add the specified YouTube iframe embed at the end. (`docs/spec.md` is not present in this repository)
+  add the specified YouTube thumbnail linking to its watch page at the end. (`docs/spec.md` is not present
+  in this repository)

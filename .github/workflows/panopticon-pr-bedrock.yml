@@ -151,22 +151,26 @@ jobs:
               if not os.environ.get(canonical)
           ]
           if missing:
-              command = (
-                  "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
-                  "panopticon-ay-eye/main/install.py | "
-                  f"PANOPTICON_INSTANCE='{os.environ['INSTANCE']}' python3"
-              )
-              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-                  summary.write("## Panopticon: missing Bedrock configuration\n\n")
-                  for logical, configured_name in missing:
-                      summary.write(f"- `{configured_name}` ({logical})\n")
-                  summary.write("\nThe instance configuration or child caller is stale. ")
-                  summary.write("From inside the child clone run:\n\n~~~bash\n")
-                  summary.write(command + "\n~~~\n\n")
-                  summary.write(
-                      "Review and commit the generated changes, push them, then rerun or await "
-                      "this PR workflow.\n"
+              try:
+                  import sys
+                  sys.path.insert(0, os.environ["GITHUB_WORKSPACE"])
+                  from panopticon.recovery import missing_provider_recovery
+                  recovery = missing_provider_recovery(os.environ["INSTANCE"], "Bedrock", missing)
+              except ModuleNotFoundError:
+                  command = (
+                      "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
+                      "panopticon-ay-eye/main/install.py | "
+                      f"PANOPTICON_INSTANCE='{os.environ['INSTANCE']}' python3"
                   )
+                  recovery = (
+                      "## Panopticon: missing Bedrock configuration\n\n"
+                      + "".join(f"- `{configured_name}` ({logical})\n" for logical, configured_name in missing)
+                      + "\nThe instance configuration or child caller is stale. From inside the child clone run:\n\n"
+                      + f"~~~bash\n{command}\n~~~\n\n"
+                      + "Review and commit the generated changes, push them, then rerun or await this PR workflow.\n"
+                  )
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                  summary.write(recovery)
               raise SystemExit(
                   "::error::Panopticon Bedrock configuration is missing; "
                   "see the step summary for the exact configured names and bootstrap command"
@@ -230,19 +234,9 @@ jobs:
           actual = provider_contract(load_org_config(root))["revision"]
           expected = os.environ["EXPECTED_REVISION"]
           if actual != expected:
-              command = (
-                  "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
-                  "panopticon-ay-eye/main/install.py | "
-                  f"PANOPTICON_INSTANCE='{os.environ['INSTANCE']}' python3"
-              )
+              from panopticon.recovery import stale_caller_recovery
               with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-                  summary.write("## Panopticon child caller is stale\n\n")
-                  summary.write("Run this from inside the child clone:\n\n~~~bash\n")
-                  summary.write(command + "\n~~~\n\n")
-                  summary.write(
-                      "Review and commit the generated changes, push them, then rerun or await "
-                      "this PR workflow. Keep old secret names available until regeneration finishes.\n"
-                  )
+                  summary.write(stale_caller_recovery(os.environ["INSTANCE"]))
               raise SystemExit(
                   "::error::Panopticon provider configuration revision changed; "
                   "see the step summary for the exact child-bootstrap command"

@@ -94,8 +94,9 @@ organization-architecture link at the top, Panopticon's purpose, the template, i
 the primary lifecycle, and links to purpose-named detailed guides. It does not duplicate setup procedures,
 enumerate implementation internals, or track incomplete feature wiring. Those details either belong in a
 focused guide or are omitted when they are only transient implementation state.
-The end of the README embeds the specified Panopticon YouTube video, providing an optional visual
-introduction without displacing the concise written orientation.
+The end of the README displays a thumbnail linking to the specified Panopticon YouTube video, providing an
+optional visual introduction without displacing the concise written orientation. GitHub README rendering
+does not support playable iframe embeds.
 
 ### D3: Provider workflows are independent reusable entrypoints
 
@@ -161,6 +162,11 @@ Stale-caller output uses the same one-liner and explicitly instructs the user to
 clone, review generated changes, commit, push, and rerun or await CI. The instance slug and branch are
 substituted dynamically. Detailed recovery lives in the step summary; `::error::` remains one concise line.
 Tests assert commands and URLs, not vague keywords.
+
+The formatter is a standard-library module vendored by a successful child bootstrap, so current provider
+workflows can use one implementation for their recovery summaries. It cannot be a prerequisite of bootstrap
+validation or the legacy caller guard: both must recover children that predate the module. Those pre-vendoring
+paths retain minimal self-contained recovery rendering with the same command contract.
 
 ### D7: LiteLLM transport is extracted; Bedrock is a lazy CI-only adapter
 

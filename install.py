@@ -264,6 +264,15 @@ def _load_default_payload_from_github(instance, ref=None):
     )
     sys.modules["panopticon"] = package
 
+    recovery = types.ModuleType("panopticon.recovery")
+    recovery.__package__ = "panopticon"
+    package.recovery = recovery
+    sys.modules["panopticon.recovery"] = recovery
+    exec(
+        compile(fetch("panopticon/recovery.py"), "panopticon/recovery.py", "exec"),
+        recovery.__dict__,
+    )
+
     bootstrap = types.ModuleType("panopticon.bootstrap")
     bootstrap.__package__ = "panopticon"
     package.bootstrap = bootstrap

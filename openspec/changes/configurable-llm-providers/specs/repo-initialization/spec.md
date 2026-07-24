@@ -70,6 +70,30 @@ push them, and rerun or await the PR workflow.
 - **THEN** it fails before instance checkout and prints the exact public-installer command for that child’s
   recorded instance plus the commit, push, and rerun instructions
 
+### Requirement: Recovery formatter preserves pre-bootstrap compatibility
+
+The child bootstrap installer SHALL vendor a standard-library recovery formatter after provider validation
+succeeds. Provider workflows SHALL use the shared formatter to render stale or missing-provider recovery
+output. Bootstrap failures that occur before vendoring, and the legacy caller guard, SHALL render equivalent
+self-contained recovery output without importing the child-vendored formatter.
+
+#### Scenario: Successful bootstrap makes the formatter available
+
+- **WHEN** child bootstrap validates the selected provider contract and completes successfully
+- **THEN** the child repository contains the recovery formatter for subsequent provider workflow runs
+
+#### Scenario: Unconfigured instance fails before vendoring
+
+- **WHEN** child bootstrap resolves an instance with no configured provider
+- **THEN** it prints complete configuration and child-bootstrap recovery instructions without requiring the
+  child repository to contain the recovery formatter
+
+#### Scenario: Legacy caller lacks the formatter
+
+- **WHEN** a child generated before recovery-formatting vendoring invokes the legacy caller guard
+- **THEN** the guard prints complete configuration and child-bootstrap recovery instructions without an
+  import failure
+
 ### Requirement: Template sync uses a shared repairable workflow
 
 The instance `sync-from-template.yml` SHALL be a minimal, fixed caller that invokes only the template-owned
@@ -149,8 +173,9 @@ separate at-a-glance orientation from navigation. Detailed setup instructions, c
 implementation inventories, and operational procedures SHALL live in purpose-named documentation files
 rather than in the README. The README SHALL NOT include temporary implementation status, incomplete-work
 notes, or feature-wiring details. At the top of the README, it SHALL retain the project logo and an obvious
-link to the organization's architecture documentation. At the end of the README, it SHALL embed the
-specified Panopticon YouTube video using its provided iframe URL.
+link to the organization's architecture documentation. At the end of the README, it SHALL display a
+thumbnail for the specified Panopticon YouTube video that links to
+`https://www.youtube.com/watch?v=sIJ9XhBSkI8`.
 
 #### Scenario: New maintainer opens the README
 
@@ -178,7 +203,8 @@ specified Panopticon YouTube video using its provided iframe URL.
 #### Scenario: Reader reaches the end of the README
 
 - **WHEN** a reader reaches the end of the README
-- **THEN** they see an iframe embedding `https://www.youtube.com/embed/sIJ9XhBSkI8?si=R6KDsnYqZAwt5mra`
+- **THEN** they see the thumbnail at `https://img.youtube.com/vi/sIJ9XhBSkI8/hqdefault.jpg` linking to
+  `https://www.youtube.com/watch?v=sIJ9XhBSkI8`
 
 ## MODIFIED Requirements
 
