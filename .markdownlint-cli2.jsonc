@@ -1,0 +1,17 @@
+{
+  "config": {
+    // Skill files use required YAML `name:` metadata instead of a rendered H1;
+    // recognizing it preserves their loader contract while retaining title checks.
+    "MD041": {
+      "front_matter_title": "^\\s*(?:title|name)\\s*[:=]"
+    },
+    // OpenSpec contracts and agent instructions contain indivisible identifiers
+    // and commands; a 500-character cap catches accidental prose blobs without
+    // breaking those machine-readable examples. Test-inventory table cells hold
+    // complete behavioral contracts and cannot be safely wrapped as table rows.
+    "MD013": {
+      "line_length": 500,
+      "tables": false
+    }
+  }
+}

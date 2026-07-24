@@ -2,20 +2,29 @@
 
 [panopticon-test-child-a](https://github.com/industrial-curiosity/panopticon-test-child-a)
 
-Test fixture repo representing a Python inventory and fulfillment service. Covers: internal-only interfaces, externally owned interfaces (external SaaS and managed infrastructure), and interfaces owned here and consumed by `ts-order-service`.
+Test fixture repo representing a Python inventory and fulfillment service.
+Covers: internal-only interfaces, externally owned interfaces (external SaaS and
+managed infrastructure), and interfaces owned here and consumed by
+`ts-order-service`.
 
 ## Purpose
 
 Exercises Panopticon against a Python repo where:
+
 - The REST/OpenAPI parser picks up an owned API (`inventory/api/openapi.yaml`)
-- The Kafka parser picks up a consumer subscription from `infra/kafka-consumer.properties` (`.properties` files → consumer, not owned)
-- S3, SQS, external REST, and database interfaces are extracted via LLM fallback from `infra/` YAML config files (`.py` source files are not in the LLM fallback suffix set)
-- Several interfaces have `null` owner (external ERP, managed RDS — not owned by any org repo)
-- `py-inventory-service` is both an API owner (consumed by TypeScript) and a consumer (of the TypeScript service's API and Kafka topic)
+- The Kafka parser picks up a consumer subscription from
+  `infra/kafka-consumer.properties` (`.properties` files → consumer, not owned)
+- S3, SQS, external REST, and database interfaces are extracted via LLM fallback
+  from `infra/` YAML config files (`.py` source files are not in the LLM
+  fallback suffix set)
+- Several interfaces have `null` owner (external ERP, managed RDS — not owned by
+  any org repo)
+- `py-inventory-service` is both an API owner (consumed by TypeScript) and a
+  consumer (of the TypeScript service's API and Kafka topic)
 
 ## Repository structure
 
-```
+```text
 panopticon-test-child-a/
 ├── infra/
 │   ├── database.yaml             # LLM fallback — product-catalog-db (postgres, consumer)
@@ -51,11 +60,13 @@ panopticon-test-child-a/
 - **Type:** `rest`
 - **Owner:** `py-inventory-service / api`
 - **Producer source:** `inventory/api/openapi.yaml`
-- **Consumers (other repos):** `ts-order-service` (declared in that repo's index)
+- **Consumers (other repos):** `ts-order-service` (declared in that repo's
+  index)
 - **Parser:** REST/OpenAPI — detected automatically from `openapi.yaml`
 - **Category:** owned by this repo, consumed by sibling
 
 `inventory/api/openapi.yaml` content outline:
+
 ```yaml
 openapi: "3.0.3"
 info:
@@ -81,9 +92,11 @@ paths:
 - **Extraction source:** `infra/s3-buckets.yaml`
 - **Consumers (other repos):** none
 - **Parser:** none — LLM fallback; hint in config file pins the name
-- **Category:** internal; daily snapshot bucket for audit/recovery, never shared across repos
+- **Category:** internal; daily snapshot bucket for audit/recovery, never shared
+  across repos
 
 `infra/s3-buckets.yaml` content outline:
+
 ```yaml
 buckets:
   # panopticon-interface inventory-snapshots
@@ -99,9 +112,11 @@ buckets:
 - **Extraction source:** `infra/sqs-queues.yaml`
 - **Consumers (other repos):** none
 - **Parser:** none — LLM fallback; hint in config file pins the name
-- **Category:** internal; async fulfillment task queue, never crossed to another repo
+- **Category:** internal; async fulfillment task queue, never crossed to another
+  repo
 
 `infra/sqs-queues.yaml` content outline:
+
 ```yaml
 queues:
   # panopticon-interface fulfillment-queue
@@ -113,18 +128,22 @@ queues:
 ### orders-api — external to this repo, owned by sibling
 
 - **Type:** `rest`
-- **Owner:** `null` in this repo's index (truth lives in `panopticon-test-child-b`)
+- **Owner:** `null` in this repo's index (truth lives in
+  `panopticon-test-child-b`)
 - **Extraction source:** `infra/services.yaml`
 - **Category:** cross-repo; ownership declared by `panopticon-test-child-b`
 
 ### warehouse-erp — external service, manually managed
 
 - **Type:** `rest`
-- **Owner:** `null` (third-party on-premise ERP; no org repo owns or can modify it)
+- **Owner:** `null` (third-party on-premise ERP; no org repo owns or can modify
+  it)
 - **Extraction source:** `infra/services.yaml`
-- **Category:** external; contract managed by ops team outside of version control
+- **Category:** external; contract managed by ops team outside of version
+  control
 
 `infra/services.yaml` content outline (covers orders-api and warehouse-erp):
+
 ```yaml
 services:
   # panopticon-interface orders-api
@@ -139,11 +158,15 @@ services:
 ### order-events — external to this repo, owned by sibling
 
 - **Type:** `kafka`
-- **Owner:** `null` in this repo's index (truth lives in `panopticon-test-child-b`)
-- **Extraction source:** `infra/kafka-consumer.properties` — detected by Kafka parser (filename contains "kafka"); `.properties` files are always consumer, not owned
+- **Owner:** `null` in this repo's index (truth lives in
+  `panopticon-test-child-b`)
+- **Extraction source:** `infra/kafka-consumer.properties` — detected by Kafka
+  parser (filename contains "kafka"); `.properties` files are always consumer,
+  not owned
 - **Category:** cross-repo; ownership declared by `panopticon-test-child-b`
 
 `infra/kafka-consumer.properties` content:
+
 ```properties
 # panopticon-interface order-events
 bootstrap.servers=${KAFKA_BROKERS}
@@ -154,11 +177,14 @@ group.id=inventory-consumer-group
 ### product-catalog-db — managed infrastructure, no code owner
 
 - **Type:** `postgres`
-- **Owner:** `null` (AWS RDS instance provisioned by infrastructure team via Terraform in a separate repo not enrolled in Panopticon)
+- **Owner:** `null` (AWS RDS instance provisioned by infrastructure team via
+  Terraform in a separate repo not enrolled in Panopticon)
 - **Extraction source:** `infra/database.yaml`
-- **Category:** external/infrastructure; connection details come from secrets manager, not from any org-owned service
+- **Category:** external/infrastructure; connection details come from secrets
+  manager, not from any org-owned service
 
 `infra/database.yaml` content outline:
+
 ```yaml
 databases:
   # panopticon-interface product-catalog-db
@@ -169,7 +195,11 @@ databases:
 
 ## Expected `panopticon/index.json`
 
-Repo name in the index is the GitHub repo name: `panopticon-test-child-a`. Entries marked `extracted_by: "llm"` come from LLM fallback over `infra/` config files. `order-events` has no `extracted_by` because the Kafka parser handles `infra/kafka-consumer.properties` deterministically. Component falls back to the repo name when the parser cannot infer it.
+Repo name in the index is the GitHub repo name: `panopticon-test-child-a`.
+Entries marked `extracted_by: "llm"` come from LLM fallback over `infra/` config
+files. `order-events` has no `extracted_by` because the Kafka parser handles
+`infra/kafka-consumer.properties` deterministically. Component falls back to the
+repo name when the parser cannot infer it.
 
 ```json
 {
@@ -296,12 +326,16 @@ Repo name in the index is the GitHub repo name: `panopticon-test-child-a`. Entri
 
 ## Expected compiled `interfaces/index.json` after both repos merge
 
-See `docs/test-fixtures/expected-instance/index.json` for the full authoritative file. Key structural differences from shards: `extracted_by` moves from the entry level to the repo-object level (per `compile_index` behavior in `merge.py`), and ownership is resolved across both shards. The compiled index lives at `interfaces/index.json` in the instance repo.
+See `docs/test-fixtures/expected-instance/index.json` for the full authoritative
+file. Key structural differences from shards: `extracted_by` moves from the
+entry level to the repo-object level (per `compile_index` behavior in
+`merge.py`), and ownership is resolved across both shards. The compiled index
+lives at `interfaces/index.json` in the instance repo.
 
 ## Panopticon test coverage
 
 | Scenario | Interface | Detail |
-|---|---|---|
+| --- | --- | --- |
 | Deterministic parser (REST) | `inventory-api` | `openapi.yaml` picked up automatically |
 | LLM fallback + hint | `inventory-snapshots` | No parser; `# panopticon-interface inventory-snapshots` drives name resolution |
 | LLM fallback + hint | `fulfillment-queue` | No parser; `# panopticon-interface fulfillment-queue` drives name resolution |

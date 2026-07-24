@@ -1,53 +1,84 @@
+# 2026 07 15 Readme Architecture Links Tasks
+
 ## 1. Org diagram empty-state placeholder
 
-- [x] 1.1 In `panopticon/diagrams.py`, replace `render_org_diagram`'s `if not any_section:` branch
-      (currently "No cross-repo interface or dependency relationships yet.") with the placeholder: a link to
-      `setup-guide.md#4-initialize-a-child-repo`, then a fenced block (tagged with `fmt`) containing a
+- [x] 1.1 In `panopticon/diagrams.py`, replace `render_org_diagram`'s `if not
+  any_section:` branch
+      (currently "No cross-repo interface or dependency relationships yet.")
+      with the placeholder: a link to
+      `setup-guide.md#4-initialize-a-child-repo`, then a fenced block (tagged
+      with `fmt`) containing a
       six-node `?`-labeled hexagon ring in the diagram's format.
-- [x] 1.2 Update `tests/test_diagrams.py`'s existing empty-index assertion (currently checks for "No
-      cross-repo interface or dependency relationships yet.") to assert the setup-guide link and the six `?`
+- [x] 1.2 Update `tests/test_diagrams.py`'s existing empty-index assertion
+  (currently checks for "No
+      cross-repo interface or dependency relationships yet.") to assert the
+      setup-guide link and the six `?`
       nodes are present instead.
-- [x] 1.3 Add a test confirming a populated compiled index still renders normal per-repo sections and no
-      placeholder content (guards against the empty-state branch leaking into non-empty renders).
+- [x] 1.3 Add a test confirming a populated compiled index still renders normal
+  per-repo sections and no
+      placeholder content (guards against the empty-state branch leaking into
+      non-empty renders).
 
 ## 2. Template repo seed files
 
-- [x] 2.1 Run `write_org_diagram`'s render logic (or hand-write matching output) to create this repo's own
-      `docs/architecture.md` as the placeholder content from task 1.1, so it's committed and ships with the
+- [x] 2.1 Run `write_org_diagram`'s render logic (or hand-write matching output)
+  to create this repo's own
+      `docs/architecture.md` as the placeholder content from task 1.1, so it's
+      committed and ships with the
       template.
-- [x] 2.2 Rewrite this repo's `README.md` Overview section (the paragraph between `## Overview` and the `<p
-      align="center"><img ...>` logo block): org-agnostic instance-appropriate boilerplate, then `[org
-      architecture](docs/architecture.md)`, then a maintainer note instructing the org to replace the
-      paragraph with their own description, then the existing logo image unchanged.
-- [x] 2.3 Leave `## How it works` and everything below it in `README.md` unchanged — it documents the system
+- [x] 2.2 Rewrite this repo's `README.md` Overview section (the paragraph
+  between `## Overview` and the `<p
+      align="center"><img ...>` logo block): org-agnostic instance-appropriate
+      boilerplate, then `[org
+      architecture](docs/architecture.md)`, then a maintainer note instructing
+      the org to replace the
+      paragraph with their own description, then the existing logo image
+      unchanged.
+- [x] 2.3 Leave `## How it works` and everything below it in `README.md`
+  unchanged — it documents the system
       generally and applies to both template and instance repos.
 
 ## 3. Child repo README links
 
-- [x] 3.1 Add a rule to `.agents/skills/panopticon-doc-generation/SKILL.md` (alongside the existing
-      `## Architecture diagram` back-link rule) instructing the skill to write/refresh two links at the top of
-      `README.md`: `[{repo} architecture]({docs_location}/architecture.md)` above `[org
+- [x] 3.1 Add a rule to `.agents/skills/panopticon-doc-generation/SKILL.md`
+  (alongside the existing
+      `## Architecture diagram` back-link rule) instructing the skill to
+      write/refresh two links at the top of
+      `README.md`: `[{repo} architecture]({docs_location}/architecture.md)`
+      above `[org
       architecture](https://github.com/{instance}/blob/{instance_default_branch}/docs/architecture.md#{repo})`.
-- [x] 3.2 Document the org-link derivation rule inline in that skill instruction: run `python3 -m
-      panopticon.org_diagram_link` and use its printed output verbatim as the org link, rather than
-      re-deriving `org_diagram_link.py`'s config/fallback/failure logic in prose — stop and report if the
+- [x] 3.2 Document the org-link derivation rule inline in that skill
+  instruction: run `python3 -m
+      panopticon.org_diagram_link` and use its printed output verbatim as the
+      org link, rather than
+      re-deriving `org_diagram_link.py`'s config/fallback/failure logic in prose
+      — stop and report if the
       script exits non-zero.
 
 ## 4. Instance repo README link
 
-- [x] 4.1 Confirm (via the rewritten template Overview from task 2.2) that the instance repo's own
-      `[org architecture](docs/architecture.md)` link is the only diagram link present — no per-child-repo
-      links — since that content is seeded directly from the template and not generated by any instance-side
+- [x] 4.1 Confirm (via the rewritten template Overview from task 2.2) that the
+  instance repo's own
+      `[org architecture](docs/architecture.md)` link is the only diagram link
+      present — no per-child-repo
+      links — since that content is seeded directly from the template and not
+      generated by any instance-side
       tooling.
 
 ## 5. Verification
 
-- [x] 5.1 Run the full test suite (`python3 -m unittest discover -t . -s tests` per `docs/testing.md`) and
+- [x] 5.1 Run the full test suite (`python3 -m unittest discover -t . -s tests`
+  per `docs/testing.md`) and
       confirm the updated `test_diagrams.py` assertions pass. 475/475 passed.
-- [x] 5.2 Manually render `write_org_diagram` against an empty instance fixture and inspect the output matches
-      the spec's placeholder scenario (link + hexagon). Verified end-to-end against a fresh temp instance
+- [x] 5.2 Manually render `write_org_diagram` against an empty instance fixture
+  and inspect the output matches
+      the spec's placeholder scenario (link + hexagon). Verified end-to-end
+      against a fresh temp instance
       root with no compiled index files present.
-- [x] 5.3 Update README.md and docs/spec.md to reflect any user-facing or architectural changes introduced by
-      this change. `docs/spec.md` doesn't exist in this repo (specs live in `openspec/specs/`, covered by this
-      change's spec delta); also updated `docs/setup-guide.md` §7, `PANOPTICON.md`, and `docs/testing.md` for
+- [x] 5.3 Update README.md and docs/spec.md to reflect any user-facing or
+  architectural changes introduced by
+      this change. `docs/spec.md` doesn't exist in this repo (specs live in
+      `openspec/specs/`, covered by this
+      change's spec delta); also updated `docs/setup-guide.md` §7,
+      `PANOPTICON.md`, and `docs/testing.md` for
       consistency (hygienist pass).

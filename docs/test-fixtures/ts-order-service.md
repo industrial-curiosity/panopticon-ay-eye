@@ -2,20 +2,27 @@
 
 [panopticon-test-child-b](https://github.com/industrial-curiosity/panopticon-test-child-b)
 
-Test fixture repo representing a TypeScript order management service. Covers: internal-only interfaces, externally owned interfaces, and interfaces owned here and consumed by `py-inventory-service`.
+Test fixture repo representing a TypeScript order management service. Covers:
+internal-only interfaces, externally owned interfaces, and interfaces owned here
+and consumed by `py-inventory-service`.
 
 ## Purpose
 
 Exercises Panopticon against a TypeScript repo where:
+
 - The REST/OpenAPI parser picks up an owned API (`src/api/openapi.yaml`)
-- The Kafka parser picks up an owned event topic (`src/events/kafka-topics.yaml`)
-- S3, SQS, and external REST clients are extracted via LLM fallback from `infra/` YAML config files (`.ts` source files are not in the LLM fallback suffix set)
+- The Kafka parser picks up an owned event topic
+  (`src/events/kafka-topics.yaml`)
+- S3, SQS, and external REST clients are extracted via LLM fallback from
+  `infra/` YAML config files (`.ts` source files are not in the LLM fallback
+  suffix set)
 - Several interfaces have `null` owner (external services, manually managed)
-- `ts-order-service` is both an API owner (consumed by Python) and a consumer (of the Python service's API)
+- `ts-order-service` is both an API owner (consumed by Python) and a consumer
+  (of the Python service's API)
 
 ## Repository structure
 
-```
+```text
 panopticon-test-child-b/
 ├── infra/
 │   ├── s3-buckets.yaml           # LLM fallback — order-attachments-bucket (s3, owned)
@@ -50,11 +57,13 @@ panopticon-test-child-b/
 - **Type:** `rest`
 - **Owner:** `ts-order-service / api`
 - **Producer source:** `src/api/openapi.yaml`
-- **Consumers (other repos):** `py-inventory-service` (declared in that repo's index)
+- **Consumers (other repos):** `py-inventory-service` (declared in that repo's
+  index)
 - **Parser:** REST/OpenAPI — detected automatically from `openapi.yaml`
 - **Category:** owned by this repo, consumed by sibling
 
 `src/api/openapi.yaml` content outline:
+
 ```yaml
 openapi: "3.0.3"
 info:
@@ -82,6 +91,7 @@ paths:
 - **Category:** owned by this repo, consumed by sibling
 
 `src/events/kafka-topics.yaml` content outline:
+
 ```yaml
 # panopticon-interface order-events
 topics:
@@ -103,6 +113,7 @@ topics:
 - **Category:** internal; never crosses repo boundaries
 
 `infra/sqs-queues.yaml` content outline:
+
 ```yaml
 queues:
   # panopticon-interface order-processing-queue
@@ -122,6 +133,7 @@ queues:
 - **Category:** internal; used for temporary file storage (receipts, uploads)
 
 `infra/s3-buckets.yaml` content outline:
+
 ```yaml
 buckets:
   # panopticon-interface order-attachments-bucket
@@ -152,6 +164,7 @@ buckets:
 - **Category:** external; manually managed contract with shipping vendor
 
 `infra/services.yaml` content outline (covers all three consumer entries above):
+
 ```yaml
 services:
   # panopticon-interface inventory-api
@@ -167,7 +180,11 @@ services:
 
 ## Expected `panopticon/index.json`
 
-Repo name in the index is the GitHub repo name: `panopticon-test-child-b`. Entries marked `extracted_by: "llm"` come from LLM fallback over `infra/` config files. Deterministic-parser entries have no `extracted_by`. Component falls back to the repo name when the parser cannot infer it; LLM extraction uses the component inferred from the config file structure.
+Repo name in the index is the GitHub repo name: `panopticon-test-child-b`.
+Entries marked `extracted_by: "llm"` come from LLM fallback over `infra/` config
+files. Deterministic-parser entries have no `extracted_by`. Component falls back
+to the repo name when the parser cannot infer it; LLM extraction uses the
+component inferred from the config file structure.
 
 ```json
 {
@@ -298,7 +315,7 @@ Repo name in the index is the GitHub repo name: `panopticon-test-child-b`. Entri
 ## Panopticon test coverage
 
 | Scenario | Interface | Detail |
-|---|---|---|
+| --- | --- | --- |
 | Deterministic parser (REST) | `orders-api` | `src/api/openapi.yaml` matched by REST parser; component falls back to repo name |
 | Deterministic parser (Kafka) | `order-events` | `src/events/kafka-topics.yaml` matched by Kafka parser; `partitions:` present → producer |
 | LLM fallback + hint | `order-processing-queue` | `infra/sqs-queues.yaml` fed to LLM; hint pins name; entry tagged `extracted_by: "llm"` |
