@@ -6,7 +6,7 @@ All notable changes to Panopticon are documented in this file.
 
 ### Added
 
-- Instance-owned **Configure Panopticon** workflow with explicit LiteLLM or Bedrock selection and
+- Instance-owned **Configure Panopticon — LiteLLM** and **Configure Panopticon — Bedrock** workflows with
   configurable organization secret/variable names; the template no longer selects a provider implicitly.
 - Separate LiteLLM and native Bedrock Converse/OIDC reusable PR workflows, including provider preflight,
   caller configuration revisions, and a pinned CI-only boto3 dependency.
@@ -15,8 +15,8 @@ All notable changes to Panopticon are documented in this file.
 
 ### Changed
 
-- Configure Panopticon now presents separate optional inputs for each request/job-budget variable name,
-  clearly identifies the instance checkout secret as a GitHub-token secret, and gives a model-value example.
+- Provider configuration now uses fixed LiteLLM and Bedrock entrypoints that show only relevant fields,
+  share one validated persistence action, and provide both recovery paths when an instance is unconfigured.
 - Bedrock setup now offers a clear choice between direct GitHub OIDC (AWS region plus IAM role ARN)
   and a fixed instance-managed credentials action; the latter requires neither AWS organization variable.
 - Child bootstrap validates provider configuration before writing, maps organization names explicitly

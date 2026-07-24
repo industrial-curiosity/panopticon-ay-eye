@@ -31,9 +31,9 @@ jobs:
               workflow_ref = os.environ["GITHUB_WORKFLOW_REF"]
               instance = workflow_ref.split("/.github/workflows/", 1)[0]
               branch = "main"
-          actions_url = (
-              f"https://github.com/{instance}/actions/workflows/configure-panopticon.yml"
-          )
+          workflow_url = f"https://github.com/{instance}/actions/workflows"
+          litellm_url = f"{workflow_url}/configure-panopticon-litellm.yml"
+          bedrock_url = f"{workflow_url}/configure-panopticon-bedrock.yml"
           installer = (
               "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
               "panopticon-ay-eye/main/install.py | "
@@ -41,16 +41,22 @@ jobs:
           )
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
               summary.write("## This child caller is obsolete\n\n")
-              summary.write("First ensure the instance has an explicit provider:\n\n")
-              summary.write(f"1. Open {actions_url}\n")
+              summary.write("First choose and configure exactly one instance provider:\n\n")
+              summary.write(f"- LiteLLM: {litellm_url}\n")
+              summary.write(f"- Bedrock: {bedrock_url}\n\n")
+              summary.write("1. Open the workflow for the provider the instance will use.\n")
               summary.write("2. Select **Run workflow**.\n")
               summary.write(f"3. Select branch `{branch}`.\n")
-              summary.write("4. Select LiteLLM or Bedrock and review the name fields.\n")
+              summary.write("4. Review the name fields; enter names only, never values.\n")
               summary.write("5. Run it and wait for the green completed configuration commit.\n\n")
-              summary.write("Equivalent CLI command (LiteLLM defaults shown):\n\n~~~bash\n")
+              summary.write("Equivalent CLI commands (run exactly one):\n\n~~~bash\n")
               summary.write(
-                  f"gh workflow run configure-panopticon.yml --repo {instance} "
-                  f"--ref {branch} -f provider=litellm\n"
+                  f"gh workflow run configure-panopticon-litellm.yml --repo {instance} "
+                  f"--ref {branch}\n"
+              )
+              summary.write(
+                  f"gh workflow run configure-panopticon-bedrock.yml --repo {instance} "
+                  f"--ref {branch}\n"
               )
               summary.write(f"gh run watch --repo {instance}\n~~~\n\n")
               summary.write("Then run this from inside the child clone:\n\n~~~bash\n")

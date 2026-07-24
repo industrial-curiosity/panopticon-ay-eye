@@ -12,19 +12,23 @@ def child_bootstrap_command(instance):
 
 def configuration_recovery(instance, branch):
     """Return terminal-friendly recovery for an unconfigured instance."""
-    actions_url = f"https://github.com/{instance}/actions/workflows/configure-panopticon.yml"
+    workflow_url = f"https://github.com/{instance}/actions/workflows"
+    litellm_url = f"{workflow_url}/configure-panopticon-litellm.yml"
+    bedrock_url = f"{workflow_url}/configure-panopticon-bedrock.yml"
     return f"""Configure the Panopticon instance before bootstrapping a child repository.
 
-GitHub Actions console:
-  1. Open {actions_url}
+GitHub Actions console (choose exactly one provider):
+  LiteLLM: {litellm_url}
+  Bedrock: {bedrock_url}
+  1. Open the workflow for the provider the instance will use.
   2. Select Run workflow.
   3. Select branch {branch}.
-  4. Replace select-a-provider with litellm or bedrock.
-  5. Review the secret and variable name fields; enter names only, never values.
-  6. Select Run workflow and wait for the green completed run that commits panopticon.config.json.
+  4. Review the secret and variable name fields; enter names only, never values.
+  5. Select Run workflow and wait for the green completed run that commits panopticon.config.json.
 
-Equivalent GitHub CLI command (example selects LiteLLM with documented default names):
-  gh workflow run configure-panopticon.yml --repo {instance} --ref {branch} -f provider=litellm
+Equivalent GitHub CLI commands (run exactly one):
+  gh workflow run configure-panopticon-litellm.yml --repo {instance} --ref {branch}
+  gh workflow run configure-panopticon-bedrock.yml --repo {instance} --ref {branch}
   gh run watch --repo {instance}
 
 Then rerun child bootstrap from inside the child repository clone:

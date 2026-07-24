@@ -52,9 +52,9 @@ _REQUEST_BUDGETS = {
 }
 
 SETUP_HINT = (
-    "Run Configure Panopticon in the instance repo, configure the org-level Actions "
-    "names it reports, and rerun child bootstrap so the caller maps those names explicitly "
-    "(see docs/setup-guide.md in the Panopticon template repo)."
+    "Run the matching provider-specific Configure Panopticon workflow in the instance repo, "
+    "configure the org-level Actions names it reports, and rerun child bootstrap so the caller "
+    "maps those names explicitly (see docs/setup-guide.md in the Panopticon template repo)."
 )
 
 PURPOSES = {

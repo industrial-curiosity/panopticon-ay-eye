@@ -64,11 +64,17 @@ does not offer a repository, workflow path, or ref input, so it cannot redirect 
 
 The template deliberately starts with no LLM provider selected. In the instance repo:
 
-1. Open **Actions → Configure Panopticon** at
-   `https://github.com/YOUR-ORG/YOUR-INSTANCE-REPO/actions/workflows/configure-panopticon.yml`.
-2. Select **Run workflow**, choose the instance's default branch, and replace
-   `select-a-provider` with `litellm` or `bedrock`.
-3. For Bedrock, choose the credential path that matches your organization:
+1. Choose exactly one provider workflow:
+   - **Actions → Configure Panopticon — LiteLLM
+     (https://github.com/YOUR-ORG/YOUR-INSTANCE-REPO/actions/workflows/configure-panopticon-litellm.yml)**
+   - **Actions → Configure Panopticon — Bedrock
+     (https://github.com/YOUR-ORG/YOUR-INSTANCE-REPO/actions/workflows/configure-panopticon-bedrock.yml)**
+
+   Replace `YOUR-ORG/YOUR-INSTANCE-REPO` with your instance, for example
+   `acme/panopticon-instance`.
+2. Select **Run workflow** and choose the instance's default branch. The workflow fixes the provider
+   identity and displays only that provider's configuration fields.
+3. If you chose Bedrock, select the credential path that matches your organization:
    - **github-oidc** (the default) has Panopticon assume an IAM role directly. It requires the
      AWS region and IAM role ARN organization variables described below.
    - **instance-managed** uses the fixed, reviewed instance action at
@@ -90,13 +96,15 @@ The template deliberately starts with no LLM provider selected. In the instance 
    - Each request and job budget has its own optional input with a default: request timeout,
      transport attempts, structured-response correction attempts, and PR-evaluation job timeout.
      Leave each default unless you use a custom organization variable name; no JSON is required.
-4. Select **Run workflow** and wait for a green completed run that commits
+5. Select **Run workflow** and wait for a green completed run that commits
    `panopticon.config.json`.
 
-The equivalent CLI command with LiteLLM and the documented names is:
+The equivalent CLI commands are below. Run exactly one, replacing
+`YOUR-ORG/YOUR-INSTANCE-REPO` with your instance; for example, `acme/panopticon-instance`.
 
 ```bash
-gh workflow run configure-panopticon.yml --repo YOUR-ORG/YOUR-INSTANCE-REPO --ref main -f provider=litellm
+gh workflow run configure-panopticon-litellm.yml --repo YOUR-ORG/YOUR-INSTANCE-REPO --ref main
+gh workflow run configure-panopticon-bedrock.yml --repo YOUR-ORG/YOUR-INSTANCE-REPO --ref main
 gh run watch --repo YOUR-ORG/YOUR-INSTANCE-REPO
 ```
 
@@ -116,8 +124,9 @@ endpoint and API key.
 3. Grant that role `bedrock:InvokeModel` on the selected model or inference-profile resources. Converse uses
    that permission; inference profiles may also require `bedrock:GetInferenceProfile`. See AWS's
    [Bedrock inference prerequisites](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-prereq.html).
-4. Put the role ARN and region into the organization variables named by **Configure Panopticon**, and use a
-   model identifier documented as Converse-compatible. No long-lived AWS access-key secret is required.
+4. Put the role ARN and region into the organization variables named by
+   **Configure Panopticon — Bedrock**, and use a model identifier documented as Converse-compatible.
+   No long-lived AWS access-key secret is required.
 
 ### Bedrock instance-managed credential action checklist
 
@@ -126,14 +135,17 @@ endpoint and API key.
 2. Have the action configure AWS credentials using your organization's approved mechanism.
 3. Have the action write the selected region to `$GITHUB_ENV`, for example
    `echo "PANOPTICON_AWS_REGION=us-east-1" >> "$GITHUB_ENV"`.
-4. Select `instance-managed` in **Configure Panopticon**. Do not create
+4. Select `instance-managed` in **Configure Panopticon — Bedrock**. Do not create
    `PANOPTICON_AWS_REGION` or `PANOPTICON_AWS_ROLE_ARN` solely for Panopticon in this mode.
 
-For an existing instance, sync the provider workflows first, run **Configure Panopticon**, and only then
-rerun bootstrap in every child. Review, commit, and push each generated caller change before removing old
-secret names or workflow versions. If the instance-token secret name changes, keep the old secret available
-until every child caller has been regenerated; removing it early can prevent instance checkout before the
-workflow can diagnose a stale revision.
+For an existing instance, sync the template to replace the generic configuration workflow with both
+provider-specific entrypoints. An already configured instance does not need to rerun configuration or child
+bootstrap solely because of this workflow split. If you change the provider, credential mode, or configured
+names, run the matching configuration workflow and then rerun bootstrap in every child. Review, commit, and
+push each generated caller change before removing old secret names or workflow versions. If the
+instance-token secret name changes, keep the old secret available until every child caller has been
+regenerated; removing it early can prevent instance checkout before the workflow can diagnose a stale
+revision.
 
 ### 2.1 Configure org-level secrets and variables
 

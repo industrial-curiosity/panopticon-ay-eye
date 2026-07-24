@@ -21,7 +21,8 @@ When omitted, callers resolve the effective ref themselves (e.g. the instance re
 branch, fetched live) — this module has no network access and so has no way to know that ref
 locally; it reports ``None`` rather than guessing a value like a tag that may not exist.
 The template omits ``llm`` deliberately. General config consumers receive ``None``; provider-dependent
-paths call ``provider_contract`` and fail loudly until Configure Panopticon persists a valid contract.
+paths call ``provider_contract`` and fail loudly until the matching provider-specific Configure
+Panopticon workflow persists a valid contract.
 
 **Repo config** — ``panopticon/config.json`` in a child repo: doubles as the initialization flag
 and records repo-level settings:

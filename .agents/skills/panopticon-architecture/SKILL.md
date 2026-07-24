@@ -42,7 +42,10 @@ the user's agent.
 ## Provider-agnostic agents
 
 An instance explicitly selects one built-in CI provider contract through the
-`Configure Panopticon` workflow; the template has no implicit provider.
+fixed-provider `Configure Panopticon — LiteLLM` or `Configure Panopticon —
+Bedrock` workflow; the template has no implicit provider. Those two manual
+entrypoints expose only provider-relevant Actions names and share one local
+configuration action for validation and persistence.
 LiteLLM-compatible HTTP and native Bedrock Converse through GitHub OIDC are
 separate reusable workflow entrypoints. The trusted provider registry owns
 their workflow paths, permissions, logical inputs, and default Actions names;

@@ -1,0 +1,77 @@
+# Instance bootstrap: configures the organization-wide Bedrock provider using names only.
+name: Configure Panopticon — Bedrock
+
+on:
+  workflow_dispatch:
+    inputs:
+      credential_mode:
+        description: "Credential mode: github-oidc uses region and IAM role names; instance-managed uses the fixed action"
+        required: false
+        type: choice
+        default: github-oidc
+        options:
+          - github-oidc
+          - instance-managed
+      instance_token_name:
+        description: Organization secret name for the GitHub token that checks out the private instance repo
+        required: false
+        default: PANOPTICON_INSTANCE_TOKEN
+      model_variable_name:
+        description: Organization variable name for the Bedrock model (value example anthropic.claude-3-5-sonnet)
+        required: false
+        default: PANOPTICON_LLM_MODEL
+      aws_region_variable_name:
+        description: GitHub-OIDC AWS region variable name (value example us-east-1; ignored for instance-managed)
+        required: false
+        default: PANOPTICON_AWS_REGION
+      aws_role_arn_variable_name:
+        description: >-
+          GitHub-OIDC IAM role ARN variable name (value example
+          arn:aws:iam::123456789012:role/panopticon-bedrock; ignored for instance-managed)
+        required: false
+        default: PANOPTICON_AWS_ROLE_ARN
+      timeout_seconds_variable_name:
+        description: Organization variable name for the per-request timeout
+        required: false
+        default: PANOPTICON_LLM_TIMEOUT_SECONDS
+      max_attempts_variable_name:
+        description: Organization variable name for transport attempts
+        required: false
+        default: PANOPTICON_LLM_MAX_ATTEMPTS
+      max_correction_attempts_variable_name:
+        description: Organization variable name for structured-response correction attempts
+        required: false
+        default: PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS
+      job_timeout_minutes_variable_name:
+        description: Organization variable name for the PR-evaluation job timeout
+        required: false
+        default: PANOPTICON_LLM_JOB_TIMEOUT_MINUTES
+
+permissions:
+  contents: write
+
+concurrency:
+  group: panopticon-provider-configuration-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the instance
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Configure Bedrock
+        uses: ./.github/actions/configure-panopticon
+        with:
+          provider: bedrock
+          credential-mode: ${{ inputs.credential_mode }}
+          instance-token-name: ${{ inputs.instance_token_name }}
+          model-variable-name: ${{ inputs.model_variable_name }}
+          aws-region-variable-name: ${{ inputs.aws_region_variable_name }}
+          aws-role-arn-variable-name: ${{ inputs.aws_role_arn_variable_name }}
+          timeout-seconds-variable-name: ${{ inputs.timeout_seconds_variable_name }}
+          max-attempts-variable-name: ${{ inputs.max_attempts_variable_name }}
+          max-correction-attempts-variable-name: ${{ inputs.max_correction_attempts_variable_name }}
+          job-timeout-minutes-variable-name: ${{ inputs.job_timeout_minutes_variable_name }}
+          target-branch: ${{ github.ref_name }}

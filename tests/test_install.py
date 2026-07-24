@@ -636,8 +636,15 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
                 )
             self.assertEqual(list(Path(tmp).iterdir()), [])
         self.assertEqual(code, 1)
-        self.assertIn("actions/workflows/configure-panopticon.yml", out.getvalue())
-        self.assertIn("gh workflow run configure-panopticon.yml --repo acme/instance", out.getvalue())
+        for provider in ("litellm", "bedrock"):
+            self.assertIn(
+                f"actions/workflows/configure-panopticon-{provider}.yml",
+                out.getvalue(),
+            )
+            self.assertIn(
+                f"gh workflow run configure-panopticon-{provider}.yml --repo acme/instance",
+                out.getvalue(),
+            )
         self.assertIn(
             "| PANOPTICON_INSTANCE='acme/instance' python3", out.getvalue()
         )
@@ -804,9 +811,15 @@ class TestProviderBootstrapErrors(unittest.TestCase):
 
     def test_provider_remediation_has_ordered_console_and_cli_instructions(self):
         text = provider_remediation("acme/instance", "trunk")
-        self.assertIn("1. Open https://github.com/acme/instance/actions/workflows/", text)
+        self.assertIn("GitHub Actions console (choose exactly one provider)", text)
+        self.assertIn("1. Open the workflow for the provider", text)
         self.assertIn("3. Select branch trunk", text)
-        self.assertIn("gh workflow run configure-panopticon.yml --repo acme/instance --ref trunk", text)
+        for provider in ("litellm", "bedrock"):
+            self.assertIn(
+                f"gh workflow run configure-panopticon-{provider}.yml "
+                "--repo acme/instance --ref trunk",
+                text,
+            )
         self.assertIn("wait for the green completed run", text)
         self.assertIn(
             "| PANOPTICON_INSTANCE='acme/instance' python3",

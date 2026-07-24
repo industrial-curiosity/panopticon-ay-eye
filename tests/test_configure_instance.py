@@ -1,12 +1,14 @@
 """Instance provider configuration writes validated names and preserves unrelated settings."""
 
+import contextlib
 import json
+from io import StringIO
 import tempfile
 import unittest
 from pathlib import Path
 
 from panopticon.configure_instance import configure, main
-from panopticon.providers import ProviderConfigError
+from panopticon.providers import ProviderConfigError, resolve_provider_contract
 
 
 class TestConfigureInstance(unittest.TestCase):
@@ -52,7 +54,7 @@ class TestConfigureInstance(unittest.TestCase):
             path.write_text('{"schema_version": 1}\n')
             before = path.read_bytes()
             with self.assertRaises(ProviderConfigError):
-                configure(tmp, "select-a-provider", {})
+                configure(tmp, "mystery", {})
             self.assertEqual(path.read_bytes(), before)
 
     def test_invalid_name_does_not_modify_config(self):
@@ -106,13 +108,20 @@ class TestConfigureInstance(unittest.TestCase):
             configure(tmp, "litellm", self.litellm_names())
             self.assertEqual(path.read_bytes(), first)
 
-    def test_cli_rejects_sentinel_without_writing(self):
+    def test_workflow_split_does_not_change_effective_contract_revision(self):
+        expected = resolve_provider_contract({"provider": "litellm"})["revision"]
+        with tempfile.TemporaryDirectory() as tmp:
+            configured = configure(tmp, "litellm", self.litellm_names())
+        self.assertEqual(resolve_provider_contract(configured)["revision"], expected)
+
+    def test_cli_rejects_unknown_provider_without_writing(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "panopticon.config.json"
             path.write_text('{"schema_version": 1}\n')
-            with self.assertRaises(SystemExit) as ctx:
-                main(["--instance-root", tmp, "--provider", "select-a-provider"])
-            self.assertIn("select a supported provider", str(ctx.exception))
+            with contextlib.redirect_stderr(StringIO()):
+                with self.assertRaises(SystemExit) as ctx:
+                    main(["--instance-root", tmp, "--provider", "mystery"])
+            self.assertEqual(ctx.exception.code, 2)
             self.assertEqual(json.loads(path.read_text()), {"schema_version": 1})
 
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github" / "workflows"
+CONFIGURATION_ACTION = ROOT / ".github" / "actions" / "configure-panopticon" / "action.yml"
 COMMON_PR_PHASES = (
     "Initialization check",
     "Validate provider inputs",
@@ -62,41 +63,61 @@ class TestProviderWorkflows(unittest.TestCase):
     def test_legacy_guard_prints_configuration_and_exact_bootstrap_commands(self):
         text = self.workflow("panopticon-pr.yml")
         self.assertNotIn("panopticon.drift", text)
-        self.assertIn("actions/workflows/configure-panopticon.yml", text)
-        self.assertIn("gh workflow run configure-panopticon.yml", text)
+        for provider in ("litellm", "bedrock"):
+            self.assertIn(f"configure-panopticon-{provider}.yml", text)
+            self.assertIn(f"gh workflow run configure-panopticon-{provider}.yml", text)
         self.assertIn("| ", text)
         self.assertIn("PANOPTICON_INSTANCE='", text)
         self.assertIn('child_config.get("instance_default_branch") or "main"', text)
         self.assertNotIn("GITHUB_REF_NAME", text)
         self.assertNotIn("export PANOPTICON_INSTANCE", text)
+        self.assertNotIn("select-a-provider", text)
 
-    def test_configuration_workflow_uses_clear_optional_name_inputs(self):
-        text = self.workflow("configure-panopticon.yml")
-        self.assertIn("default: select-a-provider", text)
-        self.assertIn("- bedrock", text)
-        self.assertIn("- litellm", text)
-        self.assertIn("instance_token_name:", text)
-        self.assertIn("GitHub token that checks out the private instance repo", text)
-        self.assertIn("e.g. value gpt-4o-mini for LiteLLM", text)
-        self.assertIn("Bedrock AWS region variable name", text)
-        self.assertIn("Bedrock IAM role ARN variable name", text)
-        self.assertIn("instance-managed uses the fixed instance action", text)
-        for input_name in (
+    def test_provider_configuration_workflows_are_fixed_and_isolated(self):
+        common_inputs = (
+            "instance_token_name:",
+            "model_variable_name:",
             "timeout_seconds_variable_name:",
             "max_attempts_variable_name:",
             "max_correction_attempts_variable_name:",
             "job_timeout_minutes_variable_name:",
-        ):
-            with self.subTest(input_name=input_name):
-                self.assertIn(input_name, text)
-        self.assertNotIn("budget_variable_names", text)
-        self.assertNotIn("json.loads", text)
-        self.assertNotIn("secret_value", text)
-        self.assertNotIn("api_key_value", text)
+        )
+        expected_provider_inputs = {
+            "litellm": ("api_key_name:", "endpoint_variable_name:"),
+            "bedrock": (
+                "credential_mode:",
+                "aws_region_variable_name:",
+                "aws_role_arn_variable_name:",
+            ),
+        }
+        excluded_provider_inputs = {
+            "litellm": expected_provider_inputs["bedrock"],
+            "bedrock": expected_provider_inputs["litellm"],
+        }
+        for provider in ("litellm", "bedrock"):
+            text = self.workflow(f"configure-panopticon-{provider}.yml")
+            self.assertIn(f"provider: {provider}", text)
+            self.assertNotIn("provider:\n", text.split("inputs:", 1)[1].split("permissions:", 1)[0])
+            self.assertIn("contents: write", text)
+            self.assertIn("uses: ./.github/actions/configure-panopticon", text)
+            self.assertIn("group: panopticon-provider-configuration-${{ github.ref }}", text)
+            for input_name in common_inputs + expected_provider_inputs[provider]:
+                with self.subTest(provider=provider, input_name=input_name):
+                    self.assertIn(input_name, text)
+            for input_name in excluded_provider_inputs[provider]:
+                with self.subTest(provider=provider, excluded=input_name):
+                    self.assertNotIn(input_name, text)
+            self.assertNotIn("select-a-provider", text)
+            self.assertNotIn("secret_value", text)
+            self.assertNotIn("api_key_value", text)
 
-    def test_configuration_workflow_reports_noop_and_push_failure(self):
-        text = self.workflow("configure-panopticon.yml")
+    def test_configuration_action_preserves_shared_behavior(self):
+        text = CONFIGURATION_ACTION.read_text(encoding="utf-8")
         self.assertIn("PYTHONPATH: ${{ github.workspace }}", text)
+        self.assertIn("from panopticon.configure_instance import configure", text)
+        self.assertIn("Panopticon provider configuration is invalid", text)
+        self.assertIn("GITHUB_STEP_SUMMARY", text)
+        self.assertIn("No credential values were accepted or persisted", text)
         self.assertIn("git diff --quiet -- panopticon.config.json", text)
         self.assertIn("Configuration already matches", text)
         self.assertIn("could not be pushed", text)
@@ -105,7 +126,6 @@ class TestProviderWorkflows(unittest.TestCase):
 
     def test_workflow_failure_paths_write_actionable_summaries(self):
         expected_summary_text = {
-            "configure-panopticon.yml": "Panopticon provider configuration is invalid",
             "panopticon-pr-close.yml": "Panopticon instance branch cleanup failed",
             "panopticon-merge.yml": "Panopticon merge sync failed",
             "panopticon-pr-bedrock.yml": "Unsupported Bedrock credential mode",
@@ -117,6 +137,10 @@ class TestProviderWorkflows(unittest.TestCase):
                 self.assertIn(reason, text)
                 self.assertIn("GITHUB_STEP_SUMMARY", text)
                 self.assertIn("see the step summary", text)
+        configuration_action = CONFIGURATION_ACTION.read_text(encoding="utf-8")
+        self.assertIn("Panopticon provider configuration is invalid", configuration_action)
+        self.assertIn("GITHUB_STEP_SUMMARY", configuration_action)
+        self.assertIn("see the step summary", configuration_action)
 
     def test_merge_and_close_accept_only_canonical_instance_token(self):
         for name in ("panopticon-merge.yml", "panopticon-pr-close.yml"):

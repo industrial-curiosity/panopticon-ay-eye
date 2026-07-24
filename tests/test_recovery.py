@@ -13,19 +13,23 @@ from panopticon.recovery import (
 class TestRecoveryOutput(unittest.TestCase):
     def test_configuration_recovery_has_console_cli_and_bootstrap_paths(self):
         text = configuration_recovery("acme/private-instance", "trunk")
-        self.assertIn(
-            "https://github.com/acme/private-instance/actions/workflows/configure-panopticon.yml",
-            text,
-        )
-        self.assertIn(
-            "gh workflow run configure-panopticon.yml --repo acme/private-instance --ref trunk",
-            text,
-        )
+        for provider in ("litellm", "bedrock"):
+            self.assertIn(
+                "https://github.com/acme/private-instance/actions/workflows/"
+                f"configure-panopticon-{provider}.yml",
+                text,
+            )
+            self.assertIn(
+                f"gh workflow run configure-panopticon-{provider}.yml "
+                "--repo acme/private-instance --ref trunk",
+                text,
+            )
         self.assertIn(
             "PANOPTICON_INSTANCE='acme/private-instance' python3",
             text,
         )
         self.assertNotIn("export PANOPTICON_INSTANCE", text)
+        self.assertNotIn("select-a-provider", text)
 
     def test_private_instance_recovery_uses_its_custom_branch_everywhere(self):
         instance = "acme/private-instance"
@@ -33,18 +37,22 @@ class TestRecoveryOutput(unittest.TestCase):
         self.assertEqual(
             configuration_recovery(instance, branch),
             "Configure the Panopticon instance before bootstrapping a child repository.\n\n"
-            "GitHub Actions console:\n"
-            "  1. Open https://github.com/acme/private-instance/actions/workflows/"
-            "configure-panopticon.yml\n"
+            "GitHub Actions console (choose exactly one provider):\n"
+            "  LiteLLM: https://github.com/acme/private-instance/actions/workflows/"
+            "configure-panopticon-litellm.yml\n"
+            "  Bedrock: https://github.com/acme/private-instance/actions/workflows/"
+            "configure-panopticon-bedrock.yml\n"
+            "  1. Open the workflow for the provider the instance will use.\n"
             "  2. Select Run workflow.\n"
             "  3. Select branch release/2026-07.\n"
-            "  4. Replace select-a-provider with litellm or bedrock.\n"
-            "  5. Review the secret and variable name fields; enter names only, never values.\n"
-            "  6. Select Run workflow and wait for the green completed run that commits "
+            "  4. Review the secret and variable name fields; enter names only, never values.\n"
+            "  5. Select Run workflow and wait for the green completed run that commits "
             "panopticon.config.json.\n\n"
-            "Equivalent GitHub CLI command (example selects LiteLLM with documented default names):\n"
-            "  gh workflow run configure-panopticon.yml --repo acme/private-instance "
-            "--ref release/2026-07 -f provider=litellm\n"
+            "Equivalent GitHub CLI commands (run exactly one):\n"
+            "  gh workflow run configure-panopticon-litellm.yml --repo acme/private-instance "
+            "--ref release/2026-07\n"
+            "  gh workflow run configure-panopticon-bedrock.yml --repo acme/private-instance "
+            "--ref release/2026-07\n"
             "  gh run watch --repo acme/private-instance\n\n"
             "Then rerun child bootstrap from inside the child repository clone:\n"
             "  curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"

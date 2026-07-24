@@ -60,7 +60,7 @@ def configure(instance_root, provider, names, credential_mode=None):
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--instance-root", default=".")
-    parser.add_argument("--provider", required=True, choices=("select-a-provider", *PROVIDERS))
+    parser.add_argument("--provider", required=True, choices=tuple(PROVIDERS))
     parser.add_argument("--credential-mode")
     logical_names = {
         logical: default
