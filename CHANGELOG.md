@@ -23,9 +23,19 @@ All notable changes to Panopticon are documented in this file.
   without `secrets: inherit`, and prints complete Actions-console, `gh`, and exact child-bootstrap recovery.
 - The legacy PR workflow now fails loudly with migration instructions so stale child callers never run
   against an accidental provider contract.
+- Instance template synchronization now delegates to a fixed, template-owned reusable workflow, allowing
+  synchronization fixes to take effect on the next run without first updating each instance caller.
 - Template sync now keeps explicit `protected_paths`, the protected diagram configuration, and an
   existing generated organization diagram; unprotected template-managed customizations can update or
   conflict.
+- The README now ends with a video thumbnail whose external YouTube link opens in a new browser tab.
+
+### Fixed
+
+- Configuration, provider evaluation, merge synchronization, and PR cleanup workflows now put actionable
+  failure reasons and recovery instructions in the GitHub Actions step summary.
+- Configure Panopticon now imports its checked-out Python tooling successfully on clean GitHub-hosted
+  runners.
 
 ## [0.1.6] - 2026-07-19
 
