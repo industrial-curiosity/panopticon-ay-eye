@@ -91,6 +91,26 @@ class TestTemplateSyncWorkflowContracts(unittest.TestCase):
         self.assertIn("git add -A", text)
         self.assertIn("git push origin HEAD", text)
 
+    def test_shared_workflow_uses_real_newlines_for_attributes_and_summaries(self):
+        text = SHARED_SYNC_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(r'merge=ours\n', text)
+        self.assertNotIn(r'merge=ours\\n', text)
+        self.assertNotIn(r'paths\\n', text)
+        self.assertIn("## Panopticon: template merge failed", text)
+        self.assertIn("printf '%s\\n' \"${merge_output}\"", text)
+
+    def test_shared_workflow_reports_failures_at_the_detecting_stage(self):
+        text = SHARED_SYNC_WORKFLOW.read_text(encoding="utf-8")
+        for title in (
+            "## Panopticon: template fetch failed",
+            "## Panopticon: protected-path registration failed",
+            "## Panopticon: template merge failed",
+            "## Panopticon: template sync push failed",
+        ):
+            with self.subTest(title=title):
+                self.assertIn(title, text)
+        self.assertIn("Write local recovery instructions", text)
+
 
 def _register_runtime_attributes(instance_root, protected_paths=()):
     """Reproduce the workflow's fixed and dynamic runtime attribute registration."""

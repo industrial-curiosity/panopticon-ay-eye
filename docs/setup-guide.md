@@ -33,8 +33,9 @@ created from a
    effect on the next run without
    copying another full workflow into your instance. The shared workflow is not
    directly runnable. If checkout,
-   fetch, merge, validation, or push fails, the run summary provides equivalent
-   local recovery commands. You can
+   fetch, merge, validation, or push fails, the run summary names the failed
+   stage and detected error before providing equivalent local recovery commands.
+   You can
    also enable the weekly schedule in the workflow file to receive updates
    automatically.
 

@@ -61,4 +61,5 @@ replaces that repository's
 index shard, and rebuilds compiled indexes in the instance. Pull requests
 simulate the same merge behavior
 and publish in-flight branch state without changing the instance's default
-branch.
+branch. Instance template syncs preserve declared instance-owned paths and
+report the failing stage and recovery action when they cannot complete.

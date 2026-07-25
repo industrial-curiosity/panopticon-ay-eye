@@ -39,7 +39,7 @@ jobs:
           paths = dict.fromkeys(("docs/architecture.md", *load_org_config(".")["protected_paths"]))
           attributes = Path(".git/info/attributes")
           attributes.parent.mkdir(parents=True, exist_ok=True)
-          attributes.write_text("".join(f"{path} merge=ours\\n" for path in paths), encoding="utf-8")
+          attributes.write_text("".join(f"{path} merge=ours\n" for path in paths), encoding="utf-8")
           PY
           if git merge-base HEAD template/main >/dev/null 2>&1; then
             git merge template/main --no-edit
@@ -83,9 +83,21 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Fetch template
+        shell: bash
         run: |
+          set -euo pipefail
           git remote add template https://github.com/industrial-curiosity/panopticon-ay-eye.git 2>/dev/null || true
-          git fetch template main
+          if ! fetch_output="$(git fetch template main 2>&1)"; then
+            {
+              echo "## Panopticon: template fetch failed"
+              echo
+              printf '%s\n' "${fetch_output}"
+              echo
+              echo "Verify access to the fixed template repository, then rerun **Sync from template**."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Template fetch failed; see the step summary"
+            exit 1
+          fi
 
       - name: Register protected-config merge driver
         run: git config merge.ours.driver true
@@ -100,45 +112,64 @@ jobs:
           sys.path.insert(0, ".")
           from panopticon.config import load_org_config
 
-          generated_paths = ("docs/architecture.md",)
-          protected_paths = load_org_config(".")["protected_paths"]
-          attributed_paths = dict.fromkeys((*generated_paths, *protected_paths))
+          try:
+              generated_paths = ("docs/architecture.md",)
+              protected_paths = load_org_config(".")["protected_paths"]
+              attributed_paths = dict.fromkeys((*generated_paths, *protected_paths))
 
-          attrs_path = Path(".git/info/attributes")
-          attrs_path.parent.mkdir(parents=True, exist_ok=True)
-          attrs_path.write_text(
-              "".join(f"{path} merge=ours\\n" for path in attributed_paths), encoding="utf-8"
-          )
+              attrs_path = Path(".git/info/attributes")
+              attrs_path.parent.mkdir(parents=True, exist_ok=True)
+              attrs_path.write_text(
+                  "".join(f"{path} merge=ours\n" for path in attributed_paths), encoding="utf-8"
+              )
+          except Exception as exc:
+              reason = f"Protected-path registration failed: {exc}"
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+                  handle.write(f"## Panopticon: protected-path registration failed\n\n{reason}\n\n")
+                  handle.write("Correct the instance configuration, then rerun **Sync from template**.\n")
+              print(f"::error::{reason}; see the step summary")
+              raise SystemExit(1)
 
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
-              handle.write("## Template-declared instance-owned generated paths\\n\\n")
+              handle.write("## Template-declared instance-owned generated paths\n\n")
               handle.write(
                   "These generated paths keep the instance version when both sides change; "
-                  "they are not org customizations:\\n\\n"
+                  "they are not org customizations:\n\n"
               )
               for path in generated_paths:
-                  handle.write(f"- `{path}`\\n")
+                  handle.write(f"- `{path}`\n")
 
-              handle.write("\\n## Org-declared protected paths\\n\\n")
+              handle.write("\n## Org-declared protected paths\n\n")
               if protected_paths:
                   handle.write(
                       "The following `protected_paths` entries were protected from this sync "
-                      "(never visible in the tracked tree — this step summary is the audit trail):\\n\\n"
+                      "(never visible in the tracked tree — this step summary is the audit trail):\n\n"
                   )
                   for path in protected_paths:
-                      handle.write(f"- `{path}`\\n")
+                      handle.write(f"- `{path}`\n")
               else:
-                  handle.write("No `protected_paths` entries declared in `panopticon.config.json`.\\n")
+                  handle.write("No `protected_paths` entries declared in `panopticon.config.json`.\n")
 
       - name: Merge template changes
         shell: bash
         run: |
           set -euo pipefail
           if git merge-base HEAD template/main > /dev/null 2>&1; then
-            git merge template/main --no-edit
+            merge_args=(template/main --no-edit)
           else
             echo "No common ancestor detected — first-time sync. Template version wins for any conflicts."
-            git merge template/main --no-edit --allow-unrelated-histories -X theirs
+            merge_args=(template/main --no-edit --allow-unrelated-histories -X theirs)
+          fi
+          if ! merge_output="$(git merge "${merge_args[@]}" 2>&1)"; then
+            {
+              echo "## Panopticon: template merge failed"
+              echo
+              printf '%s\n' "${merge_output}"
+              echo
+              echo "Resolve the reported conflict locally using the recovery commands below, then rerun **Sync from template**."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Template merge failed; see the step summary"
+            exit 1
           fi
 
       - name: Warn on protected-config field drift
@@ -200,7 +231,20 @@ jobs:
           exit 1
 
       - name: Push
-        run: git push origin HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! push_output="$(git push origin HEAD 2>&1)"; then
+            {
+              echo "## Panopticon: template sync push failed"
+              echo
+              printf '%s\n' "${push_output}"
+              echo
+              echo "Verify the instance token and branch permissions, then rerun **Sync from template**."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Template sync push failed; see the step summary"
+            exit 1
+          fi
 
       - name: Write local recovery instructions
         if: failure()

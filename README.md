@@ -22,8 +22,8 @@ Create a private instance from this template, run its LiteLLM or Bedrock
 configuration workflow, and
 initialize child repositories. The [org-owner setup guide](docs/setup-guide.md)
 walks through that process,
-including credentials, provider choices, template sync, and customization
-protection.
+including credentials, provider choices, template sync, customization
+protection, and local recovery from failed syncs.
 
 To initialize a child repository, run the public launcher from that repository:
 
