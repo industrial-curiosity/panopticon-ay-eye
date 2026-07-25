@@ -2,6 +2,14 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [fix-diagram-link-contexts] - 2026-07-26
+
+### Fixed
+
+- Child architecture documentation now uses direct, anchored GitHub links to
+  the organization diagram, while links within child documentation remain
+  relative and work in both child and instance repositories.
+
 ## [add-openai-provider-workflows] - 2026-07-26
 
 ### Added

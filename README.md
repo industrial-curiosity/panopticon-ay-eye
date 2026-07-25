@@ -65,6 +65,10 @@ The workflow is intentionally simple:
 4. When planning a change, developers and agents use that shared view to
    understand affected connections.
 
+Child documentation links stay relative within a child repository's docs, while
+links to the organization architecture use direct GitHub URLs that work from
+both the child and instance repositories.
+
 ## Documentation
 
 - [Set up an organization instance](docs/setup-guide.md)

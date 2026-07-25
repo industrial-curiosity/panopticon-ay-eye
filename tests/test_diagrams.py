@@ -1,15 +1,22 @@
-"""Org-wide diagram rendering from the compiled index: internal-only exclusion, alphabetical
-ordering, per-interface (non-deduplicated) edges, navigation links, and (dependency-indexing
-capability) combined interface+dependency rendering with kind-based visual distinction and
-linked-pair deduplication."""
+"""Org-wide diagram rendering and child documentation link guidance.
+
+Covers internal-only exclusion, alphabetical ordering, per-interface
+(non-deduplicated) edges, navigation links, and (dependency-indexing capability)
+combined interface+dependency rendering with kind-based visual distinction and
+linked-pair deduplication.
+"""
 
 import unittest
+from pathlib import Path
 
 from panopticon.diagrams import relationships_for_repo, render_org_diagram, repo_set
 from panopticon.merge import compile_index
 from panopticon.dependency_merge import compile_index as compile_dependency_index
 
 from .helpers import load_fixture
+
+
+REPO_ROOT = Path(__file__).parents[1]
 
 
 def base_shards():
@@ -136,6 +143,24 @@ class TestRenderOrgDiagram(unittest.TestCase):
         compiled = compile_index(base_shards())
         text = render_org_diagram(compiled)
         self.assertNotIn("click ", text)
+
+
+class TestChildDiagramLinkGuidance(unittest.TestCase):
+    def test_org_links_are_absolute_and_local_links_remain_relative(self):
+        skill = (REPO_ROOT / ".agents/skills/panopticon-doc-generation/SKILL.md").read_text()
+        template = (
+            REPO_ROOT
+            / ".agents/skills/panopticon-doc-generation/assets/architecture-template.md"
+        ).read_text()
+
+        for text in (skill, template):
+            self.assertIn("python3 -m panopticon.org_diagram_link", text)
+            self.assertNotIn("[org diagram](../architecture.md#{repo})", text)
+
+        self.assertIn("The URL is absolute", skill)
+        self.assertIn("absolute GitHub URL", template)
+        self.assertIn("relative to the document that contains them", skill)
+        self.assertIn("components/{component-name}.md", template)
 
 
 class TestCombinedInterfaceAndDependencyRendering(unittest.TestCase):

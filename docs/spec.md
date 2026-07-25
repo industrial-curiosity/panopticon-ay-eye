@@ -83,3 +83,12 @@ simulate the same merge behavior
 and publish in-flight branch state without changing the instance's default
 branch. Instance template syncs preserve declared instance-owned paths and
 report the failing stage and recovery action when they cannot complete.
+
+## Architecture diagram links
+
+Child documentation uses relative links for documents within its own
+documentation tree, so those links work both in the child repository and in its
+`docs/{repo}/` instance mirror. Links from child documentation to the org-wide
+architecture diagram use the resolved absolute GitHub URL, including the child
+repository anchor. The instance org diagram continues to use relative links to
+its mirrored child documentation.

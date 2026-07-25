@@ -70,10 +70,9 @@ rules as the rest of that layer.
 
 ### Requirement: Org diagram document shape
 
-The org diagram (rendered deterministically from the compiled index by the
-master-sync capability) SHALL be a
-single document at the instance repo root containing one section per repo that
-has at least one external
+The org diagram document SHALL be rendered deterministically from the compiled
+index by the master-sync capability. It SHALL be a single document at the
+instance repo root containing one section per repo that has at least one external
 interface or dependency, ordered alphabetically by repo name. Each section SHALL
 contain a relationship
 diagram (this repo as the center node, one node per other repo it relates to,
@@ -197,25 +196,10 @@ node click directives, because GitHub's rendering of Mermaid `click`-to-URL
 navigation is not reliably
 supported.
 
-All of this navigation SHALL use relative markdown links, never absolute GitHub
-URLs. Every child repo's
-documentation is merged into the instance repo at `docs/{repo}/` on every push
-to its default branch
-(master-sync capability), and the org diagram lives at the instance repo's own
-`docs/architecture.md`.
-Once merged, the org diagram and every repo's own diagram section are files in
-the *same* repository
-tree — the instance repo's — so an ordinary relative link between them resolves
-correctly both on GitHub's
-web UI and when the instance repo is checked out locally, with no dependency on
-repo URLs, branch names,
-or any config field. This holds regardless of where a repo's `docs_location`
-places the file *before*
-merge: the merge step always normalizes every repo's docs into the same
-`docs/{repo}/` layout (one level
-under the instance repo's `docs/`), so the relative path from any repo's merged
-`architecture.md` up to
-the org diagram is always `../architecture.md`, identically for every repo.
+Links within a child repository's documentation tree SHALL use paths relative to
+the document containing the link. The same child documentation is mirrored to
+`docs/{repo}/` in the instance repo, so these local relative paths SHALL resolve
+both in the child repository and at the mirrored instance location.
 
 Because the org diagram document itself lives one level inside `docs/` (at
 `docs/architecture.md`, not at
@@ -229,17 +213,13 @@ using it as the href double-counts the `docs/` segment the org diagram file is
 already inside, and GitHub
 resolves it to the non-existent `docs/docs/{repo}/architecture.md`.
 
-A child repo's own local `## Architecture diagram` section back-link is
-therefore authored for its
-*post-merge* location in the instance repo, not its current location in the
-child repo's own checkout.
-The link SHALL NOT be expected to resolve when viewed directly in the child repo
-before that repo's docs
-have been merged into the instance — it SHALL resolve once merged, which is the
-intended point of review:
-architecture diagrams are reviewed in the instance repo, where the full
-cross-repo picture exists, not by
-browsing individual child repos in isolation.
+Each child architecture document's link to the org diagram SHALL instead be a
+fully-qualified GitHub URL to
+`{instance-repo-url}/blob/{instance_default_branch}/docs/architecture.md#{repo}`.
+Doc generation SHALL obtain that URL from `python3 -m
+panopticon.org_diagram_link` and use its output verbatim. It SHALL NOT author a
+relative link to the org diagram, because no single relative href can resolve
+from both the child repository and its mirrored instance location.
 
 #### Scenario: User navigates from the org diagram to a child repo's diagram
 
@@ -252,26 +232,33 @@ browsing individual child repos in isolation.
   directory to `docs/{repo}/architecture.md`
   in the instance repo
 
+#### Scenario: A child-local documentation link works in both locations
+
+- **GIVEN** a child architecture document contains a link to one of its local
+  component documents
+- **WHEN** the document is viewed in either the child repository or the
+  instance repository's `docs/{repo}/` mirror
+- **THEN** the link uses a path relative to the child architecture document and
+  resolves to the corresponding child document in that location
+
 #### Scenario: User navigates from a child repo's diagram to the org diagram
 
-- **GIVEN** a child repo's `panopticon/config.json` has `repo: "svc-a"`
+- **GIVEN** a child repo's `panopticon/config.json` has `repo: "svc-a"`,
+  `instance: "acme/panopticon-instance"`, and
+  `instance_default_branch: "main"`
 - **WHEN** doc generation produces that repo's `## Architecture diagram` section
 - **THEN** the section contains the markdown link `[org
-  diagram](../architecture.md#svc-a)` — a relative
-  link, not an absolute URL, that resolves correctly once this file is merged to
-  `docs/svc-a/architecture.md` in the instance repo
+  diagram](https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a)`,
+  using exactly the output of `python3 -m panopticon.org_diagram_link`
 
-#### Scenario: Back-link shape is identical across repos regardless of docs_location
+#### Scenario: Child-to-org back-link works before and after mirroring
 
-- **GIVEN** two child repos with different `docs_location` values (`docs/` and
-  `documentation/`)
-- **WHEN** each produces its `## Architecture diagram` section's org-diagram
-  back-link
-- **THEN** both use the identical relative path `../architecture.md` (only the
-  `#{repo}` anchor differs) —
-  because the merge target (`docs/{repo}/`) is the same for every repo
-  regardless of the source repo's own
-  `docs_location`
+- **GIVEN** doc generation has written a child architecture document's
+  absolute org-diagram link
+- **WHEN** the document is viewed in either the child repository or the
+  instance repository's `docs/{repo}/` mirror
+- **THEN** the link targets the same anchored org architecture document on
+  GitHub
 
 ### Requirement: Org-diagram link script
 
@@ -365,12 +352,8 @@ architecture-overview pass — the same agent-authored treatment as the existing
 back-link — not a separate deterministic script or a standalone CI check.
 
 The own-repo link SHALL be a relative markdown link to this repo's
-`architecture.md` at its configured
-`docs_location` (e.g. `docs/architecture.md`), following the same relative-link
-discipline as the existing
-diagram-section back-link: it resolves once this repo's docs are merged into the
-instance repo, not
-necessarily before.
+`architecture.md` at its configured `docs_location` (for example,
+`docs/architecture.md`) and SHALL resolve in the child repository.
 
 The org link SHALL be a fully-qualified GitHub URL, obtained by running `python3
 -m
@@ -402,7 +385,7 @@ script") and restating it elsewhere risks the two drifting apart.
 - **GIVEN** a child repo's `panopticon/config.json` has no
   `instance_default_branch`
 - **WHEN** `panopticon-doc-generation` runs `python3 -m
-  panopticon.org_diagram_link` to obtain the README org
+  panopticon.org_diagram_link` to obtain the README or architecture-diagram org
   link
 - **THEN** the script's own existing fallback (live lookup) and failure (loud
   error, never a guessed branch)

@@ -14,19 +14,18 @@
 
 {A single fenced code block, tagged with the instance's configured diagram format (default
 `mermaid`), depicting this repo's components and how they relate — grounded in the actual code,
-same discipline as the rest of this layer. Directly below the block, a markdown link back to this
-repo's section in the org diagram: `[org diagram](../architecture.md#{repo})` (`{repo}` from
-`panopticon/config.json`'s `repo` field) — a *relative* link, not an absolute URL: this repo's docs
-are merged into the instance repo at `docs/{repo}/` on every push, landing this file at
-`docs/{repo}/architecture.md` alongside the org diagram at `docs/architecture.md`, so `../architecture.md`
-resolves correctly there. It will not resolve when viewed directly in this repo before that merge
-happens — that's expected, not a bug: architecture diagrams are reviewed in the instance repo.}
+same discipline as the rest of this layer. Directly below the block, add a markdown link to this
+repo's section in the org diagram. Run `python3 -m panopticon.org_diagram_link` and use its output
+verbatim, for example `[org
+diagram](https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a)`. This
+must be an absolute GitHub URL so it works in both the child repository and the mirrored instance
+documentation.}
 
 ```mermaid
 {diagram content}
 ```
 
-[org diagram](../architecture.md#{repo})
+[org diagram]({output of `python3 -m panopticon.org_diagram_link`})
 
 ## Data flow
 

@@ -556,33 +556,17 @@ repo's own copy from the
 
 ## 7. Finding the org-wide architecture diagram from a child repo
 
-A child repo's `README.md` already links to both diagrams at the top — its own
-(relative, resolves once
-merged into the instance) and the org diagram (a fully-qualified GitHub URL,
-clickable immediately). The
-`## Architecture diagram` section's own back-link is relative too, and only
-resolves once this repo's docs
-have been merged into the instance repo (see the architecture-diagrams
-capability) — it won't work if you
-click it before then. To regenerate the immediately-clickable org link yourself,
-from your own checkout,
-before any merge:
+A child repo's `README.md` links to its local architecture document and the org
+architecture diagram. Links within the child documentation tree are relative, so
+they work in both the child repo and its mirrored instance documentation. Links
+to the org diagram are direct GitHub URLs, so they work immediately from either
+location.
+
+To print the org diagram URL for the current child repository, run:
 
 ```bash
 python3 -m panopticon.org_diagram_link
 ```
 
-This prints a single resolvable URL, e.g.
+The command prints one URL, such as
 `https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a`.
-It reads `panopticon/config.json`'s `instance_default_branch` field first — no
-network call in that
-case — resolved automatically during Phase 3 finalization and refreshed on every
-bootstrap rerun
-(`GH_TOKEN`/`GITHUB_TOKEN`, or a token extracted via `gh auth token`; never
-requires `gh auth login`
-specifically). If that field is genuinely missing, the script attempts a live
-lookup itself before
-giving up, using the same token resolution — no separate command needed. During
-first-time initialization, before finalization has written the config file, it
-instead derives the instance and ref from the bootstrap caller workflow so the
-documentation step can complete without a manual pause.

@@ -66,17 +66,20 @@ components that no longer exist.
    depicting this repo's components and how they relate, same "ground every statement in the
    code" discipline as the rest of this layer. Do not invent components or relationships that
    aren't in the code. Directly below the fenced block, add a markdown link back to this repo's
-   section in the org diagram: `` [org diagram](../architecture.md#{repo}) ``, where `{repo}` is
-   `panopticon/config.json`'s `repo` field (or, before first-time finalization, the child-root
-   directory name) (e.g. `repo: "svc-a"` → `[org diagram](../architecture.md#svc-a)`).
-   This is a *relative* link, not an absolute GitHub URL — this repo's docs are merged into the
-   instance repo at `docs/{repo}/` on every push (master-sync capability), landing this file at
-   `docs/{repo}/architecture.md` alongside the org diagram at `docs/architecture.md`, so
-   `../architecture.md` resolves correctly there. It will not resolve when viewed directly in this
-   repo before that merge — that's expected: architecture diagrams are reviewed in the instance
-   repo, not by browsing child repos in isolation. No node-level click-through inside the diagram —
-   GitHub's Mermaid renderer does not reliably support `click`-to-URL navigation; the back-link is a
-   plain markdown link, not a diagram directive.
+   section in the org diagram. Run the command below and use its printed URL verbatim:
+
+   ```bash
+   python3 -m panopticon.org_diagram_link
+   ```
+
+   For example, use `[org
+   diagram](https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a)`.
+   The URL is absolute so the link works both in this child repository and after its docs are
+   mirrored to `docs/{repo}/` in the instance repository. Do not re-derive the URL or write a
+   relative link to the org diagram. Links between documents within this child documentation tree
+   remain relative to the document that contains them. No node-level click-through inside the
+   diagram — GitHub's Mermaid renderer does not reliably support `click`-to-URL navigation; the
+   back-link is a plain markdown link, not a diagram directive.
 8. **Write the README architecture links.** At the top of `README.md`, write or refresh two markdown
    links, own-repo diagram directly above the org diagram, both labeled with the repo name (never a
    bare "architecture" — ambiguous once two links sit stacked):
@@ -87,9 +90,8 @@ components that no longer exist.
    ```
 
    The first is a relative link built from `panopticon/config.json`'s `repo` and `docs_location`
-   fields, or their first-time initialization derivation; like the diagram-section back-link
-   (rule 7), it resolves once this repo's docs are merged into the instance repo, not necessarily
-   before. The second is a fully-qualified GitHub URL — run:
+   fields, or their first-time initialization derivation, and resolves in this child repository.
+   The second is a fully-qualified GitHub URL — run:
 
    ```bash
    python3 -m panopticon.org_diagram_link
