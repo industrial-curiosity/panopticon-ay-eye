@@ -269,11 +269,13 @@ class TestInstanceRetrieval(unittest.TestCase):
 class TestDefaultInstancePayload(unittest.TestCase):
     FAKE_INIT = "SCHEMA_VERSION = 1\n"
     FAKE_RECOVERY = "def configuration_recovery(instance, branch):\n    return 'recovery'\n"
+    FAKE_PROVIDERS = "PROVIDERS = {'test': {}}\n"
     FAKE_BOOTSTRAP = (
         "from . import SCHEMA_VERSION\n"
+        "from .providers import PROVIDERS\n"
         "from .recovery import configuration_recovery\n"
         "def main():\n"
-        "    print(f'DEFAULT_BOOTSTRAP_RAN schema={SCHEMA_VERSION} {configuration_recovery(None, None)}')\n"
+        "    print(f'DEFAULT_BOOTSTRAP_RAN schema={SCHEMA_VERSION} providers={sorted(PROVIDERS)} {configuration_recovery(None, None)}')\n"
         "    return 0\n"
     )
 
@@ -286,6 +288,8 @@ class TestDefaultInstancePayload(unittest.TestCase):
                 return _contents_response(self.FAKE_INIT)
             if "/contents/panopticon/recovery.py" in request.full_url:
                 return _contents_response(self.FAKE_RECOVERY)
+            if "/contents/panopticon/providers.py" in request.full_url:
+                return _contents_response(self.FAKE_PROVIDERS)
             if "/contents/panopticon/bootstrap.py" in request.full_url:
                 return _contents_response(self.FAKE_BOOTSTRAP)
             raise AssertionError(f"unexpected URL: {request.full_url}")
@@ -305,8 +309,40 @@ class TestDefaultInstancePayload(unittest.TestCase):
                                 INSTALL_SOURCE, "acme/instance", "trunk"
                             )
         self.assertEqual(caught.exception.code, 0)
-        self.assertIn("DEFAULT_BOOTSTRAP_RAN schema=1 recovery", output.getvalue())
-        self.assertEqual(len(requests), 3)
+        self.assertIn("DEFAULT_BOOTSTRAP_RAN schema=1 providers=['test'] recovery", output.getvalue())
+        self.assertEqual(len(requests), 4)
+        self.assertLess(
+            next(i for i, url in enumerate(requests) if "providers.py" in url),
+            next(i for i, url in enumerate(requests) if "bootstrap.py" in url),
+        )
+
+    def test_invalid_provider_payload_stops_before_bootstrap_execution(self):
+        requests = []
+
+        def urlopen(request, timeout=30):
+            requests.append(request.full_url)
+            if "/contents/panopticon/__init__.py" in request.full_url:
+                return _contents_response(self.FAKE_INIT)
+            if "/contents/panopticon/recovery.py" in request.full_url:
+                return _contents_response(self.FAKE_RECOVERY)
+            if "/contents/panopticon/providers.py" in request.full_url:
+                return _json_response({"encoding": "base64", "content": "not base64"})
+            raise AssertionError(f"bootstrap should not be fetched: {request.full_url}")
+
+        env = {
+            "PATH": "/usr/bin:/bin",
+            "PANOPTICON_INSTANCE": "acme/instance",
+            "PANOPTICON_INSTANCE_REF": "trunk",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch("urllib.request.urlopen", urlopen):
+                with mock.patch.dict(sys.modules, {}, clear=False):
+                    with self.assertRaises(SystemExit) as caught:
+                        INSTALLER.execute_instance_installer(
+                            INSTALL_SOURCE, "acme/instance", "trunk"
+                        )
+        self.assertEqual(caught.exception.code, 1)
+        self.assertFalse(any("bootstrap.py" in url for url in requests))
 
     def test_invalid_or_missing_instance_fails_in_a_real_subprocess(self):
         result = _run_isolated(
