@@ -2,6 +2,15 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [fix-template-sync-recovery] - 2026-07-25
+
+### Fixed (template synchronization)
+
+- Corrected protected-path attribute generation so customized generated and
+  organization-declared files remain protected during template merges.
+- Made template-sync failures identify the failing stage, report the detected
+  error, and provide actionable local recovery steps.
+
 ## [split-provider-configuration-workflows] - 2026-07-24
 
 ### Added

@@ -1,6 +1,6 @@
 ---
 name: openspec-update-change
-description: Update an OpenSpec requirement or scenario. Use when the user asks to add, modify, remove, refine, or repair a specification; update an active change's delta spec; or resolve a canonical-spec issue that blocks validation or archive synchronization.
+description: Update an OpenSpec requirement or scenario within an active change. Use when the user asks to add, modify, remove, refine, or repair a change's specification. Require exactly one active change: stop when none exist and ask the user to select when multiple exist.
 license: MIT
 compatibility: Requires openspec CLI.
 metadata:
@@ -14,14 +14,7 @@ deltas, implementation tasks, and design decisions aligned.
 
 ## Steps
 
-1. **Identify the capability and requested change**
-
-   Use a named capability when supplied. Otherwise, infer it from the
-   conversation or inspect `openspec/specs/` and ask the user only if the
-   target remains ambiguous. State the selected capability and whether the
-   work adds, modifies, or removes requirements.
-
-2. **Resolve the correct planning context**
+1. **Require exactly one active change**
 
    Run:
 
@@ -29,22 +22,33 @@ deltas, implementation tasks, and design decisions aligned.
    openspec list --json
    ```
 
-   Use the relevant active change when one clearly owns the work. If several
-   active changes could apply, ask the user which to update. Resolve paths from
-   `openspec status --change "<change-name>" --json`; do not assume a
-   repository-local change path when the CLI provides planning-home paths.
+   - If no active changes exist, report that update requires an active change
+     and STOP.
+   - If multiple active changes exist, prompt the user to select one and STOP.
+   - If exactly one active change exists, use it as the change context for this
+     update.
 
-   Write a delta spec for an active change. Update a canonical spec directly
-   only when there is no related active change or the user explicitly asks to
-   repair the canonical specification.
+2. **Identify the capability and requested change**
 
-3. **Read before writing**
+   Use a named capability when supplied. Otherwise, infer it from the
+   conversation or inspect `openspec/specs/` and ask the user only if the
+   target remains ambiguous. State the selected capability and whether the
+   work adds, modifies, or removes requirements.
+
+3. **Resolve the planning context**
+
+   Resolve paths from `openspec status --change "<change-name>" --json`; do not
+   assume a repository-local change path when the CLI provides planning-home
+   paths. Write a delta spec for the selected active change. Do not update a
+   canonical spec directly through this skill.
+
+4. **Read before writing**
 
    Read the canonical spec and, for an active change, its existing delta spec,
    proposal, design, and tasks. Ground the update in the current contract and
    avoid duplicating unchanged canonical requirements in a delta.
 
-4. **Write a valid OpenSpec requirement change**
+5. **Write a valid OpenSpec requirement change**
 
    In a delta spec, group changes under `## ADDED Requirements`,
    `## MODIFIED Requirements`, and `## REMOVED Requirements`.
@@ -59,13 +63,7 @@ deltas, implementation tasks, and design decisions aligned.
    - Add a dedicated scenario for each security-sensitive attack or misuse
      path.
 
-   For a canonical spec, retain one H1, a non-empty `## Purpose`, and a single
-   `## Requirements` section containing every requirement. Integrate additions
-   and modifications in place, remove retired requirements, and ensure the
-   first physical line of each requirement's normative text contains `SHALL` or
-   `MUST` so strict validation recognizes it.
-
-5. **Reconcile the active change**
+6. **Reconcile the active change**
 
    When updating an active change, inspect `tasks.md` and `design.md` without
    waiting for further instruction.
@@ -84,7 +82,7 @@ deltas, implementation tasks, and design decisions aligned.
    ask whether to revert it or continue in apply mode. Switch to
    `openspec-apply-change` before making further implementation changes.
 
-6. **Check downstream documentation and verification**
+7. **Check downstream documentation and verification**
 
    Update `README.md` for user-visible behavior, commands, configuration, or
    features; update `docs/spec.md` for architecture, ownership, data-flow, or
@@ -101,11 +99,10 @@ deltas, implementation tasks, and design decisions aligned.
 
 ## Output
 
-Report the capability and target (canonical spec or active change), then list
-added, modified, and removed requirements. For active changes, also state
-tasks cleared or added, design consistency, documentation impact, test review,
-and validation results. End by saying whether the delta is ready to synchronize
-at archive time or the canonical spec was updated directly.
+Report the capability and selected active change, then list added, modified, and
+removed requirements. Also state tasks cleared or added, design consistency,
+documentation impact, test review, and validation results. End by saying
+whether the delta is ready to synchronize at archive time.
 
 ## Guardrails
 

@@ -1,6 +1,6 @@
 ---
 name: openspec-archive-change
-description: Archive a completed change in the experimental workflow. Use when the user wants to finalize and archive a change after implementation is complete.
+description: Archive a completed change in the experimental workflow. Use when the user wants to finalize and archive a change after implementation is complete. Automatically select the sole active change; ask for selection only when multiple active changes exist.
 license: MIT
 compatibility: Requires openspec CLI.
 metadata:
@@ -11,18 +11,20 @@ metadata:
 
 Archive a completed change in the experimental workflow.
 
-**Input**: Optionally specify a change name. If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
+**Input**: Optionally specify a change name. If omitted, list active changes: select the sole active change automatically, or prompt for a selection when multiple active changes exist.
 
 ## Steps
 
-1. **If no change name provided, prompt for selection**
+1. **If no change name is provided, resolve the active change**
 
    Run `openspec list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
 
    Show only active changes (not already archived).
    Include the schema used for each change if available.
 
-   **IMPORTANT**: Do NOT guess or auto-select a change. Always let the user choose.
+   - If exactly one active change exists, select it and continue without prompting.
+   - If multiple active changes exist, prompt the user to select one.
+   - If no active changes exist, report that there is nothing to archive.
 
 2. **Check artifact completion status**
 
@@ -112,7 +114,7 @@ All artifacts complete. All tasks complete.
 
 ## Guardrails
 
-- Always prompt for change selection if not provided
+- Automatically select the sole active change; prompt only when multiple active changes require a choice
 - Use artifact graph (openspec status --json) for completion checking
 - Don't block archive on warnings - just inform and confirm
 - Preserve .openspec.yaml when moving to archive (it moves with the directory)

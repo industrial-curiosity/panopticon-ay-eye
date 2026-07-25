@@ -1383,9 +1383,8 @@ the fixed rule in case 7.
 
 ### Requirement: Idempotent re-initialization
 
-Re-running the bootstrap script or the finalization step on an
-already-initialized repo SHALL update all
-artifacts in place without creating duplicates.
+The bootstrap script or finalization step SHALL update all artifacts in an
+already-initialized repo without creating duplicates.
 
 #### Scenario: Re-run bootstrap on initialized repo
 
@@ -1476,10 +1475,9 @@ unselected provider workflows into the child or use blanket `secrets: inherit`.
 
 ### Requirement: Stale caller remediation prints an exact installer command
 
-Every bootstrap or workflow failure caused by stale provider, secret-name,
-variable-name, or revision SHALL
-explain the cause and print a copy/paste child-bootstrap command using the
-resolved instance
+Bootstrap or workflow failures SHALL, when caused by stale provider,
+secret-name, variable-name, or revision, explain the cause and print a
+copy/paste child-bootstrap command using the resolved instance
 slug. The command SHALL set `PANOPTICON_INSTANCE` on the piped Python process
 itself, without an `export`,
 and SHALL instruct the user to run it from inside the child clone, review and
@@ -1527,6 +1525,32 @@ self-contained recovery output without importing the child-vendored formatter.
   instructions without an
   import failure
 
+### Requirement: Template sync registers effective protected-path attributes
+
+Before every template merge, the shared template-sync workflow SHALL write a
+separate physical `<path> merge=ours` line for each template-declared generated
+path and each organization-declared `protected_paths` entry in
+`.git/info/attributes`. It SHALL use the existing `merge.ours.driver true`
+configuration, and the local recovery commands SHALL write equivalent valid
+attribute lines before attempting their merge.
+
+#### Scenario: Both sides modify an instance-owned generated path
+
+- **GIVEN** the instance and template share an earlier `docs/architecture.md`
+  and both have modified it since that point
+- **WHEN** the shared template-sync workflow registers protection and merges the
+  template
+- **THEN** Git applies the `ours` merge driver, the merge completes without a
+  conflict for that path, and the instance version remains unchanged
+
+#### Scenario: Local recovery registers an organization-declared path
+
+- **GIVEN** a failed sync's local recovery commands run in an instance whose
+  `protected_paths` contains a customized template-managed file
+- **WHEN** the commands create `.git/info/attributes` before the merge
+- **THEN** the file contains a separate valid `merge=ours` line for that path
+  and the equivalent local merge preserves the instance version
+
 ### Requirement: Template sync uses a shared repairable workflow
 
 The instance `sync-from-template.yml` SHALL be a minimal, fixed caller that
@@ -1541,13 +1565,16 @@ The instance caller SHALL
 not duplicate that logic or accept a configurable repository, workflow path, or
 ref. It SHALL pass the
 optional instance-token secret explicitly and SHALL NOT expose either token
-value. On every sync failure,
-the shared workflow SHALL write a step-summary recovery section with commands
-for performing the sync from
-a local clone of the instance repository: fetch the fixed template remote,
-perform the equivalent merge,
-resolve any conflict, review the result, commit, and push. The shared workflow
-filename SHALL identify it
+value.
+
+On every sync failure, the stage that detects the failure SHALL write a valid
+Markdown step-summary section that names the failed stage, records the detected
+error, and states the relevant corrective action before the workflow exits. The
+shared workflow SHALL also provide a valid-Markdown local-recovery section with
+commands for a local clone of the instance repository to fetch the fixed
+template remote, register equivalent protected-path attributes, perform the
+equivalent merge, resolve any conflict, review the result, commit, and push.
+The shared workflow filename SHALL identify it
 as shared and caller-only, and it SHALL accept only `workflow_call` rather than
 a direct trigger.
 
@@ -1582,14 +1609,13 @@ files from `python3 -m panopticon.sync`.
   instructions for a GitHub token secret
   with Contents and Workflows read/write permission
 
-#### Scenario: Shared sync fails
+#### Scenario: Merge failure identifies its cause and recovery
 
-- **WHEN** the shared sync workflow fails during checkout, fetch, merge,
-  validation, or push
-- **THEN** its step summary contains a local instance-repository recovery
-  section with the fixed template
-  remote, equivalent merge, conflict-resolution, review, commit, and push
-  commands
+- **WHEN** the shared sync workflow's template merge fails
+- **THEN** its step summary renders Markdown, names the merge stage, includes
+  the detected Git error and a corrective action, and contains valid local
+  recovery commands with the fixed template remote, protected-path setup,
+  equivalent merge, conflict-resolution, review, commit, and push steps
 
 #### Scenario: Shared sync caller cannot be redirected
 
