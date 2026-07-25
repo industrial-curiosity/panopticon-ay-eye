@@ -10,18 +10,15 @@ Panopticon's CI LLM checks.
 ### Requirement: Organization-configurable LLM request budget
 
 The instance provider contract SHALL record configurable org-level Actions
-variable names for the LLM
-request timeout, transport-attempt budget, and correction-attempt budget. Child
-bootstrap SHALL map the
-values of those named variables to canonical provider workflow inputs, and every
-provider runtime SHALL
-apply defaults of 90 seconds, two transport attempts, and two correction retries
-when a mapped value is
-unset. The runtime SHALL reject a blank, non-integer, or out-of-range request
-timeout (30–300 seconds),
-transport attempt count (1–3), or correction retry count (0–2) before sending an
-LLM request and name both
-the configured Actions variable and permitted range in the error.
+variable names for the LLM request timeout, transport-attempt budget, and
+correction-attempt budget. Child bootstrap SHALL map the values of those named
+variables to canonical provider workflow inputs. Every provider runtime and
+every LLM-invoking step environment SHALL apply defaults of 90 seconds, two
+transport attempts, and two correction retries when a mapped value is absent.
+The runtime SHALL reject a blank, non-integer, or out-of-range request timeout
+(30–300 seconds), transport attempt count (1–3), or correction retry count
+(0–2) before sending an LLM request and name both the configured Actions
+variable and permitted range in the error.
 
 #### Scenario: No mapped override values configured
 
@@ -31,6 +28,14 @@ the configured Actions variable and permitted range in the error.
 - **THEN** the selected provider runtime uses a 90-second request timeout, two
   transport attempts, and two
   correction retries
+
+#### Scenario: Optional variables are absent at a check step
+
+- **WHEN** an LLM-invoking step in either provider workflow receives no input
+  value for the configured request timeout, transport-attempt, or
+  correction-attempt variable
+- **THEN** that step supplies 90 seconds, two transport attempts, and two
+  correction retries to the LLM runtime
 
 #### Scenario: Valid request-budget overrides configured
 

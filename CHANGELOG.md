@@ -2,6 +2,28 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [default-optional-llm-env-vars] - 2026-07-25
+
+### Fixed (LLM request budgets)
+
+- LiteLLM and Bedrock PR workflows now apply the documented request timeout,
+  transport-attempt, and correction-attempt defaults in every LLM check step
+  when the corresponding optional organization variable is unavailable.
+
+## [add-github-rate-limit-retries] - 2026-07-25
+
+### Added (initialization)
+
+- `/panopticon-init` now continues from index work through documentation
+  generation and finalization in one invocation, deriving required bootstrap
+  context without writing the initialization flag early.
+
+### Fixed (GitHub API recovery)
+
+- The public launcher, bootstrap, and local sync now recognize GitHub
+  rate-limit responses, wait for `Retry-After` or the reset time when supplied,
+  and retry without exposing tokens or response bodies.
+
 ## [fix-vendored-provider-and-init-report] - 2026-07-25
 
 ### Fixed (initialization)
