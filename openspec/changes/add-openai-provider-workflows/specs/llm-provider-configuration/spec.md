@@ -26,10 +26,16 @@ and default.
 #### Scenario: Maintainer configures OpenAI
 
 - **WHEN** the maintainer opens and dispatches **Configure Panopticon — OpenAI**
-- **THEN** the form contains OpenAI API-key, endpoint, model, instance-token,
-  and common budget name inputs; contains no LiteLLM proxy, Bedrock
+- **THEN** the form contains OpenAI API-key, model, instance-token, and common
+  budget name inputs; contains no endpoint, LiteLLM proxy, Bedrock
   credential-mode, AWS region, or role-ARN input; and commits an OpenAI provider
-  contract
+  contract with the fixed `https://api.openai.com/v1` endpoint
+
+#### Scenario: OpenAI endpoint cannot be configured
+
+- **WHEN** a maintainer configures the OpenAI provider
+- **THEN** the persisted contract contains no endpoint variable name and its
+  workflow exposes no endpoint input or override
 
 #### Scenario: Maintainer configures LiteLLM
 

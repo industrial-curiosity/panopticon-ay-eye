@@ -17,8 +17,9 @@ provider workflows into the child or use blanket `secrets: inherit`.
 
 - **WHEN** the instance selects OpenAI and child bootstrap succeeds
 - **THEN** the local PR caller references only the instance's OpenAI reusable
-  workflow, omits LiteLLM-proxy and Bedrock-only setup, and maps the configured
-  endpoint, model, API-key, and budget names explicitly
+  workflow, omits LiteLLM-proxy and Bedrock-only setup, maps the configured
+  model, API-key, and budget names explicitly, and exposes no endpoint mapping
+  because the reusable workflow uses `https://api.openai.com/v1`
 
 #### Scenario: Bedrock child caller generated
 

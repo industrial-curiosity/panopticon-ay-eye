@@ -31,6 +31,19 @@ PROVIDERS = {
         },
         "dependencies": [],
     },
+    "openai": {
+        "workflow": "panopticon-pr-openai.yml",
+        "endpoint": "https://api.openai.com/v1",
+        "permissions": {"contents": "read", "pull-requests": "write"},
+        "secrets": {
+            "instance_token": "PANOPTICON_INSTANCE_TOKEN",
+            "api_key": "PANOPTICON_LLM_API_KEY",
+        },
+        "variables": {
+            **COMMON_VARIABLES,
+        },
+        "dependencies": [],
+    },
     "bedrock": {
         "workflow": "panopticon-pr-bedrock.yml",
         "permissions": {
@@ -135,6 +148,8 @@ def resolve_provider_contract(llm_config):
         "variables": variables,
         "dependencies": list(definition["dependencies"]),
     }
+    if "endpoint" in definition:
+        contract["endpoint"] = definition["endpoint"]
     if mode_definition.get("action"):
         contract["credential_action"] = mode_definition["action"]
     contract = {key: value for key, value in contract.items() if value is not None}

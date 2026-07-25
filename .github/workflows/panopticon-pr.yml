@@ -1,6 +1,7 @@
 # Compatibility guard for child callers generated before configurable provider workflows.
 # This entrypoint intentionally performs no evaluation. Regenerate the child caller so it points
-# directly to panopticon-pr-litellm.yml or panopticon-pr-bedrock.yml.
+# directly to panopticon-pr-litellm.yml, panopticon-pr-openai.yml, or
+# panopticon-pr-bedrock.yml.
 name: Panopticon PR caller requires regeneration
 
 on:
@@ -33,6 +34,7 @@ jobs:
               branch = "main"
           workflow_url = f"https://github.com/{instance}/actions/workflows"
           litellm_url = f"{workflow_url}/configure-panopticon-litellm.yml"
+          openai_url = f"{workflow_url}/configure-panopticon-openai.yml"
           bedrock_url = f"{workflow_url}/configure-panopticon-bedrock.yml"
           installer = (
               "curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/"
@@ -43,6 +45,7 @@ jobs:
               summary.write("## This child caller is obsolete\n\n")
               summary.write("First choose and configure exactly one instance provider:\n\n")
               summary.write(f"- LiteLLM: {litellm_url}\n")
+              summary.write(f"- OpenAI: {openai_url}\n")
               summary.write(f"- Bedrock: {bedrock_url}\n\n")
               summary.write("1. Open the workflow for the provider the instance will use.\n")
               summary.write("2. Select **Run workflow**.\n")
@@ -52,6 +55,10 @@ jobs:
               summary.write("Equivalent CLI commands (run exactly one):\n\n~~~bash\n")
               summary.write(
                   f"gh workflow run configure-panopticon-litellm.yml --repo {instance} "
+                  f"--ref {branch}\n"
+              )
+              summary.write(
+                  f"gh workflow run configure-panopticon-openai.yml --repo {instance} "
                   f"--ref {branch}\n"
               )
               summary.write(

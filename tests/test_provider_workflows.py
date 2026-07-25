@@ -33,7 +33,7 @@ class TestProviderWorkflows(unittest.TestCase):
         return (WORKFLOWS / name).read_text(encoding="utf-8")
 
     def test_separate_provider_entrypoints_preserve_common_phases(self):
-        for provider in ("litellm", "bedrock"):
+        for provider in ("litellm", "openai", "bedrock"):
             text = self.workflow(f"panopticon-pr-{provider}.yml")
             for phase in COMMON_PR_PHASES:
                 with self.subTest(provider=provider, phase=phase):
@@ -65,8 +65,18 @@ class TestProviderWorkflows(unittest.TestCase):
         self.assertIn("pip install --upgrade -r", text)
         self.assertIn("requirements-bedrock.txt", text)
 
+    def test_openai_workflow_is_a_standalone_litellm_clone_with_openai_identity(self):
+        text = self.workflow("panopticon-pr-openai.yml")
+        self.assertIn("PANOPTICON_LLM_PROVIDER: openai", text)
+        self.assertNotIn("PANOPTICON_LLM_ENDPOINT", text)
+        self.assertIn("missing OpenAI configuration", text)
+        self.assertNotIn("uses: ./.github/workflows/panopticon-pr-litellm.yml", text)
+        self.assertNotIn("requirements-bedrock.txt", text)
+        self.assertNotIn("inputs.endpoint", text)
+        self.assertNotIn("endpoint:\n        required:", text)
+
     def test_optional_request_budgets_default_in_every_provider_workflow_environment(self):
-        for provider in ("litellm", "bedrock"):
+        for provider in ("litellm", "openai", "bedrock"):
             text = self.workflow(f"panopticon-pr-{provider}.yml")
             for input_name, default in REQUEST_BUDGET_DEFAULTS.items():
                 with self.subTest(provider=provider, input_name=input_name):
@@ -79,7 +89,7 @@ class TestProviderWorkflows(unittest.TestCase):
     def test_legacy_guard_prints_configuration_and_exact_bootstrap_commands(self):
         text = self.workflow("panopticon-pr.yml")
         self.assertNotIn("panopticon.drift", text)
-        for provider in ("litellm", "bedrock"):
+        for provider in ("litellm", "openai", "bedrock"):
             self.assertIn(f"configure-panopticon-{provider}.yml", text)
             self.assertIn(f"gh workflow run configure-panopticon-{provider}.yml", text)
         self.assertIn("| ", text)
@@ -100,6 +110,7 @@ class TestProviderWorkflows(unittest.TestCase):
         )
         expected_provider_inputs = {
             "litellm": ("api_key_name:", "endpoint_variable_name:"),
+            "openai": ("api_key_name:",),
             "bedrock": (
                 "credential_mode:",
                 "aws_region_variable_name:",
@@ -108,9 +119,10 @@ class TestProviderWorkflows(unittest.TestCase):
         }
         excluded_provider_inputs = {
             "litellm": expected_provider_inputs["bedrock"],
+            "openai": expected_provider_inputs["bedrock"] + ("endpoint_variable_name:",),
             "bedrock": expected_provider_inputs["litellm"],
         }
-        for provider in ("litellm", "bedrock"):
+        for provider in ("litellm", "openai", "bedrock"):
             text = self.workflow(f"configure-panopticon-{provider}.yml")
             self.assertIn(f"provider: {provider}", text)
             self.assertNotIn("provider:\n", text.split("inputs:", 1)[1].split("permissions:", 1)[0])
@@ -173,7 +185,7 @@ class TestProviderWorkflows(unittest.TestCase):
             self.assertIn("Review and commit the generated changes, push them", text)
 
     def test_stale_provider_revision_reports_exact_child_recovery(self):
-        for provider in ("litellm", "bedrock"):
+        for provider in ("litellm", "openai", "bedrock"):
             text = self.workflow(f"panopticon-pr-{provider}.yml")
             self.assertIn("provider configuration revision changed", text)
             self.assertIn("from panopticon.recovery import stale_caller_recovery", text)

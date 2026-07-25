@@ -21,6 +21,7 @@ from panopticon.llm import (
     LiteLLMAdapter,
     MissingRequirementError,
     MODEL_VAR,
+    OPENAI_ENDPOINT,
     PROVIDER_VAR,
     TIMEOUT_VAR,
     require,
@@ -120,7 +121,7 @@ class TestRequestShape(unittest.TestCase):
 
     def test_pr_workflow_exposes_the_llm_request_budget(self):
         workflows = Path(__file__).resolve().parent.parent / ".github" / "workflows"
-        for provider in ("litellm", "bedrock"):
+        for provider in ("litellm", "openai", "bedrock"):
             workflow = (workflows / f"panopticon-pr-{provider}.yml").read_text()
             self.assertIn(
                 "fromJSON(inputs.job_timeout_minutes || '20') >= 10",
@@ -221,6 +222,16 @@ class TestDegradationPaths(unittest.TestCase):
     def test_unknown_provider_fails_before_client_creation(self):
         with self.assertRaisesRegex(LLMConfigurationError, PROVIDER_VAR):
             LLMClient.from_env(env={PROVIDER_VAR: "unknown"})
+
+    def test_openai_provider_uses_the_openai_compatible_transport(self):
+        client = LLMClient.from_env(env={
+            PROVIDER_VAR: "openai",
+            ENDPOINT_VAR: "https://untrusted.example/v1",
+            API_KEY_VAR: "key",
+        })
+        self.assertIsInstance(client._adapter, LiteLLMAdapter)
+        self.assertEqual(client.endpoint, f"{OPENAI_ENDPOINT}/chat/completions")
+        self.assertEqual(client.preflight()["provider"], "openai")
 
     def test_malformed_response_is_a_loud_error(self):
         with StubLLMServer() as stub:

@@ -88,6 +88,13 @@ class TestCallerWorkflowText(unittest.TestCase):
         self.assertIn(f"configuration_revision: {LITELLM_CONTRACT['revision']}", text)
         self.assertIn('configuration_names: \'{"api_key":"PANOPTICON_LLM_API_KEY"', text)
 
+    def test_openai_pr_workflow_does_not_map_an_endpoint_variable(self):
+        contract = resolve_provider_contract({"provider": "openai"})
+        text = caller_workflow_text("panopticon-pr.yml", "acme/instance", "v1", contract)
+        self.assertIn("uses: acme/instance/.github/workflows/panopticon-pr-openai.yml@v1", text)
+        self.assertNotIn("endpoint: ${{ vars.", text)
+        self.assertNotIn('"endpoint":"PANOPTICON_LLM_ENDPOINT"', text)
+
     def test_merge_workflow_uses_supplied_branch(self):
         text = caller_workflow_text(
             "panopticon-merge.yml", "acme/instance", "v1", LITELLM_CONTRACT, "trunk"
@@ -676,7 +683,7 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
                 )
             self.assertEqual(list(Path(tmp).iterdir()), [])
         self.assertEqual(code, 1)
-        for provider in ("litellm", "bedrock"):
+        for provider in ("litellm", "openai", "bedrock"):
             self.assertIn(
                 f"actions/workflows/configure-panopticon-{provider}.yml",
                 out.getvalue(),
@@ -854,7 +861,7 @@ class TestProviderBootstrapErrors(unittest.TestCase):
         self.assertIn("GitHub Actions console (choose exactly one provider)", text)
         self.assertIn("1. Open the workflow for the provider", text)
         self.assertIn("3. Select branch trunk", text)
-        for provider in ("litellm", "bedrock"):
+        for provider in ("litellm", "openai", "bedrock"):
             self.assertIn(
                 f"gh workflow run configure-panopticon-{provider}.yml "
                 "--repo acme/instance --ref trunk",

@@ -99,6 +99,8 @@ repo:
 1. Choose exactly one provider workflow:
    - **Actions → Configure Panopticon — LiteLLM
      (<https://github.com/YOUR-ORG/YOUR-INSTANCE-REPO/actions/workflows/configure-panopticon-litellm.yml>)**
+   - **Actions → Configure Panopticon — OpenAI
+     (<https://github.com/YOUR-ORG/YOUR-INSTANCE-REPO/actions/workflows/configure-panopticon-openai.yml>)**
    - **Actions → Configure Panopticon — Bedrock
      (<https://github.com/YOUR-ORG/YOUR-INSTANCE-REPO/actions/workflows/configure-panopticon-bedrock.yml>)**
 
@@ -107,6 +109,9 @@ repo:
 2. Select **Run workflow** and choose the instance's default branch. The
    workflow fixes the provider
    identity and displays only that provider's configuration fields.
+   **Configure Panopticon — OpenAI** always uses
+   `https://api.openai.com/v1`; it does not accept an endpoint variable or
+   override.
 3. If you chose Bedrock, select the credential path that matches your
    organization:
    - **github-oidc** (the default) has Panopticon assume an IAM role directly.
@@ -130,9 +135,8 @@ repo:
      name.
    - **Model variable** is the name of the organization variable, not the model
      identifier itself.
-     With the default `PANOPTICON_LLM_MODEL`, set its value to a LiteLLM model
-     such as
-     `gpt-4o-mini`, or to the selected Bedrock model's Converse-compatible
+     With the default `PANOPTICON_LLM_MODEL`, set its value to a LiteLLM or
+     OpenAI model such as `gpt-4o-mini`, or to the selected Bedrock model's Converse-compatible
      identifier.
    - **AWS region variable** and **AWS IAM role ARN variable** are names, not
      AWS values. In
@@ -154,6 +158,7 @@ The equivalent CLI commands are below. Run exactly one, replacing
 
 ```bash
 gh workflow run configure-panopticon-litellm.yml --repo YOUR-ORG/YOUR-INSTANCE-REPO --ref main
+gh workflow run configure-panopticon-openai.yml --repo YOUR-ORG/YOUR-INSTANCE-REPO --ref main
 gh workflow run configure-panopticon-bedrock.yml --repo YOUR-ORG/YOUR-INSTANCE-REPO --ref main
 gh run watch --repo YOUR-ORG/YOUR-INSTANCE-REPO
 ```
@@ -247,17 +252,17 @@ workflow inputs.
 
 | Secret | What it is |
 | --- | --- |
-| `PANOPTICON_LLM_API_KEY` *(LiteLLM)* | Bearer token for the LLM endpoint |
+| `PANOPTICON_LLM_API_KEY` *(LiteLLM or OpenAI)* | Bearer token for the LiteLLM endpoint or OpenAI Platform API |
 | `PANOPTICON_INSTANCE_TOKEN` | Fine-grained PAT scoped to the instance repo — [see instructions below](#creating-panopticon_instance_token) |
 
 **Variables** (plaintext; visible in logs):
 
 | Variable | What it is |
 | --- | --- |
-| `PANOPTICON_LLM_ENDPOINT` *(LiteLLM)* | Base URL of a LiteLLM-compatible OpenAI `/chat/completions` endpoint |
+| `PANOPTICON_LLM_ENDPOINT` *(LiteLLM)* | LiteLLM-compatible endpoint |
 | `PANOPTICON_AWS_REGION` *(Bedrock github-oidc only)* | AWS region containing the Bedrock model, for example `us-east-1` |
 | `PANOPTICON_AWS_ROLE_ARN` *(Bedrock github-oidc only)* | IAM role ARN that child PR workflows assume through GitHub OIDC, for example `arn:aws:iam::123456789012:role/panopticon-bedrock` |
-| `PANOPTICON_LLM_MODEL` | LiteLLM model name (for example, `gpt-4o-mini`) or Bedrock Converse-compatible model identifier |
+| `PANOPTICON_LLM_MODEL` | LiteLLM or OpenAI model name (for example, `gpt-4o-mini`) or Bedrock Converse-compatible model identifier |
 | `PANOPTICON_LLM_TIMEOUT_SECONDS` *(optional)* | Per-request LLM timeout; defaults to `90`, permitted range `30`–`300` seconds |
 | `PANOPTICON_LLM_MAX_ATTEMPTS` *(optional)* | Transport attempts for timeout, connection, and retryable HTTP failures; defaults to `2`, permitted range `1`–`3` |
 | `PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS` *(optional)* | Additional attempts for malformed structured LLM responses; defaults to `2`, permitted range `0`–`2` |

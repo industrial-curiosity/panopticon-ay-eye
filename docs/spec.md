@@ -41,6 +41,7 @@ one fixed-provider manual
 workflow:
 
 - `.github/workflows/configure-panopticon-litellm.yml`
+- `.github/workflows/configure-panopticon-openai.yml`
 - `.github/workflows/configure-panopticon-bedrock.yml`
 
 Each workflow exposes only GitHub Actions secret and variable *names*, never
@@ -53,6 +54,10 @@ and persist
 only one configuration
 mutation runs at a time.
 
+The OpenAI workflow fixes its base URL to `https://api.openai.com/v1`; it does
+not expose, persist, or forward an endpoint variable. LiteLLM remains the
+provider for a configurable OpenAI-compatible endpoint.
+
 Provider configuration selects trusted reusable PR workflow paths and canonical
 input mappings; it cannot
 inject an arbitrary repository, workflow, action, or command. Splitting the
@@ -62,7 +67,7 @@ child caller.
 
 ## Evaluation and synchronization
 
-Child PR callers invoke the selected LiteLLM or Bedrock evaluation workflow with
+Child PR callers invoke the selected LiteLLM, OpenAI, or Bedrock evaluation workflow with
 explicit organization-level
 secret and variable mappings. Provider-neutral checks share prompting,
 validation, correction, reporting,

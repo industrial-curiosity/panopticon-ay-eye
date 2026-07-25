@@ -36,8 +36,9 @@ contract and writes an explicit caller.
 ### Register OpenAI as a separate fixed provider
 
 Add `openai` to the trusted provider registry using the same logical API-key,
-endpoint, model, retry-budget, and instance-token names as the LiteLLM
-contract, but its own configuration and PR workflow paths. The configuration
+model, retry-budget, and instance-token names as the LiteLLM contract, but a
+fixed `https://api.openai.com/v1` endpoint and its own configuration and PR
+workflow paths. The configuration
 workflow fixes `provider: openai`; no dispatch input can select another
 provider or workflow path.
 
@@ -55,8 +56,9 @@ Create `configure-panopticon-openai.yml` and `panopticon-pr-openai.yml` as
 correctly named clones of their LiteLLM counterparts. They use the same shared
 configuration action and canonical inputs, but fix the OpenAI provider identity
 and use OpenAI labels in workflow names, summaries, preflight output, and
-recovery guidance. The setup guide documents `https://api.openai.com/v1` as the
-OpenAI endpoint and an OpenAI Platform API key as the secret value.
+recovery guidance. They do not expose an endpoint input or environment variable:
+the OpenAI endpoint is always `https://api.openai.com/v1`. The setup guide
+documents that fixed endpoint and an OpenAI Platform API key as the secret value.
 
 Alternative considered: parameterize one generic HTTP workflow. Rejected because
 fixed, provider-specific entrypoints are a settled architecture rule and are

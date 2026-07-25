@@ -14,11 +14,13 @@ def configuration_recovery(instance, branch):
     """Return terminal-friendly recovery for an unconfigured instance."""
     workflow_url = f"https://github.com/{instance}/actions/workflows"
     litellm_url = f"{workflow_url}/configure-panopticon-litellm.yml"
+    openai_url = f"{workflow_url}/configure-panopticon-openai.yml"
     bedrock_url = f"{workflow_url}/configure-panopticon-bedrock.yml"
     return f"""Configure the Panopticon instance before bootstrapping a child repository.
 
 GitHub Actions console (choose exactly one provider):
   LiteLLM: {litellm_url}
+  OpenAI: {openai_url}
   Bedrock: {bedrock_url}
   1. Open the workflow for the provider the instance will use.
   2. Select Run workflow.
@@ -28,6 +30,7 @@ GitHub Actions console (choose exactly one provider):
 
 Equivalent GitHub CLI commands (run exactly one):
   gh workflow run configure-panopticon-litellm.yml --repo {instance} --ref {branch}
+  gh workflow run configure-panopticon-openai.yml --repo {instance} --ref {branch}
   gh workflow run configure-panopticon-bedrock.yml --repo {instance} --ref {branch}
   gh run watch --repo {instance}
 

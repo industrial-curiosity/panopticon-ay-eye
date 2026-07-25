@@ -18,7 +18,7 @@ they land.
 
 ## Start here
 
-Create a private instance from this template, run its LiteLLM or Bedrock
+Create a private instance from this template, run its LiteLLM, OpenAI, or Bedrock
 configuration workflow, and
 initialize child repositories. The [org-owner setup guide](docs/setup-guide.md)
 walks through that process,

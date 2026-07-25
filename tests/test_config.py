@@ -44,9 +44,20 @@ class TestOrgConfig(unittest.TestCase):
     def test_litellm_provider_defaults_are_resolved(self):
         contract = resolve_provider_contract({"provider": "litellm"})
         self.assertEqual(contract["workflow"], "panopticon-pr-litellm.yml")
+
+    def test_openai_provider_defaults_are_resolved(self):
+        contract = resolve_provider_contract({"provider": "openai"})
+        self.assertEqual(contract["workflow"], "panopticon-pr-openai.yml")
+        self.assertEqual(contract["endpoint"], "https://api.openai.com/v1")
         self.assertEqual(contract["secrets"]["api_key"], "PANOPTICON_LLM_API_KEY")
-        self.assertEqual(contract["variables"]["endpoint"], "PANOPTICON_LLM_ENDPOINT")
+        self.assertNotIn("endpoint", contract["variables"])
         self.assertNotIn("id-token", contract["permissions"])
+
+    def test_openai_rejects_an_endpoint_variable_override(self):
+        with self.assertRaisesRegex(ProviderConfigError, "unknown logical names"):
+            resolve_provider_contract(
+                {"provider": "openai", "variables": {"endpoint": "OTHER_ENDPOINT"}}
+            )
 
     def test_bedrock_provider_has_oidc_contract(self):
         contract = resolve_provider_contract({"provider": "bedrock"})

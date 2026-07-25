@@ -42,16 +42,19 @@ the user's agent.
 ## Provider-agnostic agents
 
 An instance explicitly selects one built-in CI provider contract through the
-fixed-provider `Configure Panopticon — LiteLLM` or `Configure Panopticon —
-Bedrock` workflow; the template has no implicit provider. Those two manual
-entrypoints expose only provider-relevant Actions names and share one local
+fixed-provider `Configure Panopticon — LiteLLM`, `Configure Panopticon —
+OpenAI`, or `Configure Panopticon — Bedrock` workflow; the template has no
+implicit provider. Those manual entrypoints expose only provider-relevant
+Actions names and share one local
 configuration action for validation and persistence.
-LiteLLM-compatible HTTP and native Bedrock Converse through GitHub OIDC are
-separate reusable workflow entrypoints. The trusted provider registry owns
-their workflow paths, permissions, logical inputs, and default Actions names;
-instance configuration may rename secrets and variables but may not supply an
-arbitrary workflow path. Child bootstrap maps configured names explicitly and
-never uses `secrets: inherit`.
+LiteLLM-compatible HTTP, direct OpenAI Chat Completions at the fixed
+`https://api.openai.com/v1` endpoint, and native Bedrock Converse through GitHub
+OIDC are separate reusable workflow entrypoints. The trusted provider registry
+owns their workflow paths, permissions, logical inputs, and default Actions
+names; instance configuration may rename secrets and variables but may not
+supply an arbitrary workflow path. The OpenAI provider has no configurable
+endpoint. Child bootstrap maps configured names explicitly and never uses
+`secrets: inherit`.
 
 The shared prompting, validation, correction, and retry surface remains
 provider-neutral. Provider-specific authentication and transport stay inside

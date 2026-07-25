@@ -6,21 +6,21 @@ inputs:
     description: Trusted provider identifier fixed by the calling workflow
     required: true
   credential-mode:
-    description: Bedrock credential mode; empty for LiteLLM
+    description: Bedrock credential mode; empty for LiteLLM or OpenAI
     required: false
     default: ""
   instance-token-name:
     description: Organization secret name for the instance checkout token
     required: true
   api-key-name:
-    description: LiteLLM organization secret name; empty for Bedrock
+    description: LiteLLM or OpenAI organization secret name; empty for Bedrock
     required: false
     default: ""
   model-variable-name:
     description: Organization variable name for the provider model
     required: true
   endpoint-variable-name:
-    description: LiteLLM endpoint variable name; empty for Bedrock
+    description: LiteLLM endpoint variable name; empty for OpenAI or Bedrock
     required: false
     default: ""
   aws-region-variable-name:

@@ -13,7 +13,7 @@ from panopticon.recovery import (
 class TestRecoveryOutput(unittest.TestCase):
     def test_configuration_recovery_has_console_cli_and_bootstrap_paths(self):
         text = configuration_recovery("acme/private-instance", "trunk")
-        for provider in ("litellm", "bedrock"):
+        for provider in ("litellm", "openai", "bedrock"):
             self.assertIn(
                 "https://github.com/acme/private-instance/actions/workflows/"
                 f"configure-panopticon-{provider}.yml",
@@ -40,6 +40,8 @@ class TestRecoveryOutput(unittest.TestCase):
             "GitHub Actions console (choose exactly one provider):\n"
             "  LiteLLM: https://github.com/acme/private-instance/actions/workflows/"
             "configure-panopticon-litellm.yml\n"
+            "  OpenAI: https://github.com/acme/private-instance/actions/workflows/"
+            "configure-panopticon-openai.yml\n"
             "  Bedrock: https://github.com/acme/private-instance/actions/workflows/"
             "configure-panopticon-bedrock.yml\n"
             "  1. Open the workflow for the provider the instance will use.\n"
@@ -50,6 +52,8 @@ class TestRecoveryOutput(unittest.TestCase):
             "panopticon.config.json.\n\n"
             "Equivalent GitHub CLI commands (run exactly one):\n"
             "  gh workflow run configure-panopticon-litellm.yml --repo acme/private-instance "
+            "--ref release/2026-07\n"
+            "  gh workflow run configure-panopticon-openai.yml --repo acme/private-instance "
             "--ref release/2026-07\n"
             "  gh workflow run configure-panopticon-bedrock.yml --repo acme/private-instance "
             "--ref release/2026-07\n"

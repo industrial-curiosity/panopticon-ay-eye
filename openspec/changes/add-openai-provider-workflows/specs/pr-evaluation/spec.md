@@ -17,9 +17,10 @@ independent merge and PR-close workflows SHALL remain shared.
 #### Scenario: OpenAI child evaluates a pull request
 
 - **WHEN** an initialized child caller selects the OpenAI provider and supplies
-  its configured key, endpoint, model, instance token, and budget values
+  its configured key, model, instance token, and budget values
 - **THEN** the OpenAI reusable workflow runs every configured PR check and
   applies the same configured gate outcomes as the LiteLLM reusable workflow
+  using the fixed `https://api.openai.com/v1` endpoint
 
 #### Scenario: LiteLLM PR evaluation
 
@@ -36,8 +37,7 @@ independent merge and PR-close workflows SHALL remain shared.
 
 #### Scenario: OpenAI provider configuration is missing
 
-- **WHEN** an OpenAI caller omits a configured API key, endpoint, model, or
-  instance token
+- **WHEN** an OpenAI caller omits a configured API key, model, or instance token
 - **THEN** the OpenAI workflow fails before LLM work, identifies the configured
   Actions name and OpenAI provider, and provides exact instance-configuration
   and child-bootstrap recovery guidance

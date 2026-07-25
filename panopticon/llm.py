@@ -1,4 +1,4 @@
-"""CI-only shared LLM runtime with LiteLLM HTTP and native Bedrock Converse adapters.
+"""CI-only shared LLM runtime with OpenAI-compatible HTTP and Bedrock Converse adapters.
 
 This module is the **CI execution path only** (design D5). Local flows — initialization, doc
 updating, interface indexing — run the same skill files in the user's preferred agent harness and
@@ -11,7 +11,7 @@ environment variables. LiteLLM uses:
   (``/chat/completions`` is appended if not already present); org-level **variable**
 - ``PANOPTICON_LLM_API_KEY`` — bearer token for that endpoint; org-level **secret**
 - ``PANOPTICON_LLM_MODEL`` — optional model name passed through to the endpoint; defaults to
-  ``default`` (litellm proxies commonly route a default alias); org-level **variable**
+  ``default`` (LiteLLM proxies commonly route a default alias); org-level **variable**
 - ``PANOPTICON_LLM_TIMEOUT_SECONDS`` — optional per-request timeout; defaults to ``90`` seconds
 - ``PANOPTICON_LLM_MAX_ATTEMPTS`` — optional transport retry budget; defaults to ``2`` attempts
 - ``PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS`` — optional JSON-correction retry budget; defaults
@@ -21,9 +21,10 @@ Bedrock uses ``PANOPTICON_AWS_REGION`` and ``PANOPTICON_LLM_MODEL`` after its wo
 short-lived AWS credentials through OIDC. Both providers use the same bounded budget variables.
 
 The shared prompting, structured validation, correction, and bounded retry behavior is provider-neutral.
-LiteLLM remains standard-library HTTP. Bedrock lazily imports its pinned SDK only inside the Bedrock CI
-workflow; child-vendored and local tooling never install it. Missing or unreachable requirements fail
-loudly and LLM-dependent checks never silently skip or report success (agent-runtime spec).
+The OpenAI-compatible transport remains standard-library HTTP. Bedrock lazily imports its pinned SDK only
+inside the Bedrock CI workflow; child-vendored and local tooling never install it. Missing or unreachable
+requirements fail loudly and LLM-dependent checks never silently skip or report success (agent-runtime
+spec).
 """
 
 import json
@@ -33,6 +34,7 @@ import urllib.error
 import urllib.request
 
 ENDPOINT_VAR = "PANOPTICON_LLM_ENDPOINT"
+OPENAI_ENDPOINT = "https://api.openai.com/v1"
 API_KEY_VAR = "PANOPTICON_LLM_API_KEY"
 MODEL_VAR = "PANOPTICON_LLM_MODEL"
 TIMEOUT_VAR = "PANOPTICON_LLM_TIMEOUT_SECONDS"
@@ -58,7 +60,7 @@ SETUP_HINT = (
 )
 
 PURPOSES = {
-    ENDPOINT_VAR: "base URL of the litellm-compatible LLM endpoint",
+    ENDPOINT_VAR: "base URL of the OpenAI-compatible LLM endpoint",
     API_KEY_VAR: "API key for the LLM endpoint",
     AWS_REGION_VAR: "AWS region containing the configured Bedrock model",
     MODEL_VAR: "provider model identifier",
@@ -92,6 +94,11 @@ class LLMRequestError(Exception):
             guidance = (
                 f"Verify {AWS_REGION_VAR}, {MODEL_VAR}, the configured OIDC role, and its "
                 "bedrock:InvokeModel permission."
+            )
+        elif provider == "openai":
+            guidance = (
+                f"OpenAI requests use {OPENAI_ENDPOINT}; verify {API_KEY_VAR} is a valid OpenAI "
+                "Platform API key."
             )
         else:
             guidance = (
@@ -145,7 +152,7 @@ class LiteLLMAdapter:
     """OpenAI-compatible HTTP transport; shared prompting and correction stay in LLMClient."""
 
     def __init__(self, endpoint, api_key, model=DEFAULT_MODEL, timeout=DEFAULT_TIMEOUT_SECONDS,
-                 max_attempts=DEFAULT_MAX_ATTEMPTS, sleep=time.sleep):
+                 max_attempts=DEFAULT_MAX_ATTEMPTS, sleep=time.sleep, provider="litellm"):
         missing = [name for name, value in ((ENDPOINT_VAR, endpoint), (API_KEY_VAR, api_key)) if not value]
         if missing:
             raise MissingRequirementError(missing, PURPOSES)
@@ -158,9 +165,10 @@ class LiteLLMAdapter:
         self.timeout = timeout
         self.max_attempts = max_attempts
         self._sleep = sleep
+        self.provider = provider
 
     def preflight(self):
-        return {"provider": "litellm", "endpoint": self.endpoint, "model": self.model}
+        return {"provider": self.provider, "endpoint": self.endpoint, "model": self.model}
 
     def chat(self, messages, temperature=0):
         payload = json.dumps(
@@ -184,14 +192,14 @@ class LiteLLMAdapter:
                 with exc:
                     last_error = f"HTTP {exc.code}: {exc.read().decode('utf-8', 'replace')[:500]}"
                 if exc.code not in _RETRYABLE_STATUS:
-                    raise LLMRequestError(self.endpoint, attempt, last_error)
+                    raise LLMRequestError(self.endpoint, attempt, last_error, provider=self.provider)
             except urllib.error.URLError as exc:
                 last_error = f"connection failed: {exc.reason}"
             except TimeoutError:
                 last_error = f"timed out after {self.timeout}s"
             if attempt < self.max_attempts:
                 self._sleep(2 ** (attempt - 1))
-        raise LLMRequestError(self.endpoint, self.max_attempts, last_error)
+        raise LLMRequestError(self.endpoint, self.max_attempts, last_error, provider=self.provider)
 
     @staticmethod
     def _parse_response(body):
@@ -210,8 +218,11 @@ class LiteLLMAdapter:
 class LLMClient:
     def __init__(self, endpoint, api_key, model=DEFAULT_MODEL, timeout=DEFAULT_TIMEOUT_SECONDS,
                  max_attempts=DEFAULT_MAX_ATTEMPTS,
-                 max_correction_attempts=DEFAULT_MAX_CORRECTION_ATTEMPTS, sleep=time.sleep):
-        self._adapter = LiteLLMAdapter(endpoint, api_key, model, timeout, max_attempts, sleep)
+                 max_correction_attempts=DEFAULT_MAX_CORRECTION_ATTEMPTS, sleep=time.sleep,
+                 provider="litellm"):
+        self._adapter = LiteLLMAdapter(
+            endpoint, api_key, model, timeout, max_attempts, sleep, provider=provider
+        )
         self.endpoint = self._adapter.endpoint
         self.api_key = self._adapter.api_key
         self.model = self._adapter.model
@@ -221,13 +232,13 @@ class LLMClient:
 
     @classmethod
     def from_env(cls, env=os.environ, **kwargs):
+        provider = env.get(PROVIDER_VAR, "litellm")
         if cls is LLMClient:
-            provider = env.get(PROVIDER_VAR, "litellm")
             if provider == "bedrock":
                 return BedrockLLMClient.from_env(env, **kwargs)
-            if provider != "litellm":
+            if provider not in {"litellm", "openai"}:
                 raise LLMConfigurationError(
-                    f"invalid {PROVIDER_VAR}: expected 'litellm' or 'bedrock'; got {provider!r}"
+                    f"invalid {PROVIDER_VAR}: expected 'litellm', 'openai', or 'bedrock'; got {provider!r}"
                 )
         request_budget = {
             "timeout": _request_budget_from_env(TIMEOUT_VAR, env),
@@ -236,14 +247,15 @@ class LLMClient:
         }
         request_budget.update(kwargs)
         return cls(
-            endpoint=env.get(ENDPOINT_VAR),
+            endpoint=OPENAI_ENDPOINT if provider == "openai" else env.get(ENDPOINT_VAR),
             api_key=env.get(API_KEY_VAR),
             model=env.get(MODEL_VAR, DEFAULT_MODEL),
+            provider=provider,
             **request_budget,
         )
 
     def preflight(self):
-        """Validate mapped LiteLLM configuration without making a billable inference request."""
+        """Validate mapped HTTP-provider configuration without a billable inference request."""
         return self._adapter.preflight()
 
     def chat(self, messages, temperature=0):
