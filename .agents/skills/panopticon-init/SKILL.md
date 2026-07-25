@@ -28,7 +28,8 @@ its own — this skill only sequences them.
    layers render from `panopticon/index.json` and the dependency shard, neither of which exist yet
    before those steps run
 6. Finalization: `python3 -m panopticon.init_repo --instance <instance>` — the last step, run only
-   after 1–5 are complete
+   after 1–5 are complete. Do not ask the user to finalize early: documentation generation derives
+   the bootstrap context it needs before `panopticon/config.json` exists.
 
 ## Checkpoint log
 
@@ -67,7 +68,9 @@ For each step in order, skip it if already recorded in the checkpoint log, other
 
 If finalization reports unmet requirements, fix them (the underlying skills remain invocable
 individually for this), then re-run finalization — do not delete the checkpoint log until
-finalization actually succeeds.
+finalization actually succeeds. A missing `panopticon/config.json` during documentation generation
+is not a reason to pause: continue in the listed order unless the bootstrap caller workflow itself
+is missing or invalid, in which case rerun child bootstrap.
 
 If a step stops to ask the user about a documentation/code contradiction it can't resolve on its
 own (see panopticon-doc-generation's and panopticon-interface-naming's drift-resolution rules),

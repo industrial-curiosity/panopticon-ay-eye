@@ -13,6 +13,13 @@ The report separates child-repository, organization-configuration, and
 template/tooling findings and gives the next action for each; credential values
 are never recorded.
 
+Initialization is one continuous sequence: before finalization writes the
+configuration file, documentation generation derives its repository, instance,
+and workflow-reference context from the bootstrap caller workflow. GitHub API
+clients retry transient failures and recognized rate limits using GitHub-provided
+retry timing when available; tokens remain the preferred way to avoid anonymous
+rate limits and to access private instances.
+
 ## Repository roles
 
 - The public template owns deterministic Python tooling, trusted workflow and

@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import termios
+import time
 import types
 import urllib.error
 import urllib.parse
@@ -49,16 +50,65 @@ def _headers(token=None):
     return headers
 
 
-def _api_json(url, token=None, urlopen=urllib.request.urlopen):
+def _rate_limit_delay(status, headers, body, now, fallback):
+    """Return a GitHub-directed retry delay, or None for a non-rate-limit response."""
+    headers = headers or {}
+    retry_after = headers.get("Retry-After")
+    remaining = headers.get("X-RateLimit-Remaining")
+    reset = headers.get("X-RateLimit-Reset")
+    identified = (
+        status == 429
+        or retry_after is not None
+        or str(remaining).strip() == "0"
+        or "rate limit" in body.lower()
+    )
+    if status != 429 and (status != 403 or not identified):
+        return None
+    if retry_after is not None:
+        try:
+            return max(0.0, float(retry_after))
+        except (TypeError, ValueError):
+            pass
+    if reset is not None:
+        try:
+            return max(0.0, float(reset) - now())
+        except (TypeError, ValueError):
+            pass
+    return fallback
+
+
+def _api_json(url, token=None, urlopen=urllib.request.urlopen, max_attempts=3, sleep=time.sleep,
+              now=time.time, print_fn=print):
     request = urllib.request.Request(url, headers=_headers(token))
-    try:
-        with urlopen(request, timeout=30) as response:
-            return json.loads(response.read())
-    except urllib.error.HTTPError as exc:
-        exc.close()
-        raise GitHubRequestError(exc.code, "accessing the instance repository") from None
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise LauncherError(f"could not access the GitHub API: {type(exc).__name__}") from None
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        rate_limited = False
+        try:
+            with urlopen(request, timeout=30) as response:
+                return json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            headers = exc.headers
+            with exc:
+                body = exc.read().decode("utf-8", "replace")[:400]
+            last_error = GitHubRequestError(exc.code, "accessing the instance repository")
+            fallback = 2 ** (attempt - 1)
+            delay = _rate_limit_delay(exc.code, headers, body, now, fallback)
+            if delay is None:
+                raise last_error from None
+            rate_limited = True
+        except (urllib.error.URLError, TimeoutError) as exc:
+            last_error = LauncherError(f"could not access the GitHub API: {type(exc).__name__}")
+            delay = 2 ** (attempt - 1)
+        except json.JSONDecodeError as exc:
+            raise LauncherError(f"could not access the GitHub API: {type(exc).__name__}") from None
+        if attempt < max_attempts:
+            if rate_limited:
+                print_fn(
+                    "Panopticon installer: GitHub API rate limited; "
+                    f"retrying in {int(delay + 0.999)} seconds..."
+                )
+            sleep(delay)
+    raise last_error
 
 
 def _read_tty_line(prompt, tty_path="/dev/tty"):

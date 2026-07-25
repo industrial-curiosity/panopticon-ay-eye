@@ -8,8 +8,10 @@ developer sitting in the child repo's own checkout, before any merge, an immedia
 to the current org-wide picture.
 
 `panopticon/config.json`'s `instance_default_branch` (repo-initialization capability, kept current
-on every bootstrap rerun) is always consulted first — no network call in the common case. Only when
-that field is genuinely absent does this script fall back to a live GitHub API lookup, using the
+on every bootstrap rerun) is always consulted first — no network call in the common case. Before
+first-time finalization creates that file, the wired caller workflow supplies the instance and its
+reference. Only when the branch field is genuinely absent does this script fall back to a live
+GitHub API lookup, using the
 same token/transport mechanism `bootstrap.py`/`sync.py`/`init_repo.py` already use (`GH_TOKEN`/
 `GITHUB_TOKEN` env vars, `gh auth token` as a fallback — never a direct `gh api` subprocess call,
 which depends on the separate, narrower precondition of `gh auth login`; design D11). Duplicated
@@ -19,13 +21,19 @@ same "each vendored module stands alone" precedent `sync.py` already established
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from .config import ConfigError, load_repo_config
+
+
+_CALLER_WORKFLOW = Path(".github") / "workflows" / "panopticon-pr.yml"
+_USES_REF_RE = re.compile(r"^\s*uses:\s*(\S+)/\.github/workflows/\S+@(\S+)\s*$", re.MULTILINE)
 
 
 def _resolve_token(env=None):
@@ -69,6 +77,33 @@ def build_link(instance, branch, repo):
     return f"https://github.com/{instance}/blob/{branch}/docs/architecture.md#{repo}"
 
 
+def derive_bootstrap_context(child_root):
+    """Derive the context available after bootstrap but before finalization writes config."""
+    child_root = Path(child_root)
+    try:
+        text = (child_root / _CALLER_WORKFLOW).read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise ConfigError(
+            "cannot derive Panopticon context: .github/workflows/panopticon-pr.yml is missing; "
+            "rerun child bootstrap before generating documentation"
+        ) from exc
+    match = _USES_REF_RE.search(text)
+    if not match:
+        raise ConfigError(
+            "cannot derive Panopticon context: the caller workflow has no valid uses line; "
+            "rerun child bootstrap before generating documentation"
+        )
+    instance, workflow_ref = match.groups()
+    return {
+        "repo": child_root.resolve().name,
+        "instance": instance,
+        "workflow_ref": workflow_ref,
+        # The wired ref is the only deterministic branch-like reference available before
+        # finalization records the instance default branch.
+        "instance_default_branch": workflow_ref,
+    }
+
+
 def resolve_branch(repo_config, env=None, urlopen=urllib.request.urlopen):
     """`instance_default_branch` from config if present; otherwise a live fallback lookup. Raises
     ConfigError when neither works — never guesses a branch name."""
@@ -89,8 +124,11 @@ def resolve_branch(repo_config, env=None, urlopen=urllib.request.urlopen):
 def main(argv=None, child_root=".", env=None, urlopen=urllib.request.urlopen):
     repo_config = load_repo_config(child_root)
     if repo_config is None:
-        print("error: this repo is not Panopticon-initialized (panopticon/config.json missing)")
-        return 1
+        try:
+            repo_config = derive_bootstrap_context(child_root)
+        except ConfigError as exc:
+            print(f"error: {exc}")
+            return 1
     try:
         branch = resolve_branch(repo_config, env, urlopen)
     except ConfigError as exc:

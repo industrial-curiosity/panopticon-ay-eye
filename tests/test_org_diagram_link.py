@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 
 from panopticon.config import ConfigError, save_repo_config
-from panopticon.org_diagram_link import build_link, main, resolve_branch
+from panopticon.org_diagram_link import build_link, derive_bootstrap_context, main, resolve_branch
 
 
 def _write_config(tmp, **overrides):
@@ -29,6 +29,12 @@ def _write_config(tmp, **overrides):
 
 def _urlopen_no_call_expected(request, timeout=30):
     raise AssertionError(f"unexpected network call: {request.full_url}")
+
+
+def _write_caller_workflow(root, instance="acme/panopticon-instance", ref="main"):
+    path = Path(root) / ".github" / "workflows" / "panopticon-pr.yml"
+    path.parent.mkdir(parents=True)
+    path.write_text(f"jobs:\n  panopticon:\n    uses: {instance}/.github/workflows/panopticon-pr.yml@{ref}\n")
 
 
 def _make_repo_metadata_urlopen(default_branch="main", fail=False):
@@ -76,6 +82,16 @@ class TestResolveBranch(unittest.TestCase):
 
 
 class TestMain(unittest.TestCase):
+    def test_uninitialized_repo_derives_link_from_bootstrap_workflow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _write_caller_workflow(tmp, ref="release/v2")
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(child_root=tmp, env={}, urlopen=_urlopen_no_call_expected)
+        self.assertEqual(code, 0)
+        self.assertIn("/blob/release/v2/docs/architecture.md", out.getvalue())
+        self.assertIn(Path(tmp).name, out.getvalue())
+
     def test_prints_exact_link_with_no_network_call(self):
         with tempfile.TemporaryDirectory() as tmp:
             _write_config(tmp)
@@ -88,13 +104,20 @@ class TestMain(unittest.TestCase):
             "https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a",
         )
 
-    def test_uninitialized_repo_errors(self):
+    def test_uninitialized_repo_without_bootstrap_workflow_has_recovery_guidance(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = StringIO()
             with contextlib.redirect_stdout(out):
                 code = main(child_root=tmp, env={}, urlopen=_urlopen_no_call_expected)
         self.assertEqual(code, 1)
-        self.assertIn("not Panopticon-initialized", out.getvalue())
+        self.assertIn("rerun child bootstrap", out.getvalue())
+
+    def test_derived_context_requires_valid_caller_workflow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _write_caller_workflow(tmp)
+            context = derive_bootstrap_context(tmp)
+        self.assertEqual(context["instance"], "acme/panopticon-instance")
+        self.assertEqual(context["workflow_ref"], "main")
 
     def test_missing_field_succeeds_via_live_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:

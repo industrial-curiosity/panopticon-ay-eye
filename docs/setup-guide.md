@@ -414,6 +414,11 @@ the command. The instance installer chooses where skills live (template default
 `PANOPTICON_SKILLS_LOCATION` to skip that
 prompt for non-interactive or CI runs.
 
+The launcher and installer automatically retry transient GitHub API failures
+and recognized rate limits. They honor GitHub's `Retry-After` or reset-time
+headers when available. Authentication remains the preferred path because it
+raises the API quota and is required for private instances.
+
 Once a location is chosen, the script will:
 
 - Install the Panopticon skills there
@@ -446,6 +451,13 @@ itself.
 
 No `PANOPTICON_LLM_*` secrets or variables are needed locally — the agent uses
 its own harness.
+
+There is no manual handoff between documentation generation and finalization.
+Before finalization creates `panopticon/config.json`, documentation generation
+derives the repository, instance, and workflow reference from the caller
+workflow written during bootstrap. If that workflow is missing or malformed,
+rerun the child bootstrap; otherwise the initialization skill continues through
+finalization in the same run.
 
 ### Phase 3 — Finalize
 
@@ -595,4 +607,7 @@ bootstrap rerun
 requires `gh auth login`
 specifically). If that field is genuinely missing, the script attempts a live
 lookup itself before
-giving up, using the same token resolution — no separate command needed.
+giving up, using the same token resolution — no separate command needed. During
+first-time initialization, before finalization has written the config file, it
+instead derives the instance and ref from the bootstrap caller workflow so the
+documentation step can complete without a manual pause.

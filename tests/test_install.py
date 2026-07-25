@@ -592,6 +592,43 @@ class TestApiGetRetry(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         self.assertEqual(calls, [1])
 
+    def test_rate_limit_reset_header_is_retried_without_echoing_body(self):
+        from urllib.error import HTTPError
+
+        attempts, messages = [], []
+
+        def urlopen(request, timeout=30):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise HTTPError(
+                    request.full_url, 403, "Forbidden",
+                    {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "110"},
+                    BytesIO(b"rate limit token-secret"),
+                )
+            return BytesIO(json.dumps({"ok": True}).encode())
+
+        calls, sleep = self._recording_sleep()
+        result = _api_get(
+            "https://api.github.com/repos/acme/instance", urlopen=urlopen, sleep=sleep,
+            now=lambda: 100, print_fn=messages.append,
+        )
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(calls, [10])
+        self.assertNotIn("token-secret", "\n".join(messages))
+
+    def test_forbidden_without_rate_limit_evidence_does_not_retry(self):
+        from urllib.error import HTTPError
+
+        attempts = []
+
+        def urlopen(request, timeout=30):
+            attempts.append(1)
+            raise HTTPError(request.full_url, 403, "Forbidden", {}, BytesIO(b"denied"))
+
+        with self.assertRaisesRegex(RuntimeError, "403"):
+            _api_get("https://api.github.com/repos/acme/instance", urlopen=urlopen)
+        self.assertEqual(len(attempts), 1)
+
 
 # ── workflow_ref default resolution (main) ─────────────────────────────────────
 

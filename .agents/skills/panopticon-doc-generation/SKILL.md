@@ -10,7 +10,9 @@ description: >-
 # Panopticon documentation generation
 
 Produce the four documentation layers in the repo's configured documentation location (recorded
-as `docs_location` in `panopticon/config.json`; default `docs/`). Regeneration always updates the
+as `docs_location` in `panopticon/config.json`; default `docs/`). During first-time
+`/panopticon-init`, before finalization writes that file, adopt an existing documentation directory
+or use `docs/`; derive the repository name from the child root. Regeneration always updates the
 existing files **in place** — never create parallel copies, and remove docs and references for
 components that no longer exist.
 
@@ -65,7 +67,8 @@ components that no longer exist.
    code" discipline as the rest of this layer. Do not invent components or relationships that
    aren't in the code. Directly below the fenced block, add a markdown link back to this repo's
    section in the org diagram: `` [org diagram](../architecture.md#{repo}) ``, where `{repo}` is
-   `panopticon/config.json`'s `repo` field (e.g. `repo: "svc-a"` → `[org diagram](../architecture.md#svc-a)`).
+   `panopticon/config.json`'s `repo` field (or, before first-time finalization, the child-root
+   directory name) (e.g. `repo: "svc-a"` → `[org diagram](../architecture.md#svc-a)`).
    This is a *relative* link, not an absolute GitHub URL — this repo's docs are merged into the
    instance repo at `docs/{repo}/` on every push (master-sync capability), landing this file at
    `docs/{repo}/architecture.md` alongside the org diagram at `docs/architecture.md`, so
@@ -84,15 +87,16 @@ components that no longer exist.
    ```
 
    The first is a relative link built from `panopticon/config.json`'s `repo` and `docs_location`
-   fields; like the diagram-section back-link (rule 7), it resolves once this repo's docs are merged
-   into the instance repo, not necessarily before. The second is a fully-qualified GitHub URL — run:
+   fields, or their first-time initialization derivation; like the diagram-section back-link
+   (rule 7), it resolves once this repo's docs are merged into the instance repo, not necessarily
+   before. The second is a fully-qualified GitHub URL — run:
 
    ```bash
    python3 -m panopticon.org_diagram_link
    ```
 
    and use its printed line verbatim. Do not re-derive the URL or its fallback behavior yourself: the
-   script already implements the correct config-first, live-lookup-fallback, fail-loudly-never-guess
+   script already implements config-first, bootstrap-context fallback, and fail-loudly-never-guess
    logic (architecture-diagrams capability, "Org-diagram link script"). If the script exits non-zero,
    stop and report the error it printed rather than writing a partial or guessed link.
 9. **Resolve drift against docs you find, don't just flag it.** If existing documentation — this

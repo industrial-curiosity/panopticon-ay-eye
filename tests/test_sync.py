@@ -15,7 +15,7 @@ from panopticon import bootstrap
 from panopticon import sync as sync_module
 from panopticon.bootstrap import LOCAL_TOOLING_MODULES, SKILLS_PREFIX
 from panopticon.config import save_repo_config
-from panopticon.sync import check_updates, git_blob_sha, main
+from panopticon.sync import _api_get, check_updates, git_blob_sha, main
 
 
 def _tree_entry(path, sha, type_="blob"):
@@ -82,6 +82,43 @@ class TestSelfContained(unittest.TestCase):
 
     def test_tool_locations_matches_bootstrap(self):
         self.assertEqual(sync_module.TOOL_LOCATIONS, bootstrap.TOOL_LOCATIONS)
+
+
+class TestApiGetRetry(unittest.TestCase):
+    def test_retry_after_is_used_for_rate_limit(self):
+        from urllib.error import HTTPError
+
+        attempts, waits = [], []
+
+        def urlopen(request, timeout=30):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise HTTPError(
+                    request.full_url, 429, "Too Many Requests", {"Retry-After": "7"},
+                    BytesIO(b"rate limited"),
+                )
+            return BytesIO(json.dumps({"ok": True}).encode())
+
+        self.assertEqual(
+            _api_get("https://api.github.com/repos/acme/instance", urlopen=urlopen, sleep=waits.append),
+            {"ok": True},
+        )
+        self.assertEqual(waits, [7])
+
+    def test_rate_limit_without_headers_uses_backoff_and_exhausts(self):
+        from urllib.error import HTTPError
+
+        waits = []
+
+        def urlopen(request, timeout=30):
+            raise HTTPError(request.full_url, 429, "Too Many Requests", {}, BytesIO(b"rate limited"))
+
+        with self.assertRaisesRegex(RuntimeError, "429"):
+            _api_get(
+                "https://api.github.com/repos/acme/instance", urlopen=urlopen,
+                max_attempts=3, sleep=waits.append,
+            )
+        self.assertEqual(waits, [1, 2])
 
 
 class TestGitBlobSha(unittest.TestCase):

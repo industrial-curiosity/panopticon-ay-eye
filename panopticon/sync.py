@@ -93,26 +93,64 @@ def _api_headers(token=None):
     return headers
 
 
-_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_RETRYABLE_STATUS = {500, 502, 503, 504}
 
 
-def _api_get(url, token=None, urlopen=urllib.request.urlopen, max_attempts=3, sleep=time.sleep):
+def _rate_limit_delay(status, headers, body, now, fallback):
+    """Return a GitHub-directed retry delay, or None for a non-rate-limit response."""
+    headers = headers or {}
+    retry_after = headers.get("Retry-After")
+    remaining = headers.get("X-RateLimit-Remaining")
+    reset = headers.get("X-RateLimit-Reset")
+    identified = (
+        status == 429
+        or retry_after is not None
+        or str(remaining).strip() == "0"
+        or "rate limit" in body.lower()
+    )
+    if status != 429 and (status != 403 or not identified):
+        return None
+    if retry_after is not None:
+        try:
+            return max(0.0, float(retry_after))
+        except (TypeError, ValueError):
+            pass
+    if reset is not None:
+        try:
+            return max(0.0, float(reset) - now())
+        except (TypeError, ValueError):
+            pass
+    return fallback
+
+
+def _api_get(url, token=None, urlopen=urllib.request.urlopen, max_attempts=3, sleep=time.sleep,
+             now=time.time, print_fn=print):
     req = urllib.request.Request(url, headers=_api_headers(token))
     last_error = None
     for attempt in range(1, max_attempts + 1):
+        rate_limited = False
         try:
             with urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as exc:
+            headers = exc.headers
             with exc:
                 body = exc.read().decode("utf-8", "replace")[:400]
             last_error = f"GitHub API {exc.code} for {url}: {body}"
-            if exc.code not in _RETRYABLE_STATUS:
+            fallback = 2 ** (attempt - 1)
+            delay = _rate_limit_delay(exc.code, headers, body, now, fallback)
+            if delay is None and exc.code not in _RETRYABLE_STATUS:
                 raise RuntimeError(last_error)
+            rate_limited = delay is not None
+            if not rate_limited:
+                delay = fallback
         except urllib.error.URLError as exc:
             last_error = f"GitHub API request failed for {url}: {exc.reason}"
+            delay = 2 ** (attempt - 1)
         if attempt < max_attempts:
-            sleep(2 ** (attempt - 1))
+            if rate_limited:
+                print_fn(f"  GitHub API rate limited; retrying in {int(delay + 0.999)} seconds...")
+            sleep(delay)
     raise RuntimeError(last_error)
 
 

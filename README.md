@@ -37,6 +37,10 @@ for example,
 `GH_TOKEN`, `GITHUB_TOKEN`, or
 an existing `gh auth` session.
 
+The launcher automatically retries temporary GitHub API failures and recognized
+rate limits, honoring GitHub's retry timing when supplied. Supplying a token is
+still preferred: it raises the API quota and is required for private instances.
+
 After the agent runs finalization, review the child repository's
 `panopticon-initialization-report.md`. It gives the current outcome and separates
 child-repository repairs from organization configuration follow-up. Complete any
