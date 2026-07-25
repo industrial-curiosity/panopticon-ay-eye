@@ -2,6 +2,13 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [fix-bootstrap-provider-loader] - 2026-07-25
+
+### Fixed (bootstrap)
+
+- Restored uncustomized instance bootstrap by loading the provider registry
+  before the default bootstrap module runs.
+
 ## [fix-template-sync-recovery] - 2026-07-25
 
 ### Fixed (template synchronization)
