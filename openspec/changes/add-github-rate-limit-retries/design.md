@@ -17,6 +17,8 @@ launcher does not retry GitHub errors at all.
 - Use GitHub’s requested delay when available and give users concise progress.
 - Keep launcher, bootstrap, and sync behavior aligned without adding a runtime
   dependency.
+- Let `/panopticon-init` finish normal initialization without a user-mediated
+  transition between documentation generation and finalization.
 
 **Non-Goals:**
 
@@ -50,6 +52,18 @@ sync retain mirrored local helpers because sync is vendored into child
 repositories and cannot import bootstrap. Each client prints a short retry
 message that names the wait duration but never the token or response body.
 
+### Derive pre-finalization context without creating the flag
+
+Documentation generation currently needs metadata that is persisted only by
+finalization, creating a circular dependency. Before finalization, derive the
+instance and workflow ref from the caller workflow, the repository name from
+the child root, and the documentation location using the same adoption/default
+rule as finalization. This transient context allows documentation and its org
+diagram link to complete while preserving `panopticon/config.json` as the final
+initialization artifact. Writing an early partial config was rejected because
+the file is the initialization sentinel and would incorrectly mark invalid docs
+as initialized.
+
 ## Risks / Trade-offs
 
 - [A false-positive `403` classification waits unnecessarily] → Require a
@@ -58,6 +72,8 @@ message that names the wait duration but never the token or response body.
   to authenticate and rerun instead of assuming the installer has hung.
 - [Mirrored bootstrap/sync implementations drift] → Add equivalent tests and
   retain the existing self-containment checks.
+- [Derived metadata differs from finalization] → Share or test the same
+  derivation rules and fail loudly when bootstrap wiring is unavailable.
 
 ## Migration Plan
 

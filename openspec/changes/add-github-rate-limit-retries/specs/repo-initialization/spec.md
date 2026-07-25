@@ -61,3 +61,58 @@ MUST implement this behavior despite their separate import boundaries.
 - **WHEN** the client makes the request
 - **THEN** it fails only after the configured retry attempts and preserves its
   existing safe failure format
+
+## ADDED Requirements
+
+### Requirement: Initialization orchestration is self-contained
+
+The `/panopticon-init` orchestration SHALL complete interface naming, interface
+extraction, dependency naming, dependency extraction, documentation generation,
+and finalization in one invocation without asking the user to choose an
+intermediate ordering. It SHALL NOT require `panopticon/config.json` before
+the finalization step creates that initialization flag.
+
+Before finalization, any documentation-generation or org-diagram-link behavior
+that needs child repository metadata SHALL derive the instance slug and workflow
+ref from the bootstrap-wired caller workflow, the repository name from the
+child-root directory, and the documentation location from the existing
+documentation directory or the documented default. It SHALL use that derived
+context without persisting `panopticon/config.json`. Finalization SHALL retain
+its existing validation gate and write `panopticon/config.json` as the final
+initialization artifact.
+
+#### Scenario: Fresh initialization reaches documentation generation without config
+
+- **GIVEN** bootstrap has wired the caller workflow and no
+  `panopticon/config.json` exists
+- **WHEN** `/panopticon-init` reaches documentation generation after completing
+  its index steps
+- **THEN** documentation generation and the required organization-diagram link
+  use derived bootstrap context and continue without asking the user to
+  finalize early
+
+#### Scenario: One invocation completes normal initialization
+
+- **GIVEN** a freshly bootstrapped child repository with no unresolved
+  documentation or code contradiction
+- **WHEN** the user invokes `/panopticon-init`
+- **THEN** the orchestration proceeds through finalization without a manual
+  phase transition and writes `panopticon/config.json` only after validation
+  succeeds
+
+#### Scenario: Resumed initialization does not repeat the deadlocked step
+
+- **GIVEN** a checkpoint records completed index steps and no
+  `panopticon/config.json` exists
+- **WHEN** `/panopticon-init` resumes at documentation generation
+- **THEN** it derives the required context and continues rather than pausing for
+  the user to choose between early finalization and documentation generation
+
+#### Scenario: Missing bootstrap context fails with recovery guidance
+
+- **GIVEN** no caller workflow exists from which initialization can derive an
+  instance slug
+- **WHEN** documentation generation or the organization-diagram link needs that
+  context before finalization
+- **THEN** it fails loudly with the instruction to rerun child bootstrap rather
+  than guessing an instance, repository, or branch

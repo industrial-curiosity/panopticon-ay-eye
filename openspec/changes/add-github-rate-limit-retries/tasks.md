@@ -12,7 +12,13 @@
 - [ ] 2.2 Extend bootstrap and sync tests for rate-limit classification, header-derived waits, fallback backoff, exhausted retries, and token-safe progress output.
 - [ ] 2.3 Run focused launcher, bootstrap, and sync tests, then the full Python suite.
 
-## 3. Document the recovery contract
+## 3. Remove the initialization ordering deadlock
 
-- [ ] 3.1 Update setup and testing documentation to explain automatic rate-limit recovery and retain authentication as the preferred path.
-- [ ] 3.2 Update README.md and docs/spec.md to reflect any user-facing or architectural changes introduced by this change.
+- [ ] 3.1 Add a pre-finalization context derivation path for documentation generation and organization-diagram links without creating `panopticon/config.json` early.
+- [ ] 3.2 Update `/panopticon-init` and documentation-generation guidance so normal initialization continues directly from index work through finalization with no user-mediated phase transition.
+- [ ] 3.3 Add regression coverage for fresh and checkpoint-resumed initialization, plus missing caller-workflow recovery guidance.
+
+## 4. Document the recovery contract
+
+- [ ] 4.1 Update setup and testing documentation to explain automatic rate-limit recovery and retain authentication as the preferred path.
+- [ ] 4.2 Update README.md and docs/spec.md to reflect any user-facing or architectural changes introduced by this change.

@@ -16,6 +16,8 @@ permission failure despite GitHub’s rate-limit headers and recovery guidance.
 - Keep genuine authorization, repository-not-found, and malformed-response
   failures immediate and clear.
 - Display concise retry progress without exposing tokens or response bodies.
+- Remove the initialization ordering deadlock so `/panopticon-init` completes
+  normal documentation generation and finalization without user intervention.
 
 ## Capabilities
 
@@ -31,5 +33,6 @@ None.
 ## Impact
 
 Affected code includes `install.py`, `panopticon/bootstrap.py`,
-`panopticon/sync.py`, and their unit tests and setup guidance. No external
-dependencies or credentials are added.
+`panopticon/sync.py`, initialization and documentation-generation tooling, and
+their unit tests and setup guidance. No external dependencies or credentials are
+added.
