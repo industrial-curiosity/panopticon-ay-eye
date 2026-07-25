@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD - created by archiving change add-contribution-guidelines. Update Purpose after archive.
+Define discoverable, complete guidance for contributing changes to Panopticon.
 
 ## Requirements
 
@@ -20,20 +20,19 @@ workflow, and `README.md` SHALL link to it in the Documentation section.
 ### Requirement: Contribution guidelines include the OpenSpec workflow
 
 The contribution guidelines SHALL describe OpenSpec as part of the contribution
-workflow, including
-the roles of current specifications, active changes, and archived changes; the
-proposal, design,
-specification-delta, and task artifacts; and the commands to list, inspect,
-validate, and progress
-a change.
+workflow, including the roles of current specifications, active changes, and
+archived changes; the proposal, design, specification-delta, and task
+artifacts; and the slash-command forms `/openspec-explore`,
+`/openspec-propose`, `/openspec-update-change`, `/openspec-apply-change`, and
+`/openspec-archive-change` used to progress a change.
 
 #### Scenario: A contributor plans a repository change
 
 - **WHEN** a contributor follows the contribution guidelines before implementing
   a non-trivial change
 - **THEN** they can identify the relevant current specification, create or
-  inspect a change, and
-  validate its artifacts
+  inspect a change, update its requirements or scenarios, and validate its
+  artifacts
 
 ### Requirement: Contribution guidelines preserve focused references
 

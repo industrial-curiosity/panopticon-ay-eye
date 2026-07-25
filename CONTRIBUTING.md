@@ -37,23 +37,26 @@ that apply when creating artifacts.
 
 The normal lifecycle is:
 
-1. Explore the problem with `/opsx-explore` when requirements or trade-offs need
-   investigation.
-2. Create a complete change with `/opsx-propose`, or begin manually with
+1. Explore the problem with `/openspec-explore` when requirements or trade-offs
+   need investigation.
+2. Create a complete change with `/openspec-propose`, or begin manually with
    `openspec new change "<change-name>"`.
-3. Read the proposal, design, requirement deltas, and tasks; then implement with
-   `/opsx-apply`.
-4. Check progress with `openspec status --change "<change-name>"` and validate
+3. Use `/openspec-update-change` to add, modify, or remove requirements and
+   scenarios. It updates a related active change's delta specification, or the
+   canonical specification when appropriate.
+4. Read the proposal, design, requirement deltas, and tasks; then implement with
+   `/openspec-apply-change`.
+5. Check progress with `openspec status --change "<change-name>"` and validate
    with
    `openspec validate --strict "<change-name>"`.
-5. Archive finished work with `/opsx-archive` or `openspec archive
+6. Archive finished work with `/openspec-archive-change` or `openspec archive
    "<change-name>"`.
 
 Use the OpenSpec agent skills in [`.agents/skills/`](.agents/skills/) when
 working with an agent:
-`openspec-explore`, `openspec-propose`, `openspec-apply-change`, and
-`openspec-archive-change`. They read and maintain the applicable artifacts in
-the correct order.
+`/openspec-explore`, `/openspec-propose`, `/openspec-update-change`,
+`/openspec-apply-change`, and `/openspec-archive-change`. They read and
+maintain the applicable artifacts in the correct order.
 
 ## Make and validate the change
 
