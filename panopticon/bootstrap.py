@@ -333,7 +333,8 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
 
 # ── Local tooling vendoring ─────────────────────────────────────────────────────
 # The exact transitive import closure of `python3 -m panopticon.init_repo` and the
-# `python3 -m panopticon.docs` commands panopticon-doc-generation/SKILL.md invokes directly, plus
+# `python3 -m panopticon.docs` commands panopticon-doc-generation/SKILL.md invokes directly,
+# including `providers.py`, which `config.py` imports at runtime, plus
 # `sync.py` (tooling-currency capability) so an already-bootstrapped child repo can pull the
 # instance's current skills/tooling on demand via `python3 -m panopticon.sync`,
 # `org_diagram_link.py` (architecture-diagrams capability) so a developer can print a resolvable
@@ -349,8 +350,8 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
 # vendored into child repos. `recovery.py` is the exception because current workflows use it before
 # checking out the instance repository.
 LOCAL_TOOLING_MODULES = (
-    "__init__.py", "config.py", "dependencies.py", "docs.py", "index.py", "init_repo.py",
-    "sync.py", "org_diagram_link.py", "recovery.py",
+    "__init__.py", "config.py", "providers.py", "dependencies.py", "docs.py", "index.py",
+    "init_repo.py", "sync.py", "org_diagram_link.py", "recovery.py",
 )
 
 

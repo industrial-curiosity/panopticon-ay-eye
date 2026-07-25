@@ -453,7 +453,12 @@ The final prompt from the bootstrap output will instruct your agent to run the
 finalization step,
 which validates the agent-produced docs and index and writes
 `panopticon/config.json` — the
-initialization flag — only once validation passes.
+initialization flag — only once validation passes. Every finalization attempt
+also writes `panopticon-initialization-report.md` in the child repository root.
+Read that report first if initialization is blocked: it identifies the affected
+path or configuration, assigns it to the child repository, organization
+configuration, or template/tooling, and gives the next action. After completing
+an action, rerun the exact finalization command shown in the report.
 
 ### Commit and push
 

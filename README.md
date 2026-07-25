@@ -37,6 +37,11 @@ for example,
 `GH_TOKEN`, `GITHUB_TOKEN`, or
 an existing `gh auth` session.
 
+After the agent runs finalization, review the child repository's
+`panopticon-initialization-report.md`. It gives the current outcome and separates
+child-repository repairs from organization configuration follow-up. Complete any
+listed action, then rerun the exact finalization command from the report.
+
 ## How it works
 
 Panopticon has three repository roles:

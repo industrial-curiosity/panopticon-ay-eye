@@ -10,6 +10,7 @@ from pathlib import Path
 from panopticon.config import load_repo_config
 from panopticon.index import save_index
 from panopticon.init_repo import (
+    INITIALIZATION_REPORT,
     configured_actions_names,
     detect_docs_location,
     discover_workflow_ref,
@@ -106,20 +107,32 @@ class TestValidationGate(unittest.TestCase):
             code, messages = run_init(tmp, docs_location="docs")
             self.assertEqual(code, 1)
             self.assertIsNone(load_repo_config(tmp))
+            report = (Path(tmp) / INITIALIZATION_REPORT).read_text()
         text = "\n".join(messages)
         self.assertIn("NOT written", text)
         self.assertIn("architecture overview", text)
         self.assertIn("local index", text)
+        self.assertIn("**Blocked.**", report)
+        self.assertIn("## Child repository", report)
+        self.assertIn("**Where:** `docs`", report)
+        self.assertIn("**Next step:**", report)
 
     def test_successful_finalization_writes_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             make_valid_child(tmp)
-            code, messages = run_init(tmp)
+            code, messages = run_init(
+                tmp,
+                env={"GH_TOKEN": "token"},
+                urlopen=_make_repo_metadata_urlopen("main"),
+            )
             self.assertEqual(code, 0, messages)
             config = load_repo_config(tmp)
+            report = (Path(tmp) / INITIALIZATION_REPORT).read_text()
         self.assertEqual(config["repo"], "svc-a")
         self.assertEqual(config["docs_location"], "docs")
         self.assertIn("wrote panopticon/config.json", "\n".join(messages))
+        self.assertIn("Initialization completed with no actionable issues.", report)
+        self.assertIn("## Template/tooling\n\nNo actionable issues.", report)
 
     def test_config_is_last_artifact_written(self):
         """panopticon/config.json must not exist before validation passes."""
@@ -163,6 +176,16 @@ class TestIdempotentRefinalization(unittest.TestCase):
             config = load_repo_config(tmp)
         self.assertEqual(config["workflow_ref"], "v2")
         self.assertIn("idempotent re-init", "\n".join(messages))
+
+    def test_refinalization_replaces_initialization_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            make_valid_child(tmp)
+            report_path = Path(tmp) / INITIALIZATION_REPORT
+            report_path.write_text("stale report\n")
+            self.assertEqual(run_init(tmp)[0], 0)
+            report = report_path.read_text()
+        self.assertNotIn("stale report", report)
+        self.assertIn("# Panopticon initialization report", report)
 
 
 class TestDiscoverWorkflowRef(unittest.TestCase):
@@ -329,6 +352,28 @@ class TestSecretVerification(unittest.TestCase):
                 code, messages = run_init(tmp, skip_secret_check=False)
         self.assertEqual(code, 0, messages)
         self.assertIn("missing org-level secret", "\n".join(messages))
+
+    def test_unavailable_org_verification_is_a_non_blocking_report_item(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            make_valid_child(tmp)
+            with mock.patch(
+                "panopticon.init_repo.verify_org_secrets",
+                return_value=["could not query org secrets via gh api (not authenticated)."],
+            ):
+                code, _ = run_init(
+                    tmp,
+                    skip_secret_check=False,
+                    env={"GH_TOKEN": "token"},
+                    urlopen=_make_repo_metadata_urlopen("main"),
+                )
+            report = (Path(tmp) / INITIALIZATION_REPORT).read_text()
+        self.assertEqual(code, 0)
+        self.assertIn("**Complete with follow-up.**", report)
+        self.assertIn("## Organization configuration", report)
+        self.assertIn("could not query org secrets", report)
+        self.assertIn("does not block local initialization", report)
 
 
 class TestResolveInstanceDefaultBranch(unittest.TestCase):

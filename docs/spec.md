@@ -7,6 +7,12 @@ template, instance, and child
 repositories. Operational setup belongs in the [org-owner setup
 guide](setup-guide.md).
 
+Child-repository finalization writes `panopticon-initialization-report.md` on
+every attempt before it creates the `panopticon/config.json` initialization flag.
+The report separates child-repository, organization-configuration, and
+template/tooling findings and gives the next action for each; credential values
+are never recorded.
+
 ## Repository roles
 
 - The public template owns deterministic Python tooling, trusted workflow and

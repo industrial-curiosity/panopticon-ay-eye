@@ -62,8 +62,8 @@ TOOL_LOCATIONS = {
 
 # Mirrors bootstrap.py's LOCAL_TOOLING_MODULES exactly (test_sync.py asserts this).
 LOCAL_TOOLING_MODULES = (
-    "__init__.py", "config.py", "dependencies.py", "docs.py", "index.py", "init_repo.py",
-    "sync.py", "org_diagram_link.py", "recovery.py",
+    "__init__.py", "config.py", "providers.py", "dependencies.py", "docs.py", "index.py",
+    "init_repo.py", "sync.py", "org_diagram_link.py", "recovery.py",
 )
 
 

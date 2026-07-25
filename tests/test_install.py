@@ -280,6 +280,9 @@ class TestDownloadLocalTooling(unittest.TestCase):
         self.assertEqual(count, len(LOCAL_TOOLING_MODULES))
         self.assertEqual(written, set(LOCAL_TOOLING_MODULES))
 
+    def test_includes_config_runtime_dependency(self):
+        self.assertIn("providers.py", LOCAL_TOOLING_MODULES)
+
     def test_ci_only_modules_are_not_requested(self):
         # The stub raises AssertionError for any URL it doesn't recognize — if download_local_tooling
         # ever asked for a CI-only module (e.g. llm.py, bootstrap.py), this test would fail loudly.

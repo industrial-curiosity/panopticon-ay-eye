@@ -69,6 +69,7 @@ class TestSelfContained(unittest.TestCase):
 
     def test_local_tooling_modules_matches_bootstrap(self):
         self.assertEqual(sync_module.LOCAL_TOOLING_MODULES, bootstrap.LOCAL_TOOLING_MODULES)
+        self.assertIn("providers.py", sync_module.LOCAL_TOOLING_MODULES)
 
     def test_skills_prefix_matches_bootstrap(self):
         self.assertEqual(sync_module.SKILLS_PREFIX, bootstrap.SKILLS_PREFIX)
