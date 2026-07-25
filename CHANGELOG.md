@@ -2,6 +2,15 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [fix-vendored-provider-and-init-report] - 2026-07-25
+
+### Fixed (initialization)
+
+- Child bootstrap and tooling sync now include the provider registry required by
+  local documentation and finalization commands.
+- Finalization now leaves a concise, actionable initialization report for both
+  successful and blocked runs.
+
 ## [fix-bootstrap-provider-loader] - 2026-07-25
 
 ### Fixed (bootstrap)

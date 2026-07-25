@@ -1,0 +1,18 @@
+# Tasks: GitHub API rate-limit retries
+
+## 1. Add rate-limit-aware GitHub retrieval
+
+- [ ] 1.1 Add a stdlib-only classifier and delay calculation for GitHub rate-limit responses, preserving immediate failures for non-rate-limit authorization and missing-resource errors.
+- [ ] 1.2 Apply the retry policy and safe retry-progress messages to the public `install.py` launcher without weakening its redacted error handling.
+- [ ] 1.3 Apply the mirrored retry policy to `panopticon.bootstrap` and vendored `panopticon.sync` without introducing an import dependency between them.
+
+## 2. Verify recovery behavior
+
+- [ ] 2.1 Add launcher tests for reset-header, `Retry-After`, and genuine forbidden-response behavior.
+- [ ] 2.2 Extend bootstrap and sync tests for rate-limit classification, header-derived waits, fallback backoff, exhausted retries, and token-safe progress output.
+- [ ] 2.3 Run focused launcher, bootstrap, and sync tests, then the full Python suite.
+
+## 3. Document the recovery contract
+
+- [ ] 3.1 Update setup and testing documentation to explain automatic rate-limit recovery and retain authentication as the preferred path.
+- [ ] 3.2 Update README.md and docs/spec.md to reflect any user-facing or architectural changes introduced by this change.

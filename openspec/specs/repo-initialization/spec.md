@@ -716,108 +716,50 @@ re-prompting, unless
 
 ### Requirement: Local tooling package vendored into child repo
 
-The bootstrap script SHALL download the local-tooling subset of the `panopticon`
-Python package —
-the modules that Phase 2 skills and the Phase 3 finalization command invoke
-directly
-(`__init__.py`, `config.py`, `docs.py`, `index.py`, `init_repo.py`), plus the
-local sync script
-(tooling-currency capability) that lets an already-initialized repo pull the
-instance's current
-skills and tooling on demand, plus the org-diagram link script
-(architecture-diagrams capability,
-"Org-diagram link script") that prints a resolvable link to this repo's section
-of the org diagram —
-from the instance repo and write them to the child repo's `panopticon/`
-directory, creating it if
-absent, so `python3 -m panopticon.docs`, `python3 -m panopticon.init_repo`,
-`python3 -m panopticon.sync`, and `python3 -m panopticon.org_diagram_link` are
-all runnable
-immediately after Phase 1 with no manual setup: no cloning the instance repo, no
-`PYTHONPATH`
-configuration, no other local Python environment step.
+The bootstrap script SHALL download the local-tooling subset of the
+`panopticon` Python package — the modules that Phase 2 skills and the Phase 3
+finalization command invoke directly (`__init__.py`, `config.py`,
+`providers.py`, `dependencies.py`, `docs.py`, `index.py`, and `init_repo.py`),
+plus the local sync script, org-diagram link script, and recovery helper — from
+the instance repo and write them to the child repo's `panopticon/` directory.
+It SHALL create that directory if absent, so `python3 -m panopticon.docs`,
+`python3 -m panopticon.init_repo`, `python3 -m panopticon.sync`, and
+`python3 -m panopticon.org_diagram_link` all run immediately after Phase 1
+without cloning the instance repo or configuring `PYTHONPATH`.
 
-Modules used only by the reusable GitHub Actions workflows that check out the
-instance repo directly
-(`llm.py`, `drift.py`, `currency.py`, `merge.py`, `extraction.py`, `skills.py`,
-`bootstrap.py`, `diagrams.py`,
-`diagram_check.py`, `tooling_currency.py`, and the `parsers/` package) SHALL NOT
-be written to the child
-repo — they have no role in local Phase 2/3 work and bootstrap.py's own comment
-already documents this
-CI-only split.
+Modules used only by reusable GitHub Actions workflows that check out the
+instance repo directly SHALL NOT be written to the child repository. Where a
+vendored module imports another local `panopticon` module at runtime, that
+dependency SHALL be included in the vendored subset.
 
-Because the vendored subset and the instance repo's full package share the same
-`panopticon` package
-name, any CI workflow step that checks out both the child repo (as its working
-directory) and the
-instance repo (added to `PYTHONPATH`) in the same job SHALL guarantee that
-CI-only modules resolve from
-the instance repo, not from the child repo's vendored subset. The workflow MUST
-NOT rely on `PYTHONPATH`
-ordering alone to win this resolution, since `python3 -m`/`-c` prepend the
-current working directory to
-`sys.path` ahead of `PYTHONPATH` entries.
+Because the vendored subset and the instance repo's full package share the
+same package name, a CI workflow that checks out both SHALL guarantee that
+CI-only modules resolve from the instance repo rather than relying on
+`PYTHONPATH` ordering alone.
 
-#### Scenario: Local tooling is usable immediately after bootstrap
+#### Scenario: Local commands resolve all vendored dependencies after bootstrap
 
-- **GIVEN** a freshly bootstrapped child repo that has never had the
-  `panopticon` package locally before
-- **WHEN** the user's agent follows the `panopticon-doc-generation` skill's
-  instructions to run
-  `python3 -m panopticon.docs render ...`
-- **THEN** the command runs successfully without the user cloning the instance
-  repo or configuring
-  `PYTHONPATH`
+- **GIVEN** a freshly bootstrapped child repository with no instance-repo clone
+- **WHEN** the user runs `python3 -m panopticon.docs render` or
+  `python3 -m panopticon.init_repo --instance owner/instance`
+- **THEN** imports required by those commands, including
+  `panopticon.providers`, resolve from the child repository's vendored
+  `panopticon/` directory
 
-#### Scenario: The sync script is usable immediately after bootstrap
+#### Scenario: Sync repairs a child repository missing the provider module
 
-- **GIVEN** a freshly bootstrapped child repo
-- **WHEN** the user runs `python3 -m panopticon.sync --check-updates`
-- **THEN** the command runs successfully with no instance repo clone or
-  `PYTHONPATH` configuration
+- **GIVEN** a previously bootstrapped child repository whose vendored tooling
+  predates `providers.py`
+- **WHEN** the user runs `python3 -m panopticon.sync`
+- **THEN** the sync writes `panopticon/providers.py` from the instance and
+  reports it as a created or updated tooling file
 
-#### Scenario: The org-diagram link script is usable immediately after bootstrap and initialization
+#### Scenario: CI-only modules remain excluded
 
-- **GIVEN** a freshly bootstrapped and initialized child repo (so
-  `panopticon/config.json` exists with
-  `instance`, `instance_default_branch`, and `repo` populated)
-- **WHEN** the user runs `python3 -m panopticon.org_diagram_link`
-- **THEN** the command runs successfully with no instance repo clone, no
-  `PYTHONPATH` configuration, and
-  no network call
-
-#### Scenario: CI-only modules are excluded
-
-- **WHEN** the bootstrap script vendors the local-tooling subset
-- **THEN** the child repo's `panopticon/` directory contains `__init__.py`,
-  `config.py`, `docs.py`,
-  `index.py`, `init_repo.py`, `sync.py`, and `org_diagram_link.py`, and none of
-  `llm.py`, `drift.py`,
-  `currency.py`, `merge.py`, `extraction.py`, `skills.py`, `bootstrap.py`,
-  `diagrams.py`,
-  `diagram_check.py`, `tooling_currency.py`, or `parsers/`
-
-#### Scenario: Re-run refreshes vendored modules in place
-
-- **WHEN** the bootstrap script runs again on a repo that already has the
-  vendored `panopticon/` modules
-- **THEN** each of the seven files is overwritten in place with the instance
-  repo's current content, and
-  no duplicate files are created
-
-#### Scenario: CI resolves instance-only modules despite child vendoring
-
-- **GIVEN** a child repo whose vendored `panopticon/` directory contains only
-  the local-tooling subset,
-  checked out alongside the instance repo in the same CI job with `PYTHONPATH`
-  pointing at the instance
-  repo
-- **WHEN** a workflow step runs `python3 -m panopticon.drift` (or any other
-  CI-only module)
-- **THEN** the instance repo's copy of the module runs, and the command MUST NOT
-  fail with "No module
-  named panopticon.&lt;module&gt;" due to the child repo's partial subset shadowing it
+- **WHEN** bootstrap or sync vendors the local-tooling subset
+- **THEN** it includes only local commands and their runtime dependencies, and
+  does not vendor CI-only modules such as `llm.py`, `drift.py`, `currency.py`,
+  `merge.py`, `extraction.py`, `bootstrap.py`, or `parsers/`
 
 ### Requirement: Vendored tooling's bytecode cache is gitignored
 
@@ -1114,32 +1056,51 @@ initialization.
 ### Requirement: Initialization finalization
 
 A finalization command, distinct from the bootstrap script, SHALL validate the
-agent-produced
-documentation and index and write `panopticon/config.json` only when validation
-passes. It SHALL read
-the documentation location from the child repo (adopting an existing docs folder
-or using the default
-`docs/`), record it in the config along with `instance_default_branch` (see
-"Recorded
-instance_default_branch is resolved deterministically, never guessed"), and
-verify org-level CI
-prerequisites (report-only). The finalization step SHALL be idempotent:
-re-running it updates the config
-in place.
+agent-produced documentation and local index and write `panopticon/config.json`
+only when validation passes. It SHALL adopt or accept the documentation
+location, record it in config with the repository, instance, workflow ref, and
+instance default branch, and verify organization-level CI prerequisites on a
+report-only basis. Re-running finalization SHALL update configuration in place.
 
-#### Scenario: Validation passes
+On every finalization attempt, including validation failure and successful
+re-initialization, it SHALL write `panopticon-initialization-report.md` in the
+child repository root before exiting. The report SHALL lead with the outcome,
+then list each finding under exactly one ownership category: `Template/tooling`,
+`Child repository`, or `Organization configuration`. Every finding SHALL state
+the affected artifact or configuration location, what could not be verified or
+what is wrong, and one concise next action. A report with no findings SHALL say
+that initialization completed with no actionable issues. The report MUST NOT
+include secret values, tokens, or environment-variable values.
 
-- **WHEN** all four documentation layers are present and the local index is
-  schema-valid
-- **THEN** `panopticon/config.json` is written with `repo`, `instance`,
-  `workflow_ref`, `docs_location`,
-  and `instance_default_branch` fields
+#### Scenario: Validation fails with a durable child-repository remedy
 
-#### Scenario: Re-finalization after a docs update
+- **WHEN** finalization finds missing documentation layers or an invalid local
+  index
+- **THEN** it does not write `panopticon/config.json`, writes the report before
+  exiting, and places each validation finding under `Child repository` with the
+  affected path and the command or skill needed before rerunning finalization
 
-- **WHEN** the finalization step is run again on an already-initialized repo
-- **THEN** `panopticon/config.json` is updated in place and no duplicate files
-  are created
+#### Scenario: Organization verification cannot run
+
+- **WHEN** finalization cannot inspect organization Actions configuration
+  because authentication or organization permission is unavailable
+- **THEN** it writes a non-blocking `Organization configuration` report entry
+  that names the required configuration, the organization settings location or
+  verification command, and does not claim the configuration is absent
+
+#### Scenario: Finalization succeeds with no actionable issues
+
+- **WHEN** validation passes and organization prerequisite verification finds
+  no issues
+- **THEN** finalization writes `panopticon/config.json` and a concise report
+  stating that initialization completed with no actionable issues
+
+#### Scenario: Re-finalization refreshes the report
+
+- **GIVEN** a child repository already has an initialization report
+- **WHEN** finalization is run again after remediation
+- **THEN** it overwrites the report with the current outcome and findings and
+  does not leave duplicate report files
 
 ### Requirement: Org-level CI prerequisites
 
