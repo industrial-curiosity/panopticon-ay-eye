@@ -94,7 +94,7 @@ class TestApiGetRetry(unittest.TestCase):
             attempts.append(1)
             if len(attempts) == 1:
                 raise HTTPError(
-                    request.full_url, 429, "Too Many Requests", {"Retry-After": "7"},
+                    request.full_url, 429, "Too Many Requests", {"Retry-After": "300"},
                     BytesIO(b"rate limited"),
                 )
             return BytesIO(json.dumps({"ok": True}).encode())
@@ -103,7 +103,19 @@ class TestApiGetRetry(unittest.TestCase):
             _api_get("https://api.github.com/repos/acme/instance", urlopen=urlopen, sleep=waits.append),
             {"ok": True},
         )
-        self.assertEqual(waits, [7])
+        self.assertEqual(waits, [60])
+
+    def test_reset_time_is_capped_for_rate_limit(self):
+        self.assertEqual(
+            sync_module._rate_limit_delay(
+                403,
+                {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1000"},
+                "",
+                lambda: 100,
+                1,
+            ),
+            60,
+        )
 
     def test_rate_limit_without_headers_uses_backoff_and_exhausts(self):
         from urllib.error import HTTPError

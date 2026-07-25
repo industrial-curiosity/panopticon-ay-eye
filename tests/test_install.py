@@ -20,6 +20,7 @@ from panopticon.bootstrap import (
     LOCAL_TOOLING_MODULES,
     TOOL_LOCATIONS,
     _api_get,
+    _rate_limit_delay,
     _apply_key,
     _arrow_key_menu,
     _detect_existing_location,
@@ -609,7 +610,7 @@ class TestApiGetRetry(unittest.TestCase):
             if len(attempts) == 1:
                 raise HTTPError(
                     request.full_url, 403, "Forbidden",
-                    {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "110"},
+                    {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1000"},
                     BytesIO(b"rate limit token-secret"),
                 )
             return BytesIO(json.dumps({"ok": True}).encode())
@@ -620,8 +621,14 @@ class TestApiGetRetry(unittest.TestCase):
             now=lambda: 100, print_fn=messages.append,
         )
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(calls, [10])
+        self.assertEqual(calls, [60])
         self.assertNotIn("token-secret", "\n".join(messages))
+
+    def test_rate_limit_delay_caps_retry_after(self):
+        self.assertEqual(
+            _rate_limit_delay(429, {"Retry-After": "300"}, "", lambda: 0, 1),
+            60,
+        )
 
     def test_forbidden_without_rate_limit_evidence_does_not_retry(self):
         from urllib.error import HTTPError

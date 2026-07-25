@@ -94,6 +94,7 @@ def _api_headers(token=None):
 
 
 _RETRYABLE_STATUS = {500, 502, 503, 504}
+MAX_GITHUB_API_RETRY_DELAY_SECONDS = 60
 
 
 def _rate_limit_delay(status, headers, body, now, fallback):
@@ -112,15 +113,15 @@ def _rate_limit_delay(status, headers, body, now, fallback):
         return None
     if retry_after is not None:
         try:
-            return max(0.0, float(retry_after))
+            return min(MAX_GITHUB_API_RETRY_DELAY_SECONDS, max(0.0, float(retry_after)))
         except (TypeError, ValueError):
             pass
     if reset is not None:
         try:
-            return max(0.0, float(reset) - now())
+            return min(MAX_GITHUB_API_RETRY_DELAY_SECONDS, max(0.0, float(reset) - now()))
         except (TypeError, ValueError):
             pass
-    return fallback
+    return min(MAX_GITHUB_API_RETRY_DELAY_SECONDS, fallback)
 
 
 def _api_get(url, token=None, urlopen=urllib.request.urlopen, max_attempts=3, sleep=time.sleep,

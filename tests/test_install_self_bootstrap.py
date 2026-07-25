@@ -209,7 +209,7 @@ class TestInstanceRetrieval(unittest.TestCase):
             attempts.append(1)
             if len(attempts) == 1:
                 raise _http_error(
-                    request, status=429, body=b"rate limited", headers={"Retry-After": "3"},
+                    request, status=429, body=b"rate limited", headers={"Retry-After": "300"},
                 )
             return _json_response({"default_branch": "main"})
 
@@ -219,7 +219,19 @@ class TestInstanceRetrieval(unittest.TestCase):
             ),
             {"default_branch": "main"},
         )
-        self.assertEqual(waits, [3])
+        self.assertEqual(waits, [60])
+
+    def test_launcher_caps_reset_time_for_rate_limit(self):
+        self.assertEqual(
+            INSTALLER._rate_limit_delay(
+                403,
+                {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1000"},
+                "",
+                lambda: 100,
+                1,
+            ),
+            60,
+        )
 
     def test_rate_limited_launcher_waits_and_retries_without_body_output(self):
         attempts, waits, messages = [], [], []

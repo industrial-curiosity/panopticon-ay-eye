@@ -72,6 +72,13 @@ reported by preflight and operational errors; keep payload and response parsing
 identical. This avoids a dependency and prevents divergence between direct
 OpenAI and proxy behavior.
 
+### Bound GitHub API retry waits
+
+GitHub-provided rate-limit timing remains the preferred retry signal, but each
+launcher, bootstrap, and sync retry SHALL be capped at 60 seconds. This avoids
+turning an interactive bootstrap into an opaque multi-minute pause while
+retaining the existing bounded retry budget and safe, token-free progress output.
+
 ## Risks / Trade-offs
 
 - Workflow clones can drift from LiteLLM behavior → structural tests compare

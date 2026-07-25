@@ -38,8 +38,9 @@ for example,
 an existing `gh auth` session.
 
 The launcher automatically retries temporary GitHub API failures and recognized
-rate limits, honoring GitHub's retry timing when supplied. Supplying a token is
-still preferred: it raises the API quota and is required for private instances.
+rate limits, using GitHub's retry timing when supplied but waiting no more than
+60 seconds per retry. Supplying a token is still preferred: it raises the API
+quota and is required for private instances.
 
 After the agent runs finalization, review the child repository's
 `panopticon-initialization-report.md`. It gives the current outcome and separates

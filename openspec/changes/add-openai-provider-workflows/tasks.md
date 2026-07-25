@@ -38,6 +38,16 @@
 
 - [x] 4.1 Update README.md and docs/spec.md to reflect any user-facing or
   architectural changes introduced by this change.
-- [x] 4.2 Update the setup guide with the OpenAI configuration path, the
-  `https://api.openai.com/v1` endpoint, and the requirement for an OpenAI
-  Platform API key.
+- [x] 4.2 Keep the setup guide focused on provider configuration, including the
+  OpenAI path, fixed `https://api.openai.com/v1` endpoint, and OpenAI Platform
+  API key; remove runtime timeout, retry, and budget implementation details.
+
+## 5. GitHub API rate-limit retry bounds
+
+- [x] 5.1 Cap `Retry-After`, reset-time, and fallback GitHub API retry delays
+  at 60 seconds in the launcher, bootstrap, and sync clients while retaining
+  their existing retry classification and safe progress output.
+- [x] 5.2 Add regression coverage for oversized reset-time and `Retry-After`
+  values in every affected GitHub API client.
+- [x] 5.3 Run the affected unit suites and
+  `openspec validate add-openai-provider-workflows --strict`.

@@ -143,12 +143,6 @@ repo:
      `github-oidc` mode their respective values can be `us-east-1` and
      `arn:aws:iam::123456789012:role/panopticon-bedrock`; both are ignored in
      `instance-managed` mode.
-   - Each request and job budget has its own optional input with a default:
-     request timeout,
-     transport attempts, structured-response correction attempts, and
-     PR-evaluation job timeout.
-     Leave each default unless you use a custom organization variable name; no
-     JSON is required.
 5. Select **Run workflow** and wait for a green completed run that commits
    `panopticon.config.json`.
 
@@ -263,31 +257,11 @@ workflow inputs.
 | `PANOPTICON_AWS_REGION` *(Bedrock github-oidc only)* | AWS region containing the Bedrock model, for example `us-east-1` |
 | `PANOPTICON_AWS_ROLE_ARN` *(Bedrock github-oidc only)* | IAM role ARN that child PR workflows assume through GitHub OIDC, for example `arn:aws:iam::123456789012:role/panopticon-bedrock` |
 | `PANOPTICON_LLM_MODEL` | LiteLLM or OpenAI model name (for example, `gpt-4o-mini`) or Bedrock Converse-compatible model identifier |
-| `PANOPTICON_LLM_TIMEOUT_SECONDS` *(optional)* | Per-request LLM timeout; defaults to `90`, permitted range `30`–`300` seconds |
-| `PANOPTICON_LLM_MAX_ATTEMPTS` *(optional)* | Transport attempts for timeout, connection, and retryable HTTP failures; defaults to `2`, permitted range `1`–`3` |
-| `PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS` *(optional)* | Additional attempts for malformed structured LLM responses; defaults to `2`, permitted range `0`–`2` |
-| `PANOPTICON_LLM_JOB_TIMEOUT_MINUTES` *(optional)* | PR-evaluation job timeout; defaults to `20`, permitted range `10`–`60` whole minutes |
 
 These are consumed only by the shared CI workflows. Local flows —
 initialization, doc generation,
 index updates — run in each developer's own AI agent harness and need none of
 them.
-
-Set these variables at organization scope so every instance and child repository
-uses the same request budget;
-a repository-level value overrides the organization value for that repository.
-The three request-budget values
-are validated by Panopticon before an LLM request is made. GitHub Actions
-evaluates the job-timeout value before
-the runner starts, so it must be a valid JSON integer in the documented range.
-Set the LiteLLM proxy’s own
-request timeout slightly above `PANOPTICON_LLM_TIMEOUT_SECONDS` so Panopticon
-reports client timeouts clearly.
-At the defaults, a structured check can make at most six 90-second requests plus
-retry backoff (543 seconds);
-the two sequential LLM checks therefore fit within the 20-minute job budget
-(1,086 seconds before deterministic
-workflow work).
 
 ### Creating PANOPTICON_INSTANCE_TOKEN
 
@@ -418,11 +392,6 @@ the command. The instance installer chooses where skills live (template default
 [`docs/agentskills-support.md`](agentskills-support.md)). Set
 `PANOPTICON_SKILLS_LOCATION` to skip that
 prompt for non-interactive or CI runs.
-
-The launcher and installer automatically retry transient GitHub API failures
-and recognized rate limits. They honor GitHub's `Retry-After` or reset-time
-headers when available. Authentication remains the preferred path because it
-raises the API quota and is required for private instances.
 
 Once a location is chosen, the script will:
 
