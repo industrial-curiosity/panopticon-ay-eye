@@ -21,6 +21,11 @@ COMMON_PR_PHASES = (
     "Push branch state to instance repo",
     "Apply gating",
 )
+REQUEST_BUDGET_DEFAULTS = {
+    "timeout_seconds": "90",
+    "max_attempts": "2",
+    "max_correction_attempts": "2",
+}
 
 
 class TestProviderWorkflows(unittest.TestCase):
@@ -59,6 +64,17 @@ class TestProviderWorkflows(unittest.TestCase):
         self.assertIn("actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1", text)
         self.assertIn("pip install --upgrade -r", text)
         self.assertIn("requirements-bedrock.txt", text)
+
+    def test_optional_request_budgets_default_in_every_provider_workflow_environment(self):
+        for provider in ("litellm", "bedrock"):
+            text = self.workflow(f"panopticon-pr-{provider}.yml")
+            for input_name, default in REQUEST_BUDGET_DEFAULTS.items():
+                with self.subTest(provider=provider, input_name=input_name):
+                    self.assertIn(
+                        f"${{{{ inputs.{input_name} || '{default}' }}}}",
+                        text,
+                    )
+                    self.assertNotIn(f"${{{{ inputs.{input_name} }}}}", text)
 
     def test_legacy_guard_prints_configuration_and_exact_bootstrap_commands(self):
         text = self.workflow("panopticon-pr.yml")
