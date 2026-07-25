@@ -144,7 +144,6 @@ def _api_headers(token=None):
 # Gateway/server failures retry with normal backoff. A `403` only retries when GitHub identifies
 # it as a rate limit; other forbidden responses remain actionable permission failures.
 _RETRYABLE_STATUS = {500, 502, 503, 504}
-MAX_GITHUB_API_RETRY_DELAY_SECONDS = 60
 
 
 def _rate_limit_delay(status, headers, body, now, fallback):
@@ -163,15 +162,15 @@ def _rate_limit_delay(status, headers, body, now, fallback):
         return None
     if retry_after is not None:
         try:
-            return min(MAX_GITHUB_API_RETRY_DELAY_SECONDS, max(0.0, float(retry_after)))
+            return max(0.0, float(retry_after))
         except (TypeError, ValueError):
             pass
     if reset is not None:
         try:
-            return min(MAX_GITHUB_API_RETRY_DELAY_SECONDS, max(0.0, float(reset) - now()))
+            return max(0.0, float(reset) - now())
         except (TypeError, ValueError):
             pass
-    return min(MAX_GITHUB_API_RETRY_DELAY_SECONDS, fallback)
+    return fallback
 
 
 def _api_get(url, token=None, urlopen=urllib.request.urlopen, max_attempts=3, sleep=time.sleep,

@@ -42,30 +42,29 @@ provider workflows into the child or use blanket `secrets: inherit`.
 - **THEN** the local caller records that credential mode, maps no AWS region or
   role-ARN variable, and delegates credentials to the instance workflow
 
-### Requirement: GitHub API rate-limit retries use bounded waits
+### Requirement: GitHub API rate-limit retries honor GitHub-directed waits
 
-The public launcher, bootstrap script, and local sync command SHALL cap every
-GitHub API retry delay at 60 seconds. For a recognized rate limit, a valid
-`Retry-After` value or future `X-RateLimit-Reset` timestamp SHALL determine the
-requested delay, but the client SHALL wait no longer than 60 seconds before its
-next retry. If neither value is usable, the client SHALL use its normal
-exponential backoff, also capped at 60 seconds. Each rate-limit progress message
-SHALL report the bounded wait duration without exposing a token or response body.
+The public launcher, bootstrap script, and local sync command SHALL honor a
+valid GitHub `Retry-After` value for a recognized rate limit. When `Retry-After`
+is absent and `X-RateLimit-Reset` supplies a future timestamp, they SHALL wait
+until that reset time. They SHALL NOT cap either GitHub-directed delay. If
+neither value is usable, they SHALL use their normal exponential backoff.
+Each rate-limit progress message SHALL report the actual wait duration without
+exposing a token or response body.
 
-#### Scenario: Distant rate-limit reset is capped
+#### Scenario: Distant primary-limit reset is honored
 
 - **GIVEN** a GitHub API response identifies a rate limit and its reset time is
   more than 60 seconds in the future
 - **WHEN** the launcher, bootstrap, or sync client retries the request
-- **THEN** it reports a wait of 60 seconds, waits no longer than 60 seconds, and
-  retries within its existing retry budget
+- **THEN** it reports and waits until the supplied reset time before retrying
 
-#### Scenario: Oversized Retry-After is capped
+#### Scenario: Long secondary-limit Retry-After is honored
 
 - **GIVEN** a GitHub API rate-limit response supplies a `Retry-After` value
   greater than 60 seconds
 - **WHEN** the client retries the request
-- **THEN** it waits and reports 60 seconds rather than the unbounded value
+- **THEN** it reports and waits for the supplied duration before retrying
 
 ## ADDED Requirements
 
@@ -83,3 +82,18 @@ backoff, and job-budget calculations.
 - **THEN** the guide identifies the provider workflow, required credentials, and
   required configuration values without describing request timeout, retry, or
   job-budget behavior
+
+### Requirement: Installation guidance recommends GitHub authentication
+
+The README and setup guide SHALL tell users to authenticate GitHub API requests
+for every installation, including public instances, using `GH_TOKEN`,
+`GITHUB_TOKEN`, or an existing `gh auth` session. They SHALL explain that
+anonymous public-instance requests have a substantially lower GitHub API quota,
+and SHALL direct users not to put token values directly in the launcher command.
+
+#### Scenario: Public-instance user prepares a reliable install
+
+- **GIVEN** a user is preparing to install a public instance repository
+- **WHEN** the user follows the README or setup guide
+- **THEN** the user sees that GitHub authentication is recommended to avoid the
+  lower anonymous API quota and can choose a supported authentication source

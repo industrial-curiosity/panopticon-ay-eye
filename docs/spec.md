@@ -16,9 +16,11 @@ are never recorded.
 Initialization is one continuous sequence: before finalization writes the
 configuration file, documentation generation derives its repository, instance,
 and workflow-reference context from the bootstrap caller workflow. GitHub API
-clients retry transient failures and recognized rate limits using GitHub-provided
-retry timing when available, capped at 60 seconds per retry; tokens remain the
-preferred way to avoid anonymous rate limits and to access private instances.
+clients retry transient failures and recognized rate limits using the full
+GitHub-provided `Retry-After` or reset timing when available; they do not retry
+while GitHub still directs them to wait. Users should authenticate every install,
+including public-instance installs, to avoid the lower anonymous API quota;
+tokens are also required for private instances.
 
 ## Repository roles
 

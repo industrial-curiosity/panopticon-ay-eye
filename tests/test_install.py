@@ -621,13 +621,13 @@ class TestApiGetRetry(unittest.TestCase):
             now=lambda: 100, print_fn=messages.append,
         )
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(calls, [60])
+        self.assertEqual(calls, [900])
         self.assertNotIn("token-secret", "\n".join(messages))
 
     def test_rate_limit_delay_caps_retry_after(self):
         self.assertEqual(
             _rate_limit_delay(429, {"Retry-After": "300"}, "", lambda: 0, 1),
-            60,
+            300,
         )
 
     def test_forbidden_without_rate_limit_evidence_does_not_retry(self):

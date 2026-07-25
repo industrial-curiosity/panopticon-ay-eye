@@ -370,9 +370,13 @@ cd my-service
 curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-eye/main/install.py | PANOPTICON_INSTANCE='YOUR-ORG/YOUR-INSTANCE-REPO' python3
 ```
 
-The launcher asks for any missing interactive inputs, authenticates when the
-selected instance is private,
-and then runs that instance repository's own installer. It stops before writing
+The launcher asks for any missing interactive inputs and then runs that instance
+repository's own installer. Authenticate every install, including a public
+instance, with `GH_TOKEN`, `GITHUB_TOKEN`, or an existing `gh auth` session:
+authenticated requests have a much higher GitHub API quota. Private instances
+require authentication. Supply a token through your shell or CI secret
+environment; never put its value directly in the launcher command. The launcher
+stops before writing
 if the provider is
 unconfigured or invalid and prints exact console, `gh`, and child-bootstrap
 commands. Optional inputs are:
@@ -383,11 +387,8 @@ export PANOPTICON_SKILLS_LOCATION=.agents/skills
 export PANOPTICON_INSTANCE_REF=YOUR-INSTANCE-REF
 ```
 
-For example, use `PANOPTICON_INSTANCE_REF=release-2026-07`. Private instances
-use `GH_TOKEN`, `GITHUB_TOKEN`, or an existing
-`gh auth` session. Supply tokens through your shell or CI secret environment;
-never place one directly in
-the command. The instance installer chooses where skills live (template default
+For example, use `PANOPTICON_INSTANCE_REF=release-2026-07`. The instance
+installer chooses where skills live (template default
 `.agents/skills/`; see
 [`docs/agentskills-support.md`](agentskills-support.md)). Set
 `PANOPTICON_SKILLS_LOCATION` to skip that

@@ -219,7 +219,7 @@ class TestInstanceRetrieval(unittest.TestCase):
             ),
             {"default_branch": "main"},
         )
-        self.assertEqual(waits, [60])
+        self.assertEqual(waits, [300])
 
     def test_launcher_caps_reset_time_for_rate_limit(self):
         self.assertEqual(
@@ -230,7 +230,7 @@ class TestInstanceRetrieval(unittest.TestCase):
                 lambda: 100,
                 1,
             ),
-            60,
+            900,
         )
 
     def test_rate_limited_launcher_waits_and_retries_without_body_output(self):

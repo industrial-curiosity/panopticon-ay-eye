@@ -33,14 +33,11 @@ curl -fsSL https://raw.githubusercontent.com/industrial-curiosity/panopticon-ay-
 
 Set `PANOPTICON_INSTANCE=YOUR-ORG/YOUR-INSTANCE-REPO` for a non-interactive run;
 for example,
-`PANOPTICON_INSTANCE=acme/panopticon-instance`. Private instances require
-`GH_TOKEN`, `GITHUB_TOKEN`, or
-an existing `gh auth` session.
-
-The launcher automatically retries temporary GitHub API failures and recognized
-rate limits, using GitHub's retry timing when supplied but waiting no more than
-60 seconds per retry. Supplying a token is still preferred: it raises the API
-quota and is required for private instances.
+`PANOPTICON_INSTANCE=acme/panopticon-instance`. Authenticate every install,
+including for a public instance, with `GH_TOKEN`, `GITHUB_TOKEN`, or an existing
+`gh auth` session. Authentication provides a much higher GitHub API quota and is
+required for private instances. Set a token through your shell or CI secret
+environment; never place its value directly in the launcher command.
 
 After the agent runs finalization, review the child repository's
 `panopticon-initialization-report.md`. It gives the current outcome and separates

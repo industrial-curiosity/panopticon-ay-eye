@@ -72,12 +72,17 @@ reported by preflight and operational errors; keep payload and response parsing
 identical. This avoids a dependency and prevents divergence between direct
 OpenAI and proxy behavior.
 
-### Bound GitHub API retry waits
+### Honor GitHub API retry waits and recommend authentication
 
-GitHub-provided rate-limit timing remains the preferred retry signal, but each
-launcher, bootstrap, and sync retry SHALL be capped at 60 seconds. This avoids
-turning an interactive bootstrap into an opaque multi-minute pause while
-retaining the existing bounded retry budget and safe, token-free progress output.
+GitHub-provided rate-limit timing is authoritative: the launcher, bootstrap,
+and sync clients honor `Retry-After` and `X-RateLimit-Reset` without a local
+cap, so they do not retry while GitHub is still limiting the request. When
+GitHub provides neither signal, the existing exponential fallback remains.
+
+Installation documentation recommends GitHub authentication for public as well
+as private instances. This is the user-controlled way to obtain GitHub's
+authenticated API quota; the documentation names supported credential sources
+without asking users to place a token value in a command.
 
 ## Risks / Trade-offs
 

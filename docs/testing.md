@@ -26,7 +26,7 @@ python3 -m unittest tests.test_merge -v
 
 - `tests/test_install.py`, `tests/test_sync.py`, and
   `tests/test_install_self_bootstrap.py` cover rate-limit classification,
-  60-second-capped `Retry-After` and reset-header delays, retry exhaustion,
+  GitHub-directed `Retry-After` and reset-header delays, retry exhaustion,
   immediate forbidden failures, and safe progress output.
 - `tests/test_org_diagram_link.py` covers first-time initialization deriving an
   org-diagram link from the bootstrap caller workflow, plus its explicit

@@ -103,7 +103,7 @@ class TestApiGetRetry(unittest.TestCase):
             _api_get("https://api.github.com/repos/acme/instance", urlopen=urlopen, sleep=waits.append),
             {"ok": True},
         )
-        self.assertEqual(waits, [60])
+        self.assertEqual(waits, [300])
 
     def test_reset_time_is_capped_for_rate_limit(self):
         self.assertEqual(
@@ -114,7 +114,7 @@ class TestApiGetRetry(unittest.TestCase):
                 lambda: 100,
                 1,
             ),
-            60,
+            900,
         )
 
     def test_rate_limit_without_headers_uses_backoff_and_exhausts(self):
