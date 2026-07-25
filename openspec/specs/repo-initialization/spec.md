@@ -1496,6 +1496,14 @@ SHALL map AWS region and role-ARN variables only for Bedrock `github-oidc` mode.
 It SHALL NOT copy
 unselected provider workflows into the child or use blanket `secrets: inherit`.
 
+#### Scenario: OpenAI child caller generated
+
+- **WHEN** the instance selects OpenAI and child bootstrap succeeds
+- **THEN** the local PR caller references only the instance's OpenAI reusable
+  workflow, omits LiteLLM-proxy and Bedrock-only setup, maps the configured
+  model, API-key, and budget names explicitly, and exposes no endpoint mapping
+  because the reusable workflow uses `https://api.openai.com/v1`
+
 #### Scenario: Bedrock child caller generated
 
 - **WHEN** the instance selects Bedrock and child bootstrap succeeds
@@ -1517,8 +1525,7 @@ unselected provider workflows into the child or use blanket `secrets: inherit`.
 - **WHEN** the instance selects Bedrock `instance-managed` credentials and child
   bootstrap succeeds
 - **THEN** the local caller records that credential mode, maps no AWS region or
-  role-ARN variable, and
-  references the selected instance workflow only
+  role-ARN variable, and delegates credentials to the instance workflow
 
 ### Requirement: Stale caller remediation prints an exact installer command
 
@@ -1696,6 +1703,36 @@ files from `python3 -m panopticon.sync`.
 - **THEN** the setup documentation explains that Git may update the file or
   report a merge conflict for
   local resolution
+
+### Requirement: Setup guide stays focused on project configuration
+
+The setup guide SHALL give maintainers the provider-selection steps and the
+required secret and variable values needed to configure an instance. It SHALL
+omit implementation and operational-tuning details that do not affect that
+configuration, including request timeout behavior, retry attempts, retry
+backoff, and job-budget calculations.
+
+#### Scenario: Maintainer configures an instance without runtime tuning details
+
+- **WHEN** a maintainer follows the setup guide to configure a provider
+- **THEN** the guide identifies the provider workflow, required credentials, and
+  required configuration values without describing request timeout, retry, or
+  job-budget behavior
+
+### Requirement: Installation guidance recommends GitHub authentication
+
+The README and setup guide SHALL tell users to authenticate GitHub API requests
+for every installation, including public instances, using `GH_TOKEN`,
+`GITHUB_TOKEN`, or an existing `gh auth` session. They SHALL explain that
+anonymous public-instance requests have a substantially lower GitHub API quota,
+and SHALL direct users not to put token values directly in the launcher command.
+
+#### Scenario: Public-instance user prepares a reliable install
+
+- **GIVEN** a user is preparing to install a public instance repository
+- **WHEN** the user follows the README or setup guide
+- **THEN** the user sees that GitHub authentication is recommended to avoid the
+  lower anonymous API quota and can choose a supported authentication source
 
 ### Requirement: README provides concise project orientation
 

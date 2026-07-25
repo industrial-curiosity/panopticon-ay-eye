@@ -366,15 +366,25 @@ capability: "Tooling-currency checks are always advisory").
 
 ### Requirement: Separate provider workflows preserve the PR evaluation contract
 
-The template SHALL ship independent LiteLLM and Bedrock reusable PR workflows.
+The template SHALL ship independent LiteLLM, OpenAI, and Bedrock reusable PR workflows.
 Each SHALL own its provider
 setup, authentication, dependency installation, preflight, canonical inputs and
 secrets, and complete PR
-evaluation job. Both workflows MUST preserve the existing initialization,
+evaluation job. All workflows MUST preserve the existing initialization,
 independent-check execution,
 reporting, gating, simulation, and branch-push contracts. Provider-independent
 merge and PR-close workflows
-SHALL remain shared.
+SHALL remain shared. The OpenAI workflow SHALL be a correctly named clone of
+the LiteLLM workflow's behavior, SHALL fix `PANOPTICON_LLM_PROVIDER` to `openai`,
+and SHALL use OpenAI labels in its workflow name, summaries, and errors.
+
+#### Scenario: OpenAI child evaluates a pull request
+
+- **WHEN** an initialized child caller selects the OpenAI provider and supplies
+  its configured key, model, instance token, and budget values
+- **THEN** the OpenAI reusable workflow runs every configured PR check and
+  applies the same configured gate outcomes as the LiteLLM reusable workflow
+  using the fixed `https://api.openai.com/v1` endpoint
 
 #### Scenario: LiteLLM PR evaluation
 

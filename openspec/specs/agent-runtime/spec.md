@@ -9,21 +9,18 @@ Define the provider-agnostic LLM runtime used by Panopticon CI checks.
 ### Requirement: Provider-agnostic LLM configuration for CI
 
 The agent runtime SHALL remain the execution path for LLM tasks in CI workflows
-only. Its prompting,
-structured-response validation, correction loop, bounded transport retry
-behavior, and public client
-surface SHALL remain provider-neutral. The selected reusable provider workflow
-SHALL translate its
-canonical inputs and secrets into the runtime configuration required by its
-adapter. The LiteLLM adapter
-SHALL preserve the existing OpenAI-compatible `/chat/completions` request and
-response behavior. The
-Bedrock adapter SHALL use AWS Bedrock Converse with OIDC-provided temporary
-credentials and provider-native
-message, response, and error mapping. A provider adapter MAY use a narrowly
-scoped, pinned, CI-only SDK;
-provider SDKs MUST NOT become a dependency of child-vendored tooling or local
-agent flows.
+only. Its prompting, structured-response validation, correction loop, bounded
+transport retry behavior, and public client surface SHALL remain provider-neutral.
+The selected reusable provider workflow SHALL translate its canonical inputs and
+secrets into the runtime configuration required by its adapter. The LiteLLM
+adapter SHALL preserve the existing OpenAI-compatible `/chat/completions` request
+and response behavior. The OpenAI adapter SHALL use the fixed
+`https://api.openai.com/v1` base endpoint and the same request and response
+behavior without accepting an endpoint environment variable. The Bedrock adapter
+SHALL use AWS Bedrock Converse with OIDC-provided temporary credentials and
+provider-native message, response, and error mapping. A provider adapter MAY use
+a narrowly scoped, pinned, CI-only SDK; provider SDKs MUST NOT become a dependency
+of child-vendored tooling or local agent flows.
 
 #### Scenario: Configured LiteLLM workflow
 
@@ -33,6 +30,14 @@ agent flows.
 - **THEN** the runtime completes requests with the existing OpenAI-compatible
   transport and shared client
   semantics
+
+#### Scenario: Configured OpenAI workflow
+
+- **WHEN** a child invokes the selected OpenAI reusable workflow with a valid
+  OpenAI Platform API key and model input
+- **THEN** the runtime completes requests using the same OpenAI-compatible
+  request and response semantics against `https://api.openai.com/v1` while
+  identifying the provider as OpenAI
 
 #### Scenario: Configured Bedrock workflow
 
@@ -51,9 +56,7 @@ agent flows.
 
 ### Requirement: Local execution through the user's agent harness
 
-LLM-dependent local tasks (child-repo initialization doc generation and
-subsequent doc updating) SHALL be
-executable as skills in the user's preferred AI agent harness, and local
+LLM-dependent local tasks (child-repo initialization doc generation and subsequent doc updating) SHALL be executable as skills in the user's preferred AI agent harness, and local
 execution MUST NOT require
 `PANOPTICON_LLM_ENDPOINT` or `PANOPTICON_LLM_API_KEY` to be configured. Only CI
 workflows SHALL depend on the

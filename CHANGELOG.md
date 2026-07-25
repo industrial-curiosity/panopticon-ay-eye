@@ -2,6 +2,20 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [add-openai-provider-workflows] - 2026-07-26
+
+### Added
+
+- Direct OpenAI configuration and reusable PR-evaluation workflows, with a
+  fixed `https://api.openai.com/v1` endpoint and an OpenAI Platform API key.
+- Child bootstrap now generates callers for the selected OpenAI provider.
+
+### Changed
+
+- The public launcher, bootstrap, and local sync honor GitHub-provided
+  rate-limit waits without shortening them. Installation guidance now recommends
+  GitHub authentication for public as well as private instances.
+
 ## [default-optional-llm-env-vars] - 2026-07-25
 
 ### Fixed (LLM request budgets)

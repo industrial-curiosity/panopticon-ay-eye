@@ -38,8 +38,8 @@ unconfigured file.
 
 ### Requirement: Instance configuration workflow persists names, never credentials
 
-The template SHALL provide `.github/workflows/configure-panopticon-litellm.yml`
-and
+The template SHALL provide `.github/workflows/configure-panopticon-litellm.yml`,
+`.github/workflows/configure-panopticon-openai.yml`, and
 `.github/workflows/configure-panopticon-bedrock.yml` as separate manual
 `workflow_dispatch` interfaces.
 Each workflow SHALL fix its provider identity without accepting a provider
@@ -71,6 +71,14 @@ its label and default.
   and common budget name inputs,
   contains no Bedrock credential-mode, AWS region, or role-ARN input, and
   commits a LiteLLM provider contract
+
+#### Scenario: Maintainer configures OpenAI
+
+- **WHEN** the maintainer opens and dispatches **Configure Panopticon — OpenAI**
+- **THEN** the form contains OpenAI API-key, model, instance-token, and common
+  budget name inputs; contains no endpoint, LiteLLM proxy, Bedrock
+  credential-mode, AWS region, or role-ARN input; and commits an OpenAI provider
+  contract with the fixed `https://api.openai.com/v1` endpoint
 
 #### Scenario: Maintainer configures Bedrock
 
@@ -168,12 +176,18 @@ implementation on a clean GitHub Actions runner.
 The provider registry SHALL map each supported provider to a template-owned
 reusable PR workflow and
 its logical secret, variable, input, dependency, and permission contract.
-LiteLLM and Bedrock SHALL be
-separate reusable workflows. The configuration file SHALL store the provider
+LiteLLM, OpenAI, and Bedrock SHALL be separate reusable workflows. The
+configuration file SHALL store the provider
 identifier and configurable
 names but SHALL NOT accept an arbitrary workflow path; child bootstrap SHALL
 derive the workflow path
 from the trusted registry.
+
+#### Scenario: OpenAI provider selected
+
+- **WHEN** child bootstrap resolves a valid `openai` provider contract
+- **THEN** it selects the template-defined OpenAI reusable PR workflow and
+  cannot be redirected to an arbitrary workflow path by org configuration
 
 #### Scenario: Bedrock provider selected
 
@@ -265,8 +279,8 @@ fail loudly when they differ rather than continuing under stale wiring.
 ### Requirement: Unconfigured-instance remediation supports console and CLI paths
 
 Every unconfigured-provider failure intended for a maintainer SHALL print direct
-GitHub Actions console URLs
-for the resolved instance's LiteLLM and Bedrock configuration workflows and an
+GitHub Actions console URLs for the resolved instance's LiteLLM, OpenAI, and
+Bedrock configuration workflows and an
 equivalent copy/paste
 `gh workflow run` command for each using the resolved instance slug and default
 branch. It SHALL explain
