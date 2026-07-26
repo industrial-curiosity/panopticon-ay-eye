@@ -7,10 +7,10 @@ unnecessary and confusing recovery path for routine managed-resource updates.
 
 ## What Changes
 
-- Extend local child resource sync to detect, preview, create, and refresh all
-  managed Panopticon caller workflows.
-- Generate workflow callers from the child configuration and the instance's
-  current provider contract so refreshed callers remain configuration-correct.
+- Reconcile complete managed resource directories so new Panopticon modules and
+  callers arrive together rather than through an incomplete file allowlist.
+- Preserve every existing child file; sync only creates or overwrites managed
+  resources and never deletes paths.
 - Preserve the dry-run guarantee of `--check-updates` and report workflow
   changes alongside skills and tooling.
 
@@ -22,10 +22,10 @@ unnecessary and confusing recovery path for routine managed-resource updates.
 
 ### Modified Capabilities
 
-- `tooling-currency`: Local sync refreshes managed child workflow callers in
-  addition to skills and vendored tooling.
-- `repo-initialization`: Bootstrap and later resource sync share the managed
-  caller-workflow contract.
+- `tooling-currency`: Local sync reconciles managed resource directories with
+  explicit protected paths.
+- `repo-initialization`: Bootstrap and later resource sync share complete
+  managed resource directories.
 
 ## Impact
 

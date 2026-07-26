@@ -38,7 +38,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .callers import CALLER_WORKFLOWS, caller_workflow_text
 from .config import load_repo_config
 from .providers import ProviderConfigError, resolve_provider_contract
 
@@ -60,13 +59,6 @@ TOOL_LOCATIONS = {
     "opencode": ("opencode", (".agents/skills", ".opencode/skills", ".claude/skills")),
     "pi": ("Pi", (".agents/skills", ".pi/skills")),
 }
-
-# Mirrors bootstrap.py's LOCAL_TOOLING_MODULES exactly (test_sync.py asserts this).
-LOCAL_TOOLING_MODULES = (
-    "__init__.py", "callers.py", "config.py", "providers.py", "dependencies.py", "docs.py", "index.py",
-    "init_repo.py", "sync.py", "org_diagram_link.py", "recovery.py",
-)
-
 
 def candidate_locations():
     locations = [DEFAULT_SKILLS_LOCATION]
@@ -209,14 +201,24 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
     return count
 
 
-def download_local_tooling(owner, repo, ref, token=None, child_root=".",
+def download_local_tooling(owner, repo, ref, tree, token=None, child_root=".",
                            urlopen=urllib.request.urlopen):
-    dest_dir = Path(child_root) / "panopticon"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    for name in LOCAL_TOOLING_MODULES:
-        content = _fetch_file_bytes(owner, repo, f"panopticon/{name}", ref, token, urlopen)
-        (dest_dir / name).write_bytes(content)
-    return len(LOCAL_TOOLING_MODULES)
+    """Fetch the complete managed directory before writing any of its files.
+
+    This lets an older sync entrypoint acquire a newly-required module as part
+    of the same reconciliation.  Applying is additive/overwrite-only: no
+    local path is removed when the source directory no longer contains it.
+    """
+    entries = _tooling_tree_entries(tree)
+    staged = [
+        (item["path"], _fetch_file_bytes(owner, repo, item["path"], ref, token, urlopen))
+        for item in entries
+    ]
+    for path, content in staged:
+        local = Path(child_root) / path
+        local.parent.mkdir(parents=True, exist_ok=True)
+        local.write_bytes(content)
+    return len(staged)
 
 
 # ── Sync-specific logic ──────────────────────────────────────────────────────────────────────
@@ -234,8 +236,13 @@ def _skill_tree_entries(tree):
 
 
 def _tooling_tree_entries(tree):
-    wanted = {f"panopticon/{name}" for name in LOCAL_TOOLING_MODULES}
-    return [item for item in tree if item["type"] == "blob" and item["path"] in wanted]
+    protected = {"panopticon/config.json", "panopticon/.gitignore"}
+    return [
+        item for item in tree
+        if item["type"] == "blob"
+        and item["path"].startswith("panopticon/")
+        and item["path"] not in protected
+    ]
 
 
 def _compare(local, item, relative):
@@ -260,10 +267,38 @@ def _fetch_org_config(owner, repo, ref, token=None, urlopen=urllib.request.urlop
 
 def _caller_updates(child_root, instance, ref, contract, default_branch):
     """Return managed caller paths whose generated content differs from the child copy."""
+    # This import happens only after the complete managed directory is in
+    # place.  It is deliberately not an import-time dependency of sync.py:
+    # older children may be missing this newly introduced module.
+    from .callers import CALLER_WORKFLOWS, caller_workflow_text
+
     updates = []
     for name in CALLER_WORKFLOWS:
         relative = f".github/workflows/{name}"
         expected = caller_workflow_text(name, instance, ref, contract, default_branch)
+        path = Path(child_root) / relative
+        if not path.is_file():
+            updates.append((relative, expected, "would be created (missing locally)"))
+        elif path.read_text(encoding="utf-8") != expected:
+            updates.append((relative, expected, "would be updated (content differs from generated caller)"))
+    return updates
+
+
+def _caller_updates_from_source(source, child_root, instance, ref, contract, default_branch):
+    """Render caller preview from the canonical remote module without writing it.
+
+    Older children may not yet contain callers.py.  ``--check-updates`` must
+    remain read-only, so it loads the trusted instance copy in memory rather
+    than creating the module merely to preview the generated callers.
+    """
+    namespace = {"__name__": "panopticon.callers_preview"}
+    exec(compile(source, "panopticon/callers.py", "exec"), namespace)
+    updates = []
+    for name in namespace["CALLER_WORKFLOWS"]:
+        relative = f".github/workflows/{name}"
+        expected = namespace["caller_workflow_text"](
+            name, instance, ref, contract, default_branch
+        )
         path = Path(child_root) / relative
         if not path.is_file():
             updates.append((relative, expected, "would be created (missing locally)"))
@@ -324,8 +359,24 @@ def main(argv=None, env=None, child_root=".", urlopen=urllib.request.urlopen):
         return 1
 
     tree = _fetch_tree(owner, repo, default_branch, token, urlopen)
-    callers = _caller_updates(child_root, repo_config["instance"], workflow_ref, contract, default_branch)
-    findings = check_updates(tree, child_root, location, callers)
+    callers_path = Path(child_root) / "panopticon/callers.py"
+    tooling_findings = check_updates(tree, child_root, location)
+
+    if callers_path.is_file():
+        callers = _caller_updates(
+            child_root, repo_config["instance"], workflow_ref, contract, default_branch
+        )
+    else:
+        caller_source = _fetch_file_bytes(
+            owner, repo, "panopticon/callers.py", default_branch, token, urlopen
+        )
+        callers = _caller_updates_from_source(
+            caller_source, child_root, repo_config["instance"], workflow_ref, contract,
+            default_branch,
+        )
+    findings = tooling_findings + [
+        f"{relative} {reason}" for relative, _, reason in callers
+    ]
 
     if args.check_updates:
         if not findings:
@@ -340,7 +391,12 @@ def main(argv=None, env=None, child_root=".", urlopen=urllib.request.urlopen):
         return 0
 
     n_skills = download_skills(owner, repo, default_branch, tree, token, child_root, location, urlopen)
-    n_modules = download_local_tooling(owner, repo, default_branch, token, child_root, urlopen)
+    n_modules = download_local_tooling(owner, repo, default_branch, tree, token, child_root, urlopen)
+    # The staged directory may have added callers.py or changed its renderer.
+    # Read the canonical contract only after that full resource set is applied.
+    callers = _caller_updates(
+        child_root, repo_config["instance"], workflow_ref, contract, default_branch
+    )
     _write_callers(child_root, callers)
     print(
         f"{n_skills} skill file(s), {n_modules} tooling module(s), and {len(callers)} workflow caller(s) synced from "

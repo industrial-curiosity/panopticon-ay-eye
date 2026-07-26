@@ -12,7 +12,8 @@ was first bootstrapped.
 - Make local sync reconcile every managed child caller workflow with the
   instance's current configuration.
 - Keep `--check-updates` read-only and make its workflow findings explicit.
-- Reuse the existing caller-text generator so bootstrap and sync cannot drift.
+- Deliver every module required by local sync as part of one managed directory
+  reconciliation, without copying caller metadata into multiple modules.
 
 **Non-Goals:**
 
@@ -22,26 +23,25 @@ was first bootstrapped.
 
 ## Decisions
 
-- Fetch the instance org configuration at the child workflow ref and resolve
-  its trusted provider contract before generating callers. The local child
-  config identifies the instance/ref but does not duplicate mutable provider
-  settings.
-- Treat the fixed `CALLER_WORKFLOWS` set as the complete managed surface.
-  Sync creates missing callers and overwrites content-different callers, exactly
-  like bootstrap.
-- Compare generated caller bytes with local files for dry-run reporting. This
-  covers callers without requiring a separate remote workflow-tree protocol.
-- Fail loudly on inaccessible or invalid instance configuration rather than
-  writing guessed callers. This matches bootstrap's provider-config behavior.
+- Reconcile managed directories from the instance tree into a staging area,
+  then apply their updates only after the complete source set is available.
+- Treat `panopticon/`, the selected skill location, and Panopticon-managed
+  workflow callers as directory-backed managed resources. Sync only creates or
+  overwrites managed paths; it never deletes a child path. Preserve explicitly
+  protected paths, including the child initialization config and child-owned
+  workflow files, rather than maintaining a module allowlist.
+- Keep the caller workflow list and renderer in one shared module. Bootstrap
+  and sync import that module after the managed directory is available.
+- Make `--check-updates` report directory-derived additions, updates, and
+  protected files without writing any path.
 
 ## Risks / Trade-offs
 
-- [An instance changes provider configuration] → Sync intentionally rewrites
-  the PR caller to the newly configured provider; child maintainers review the
-  generated diff before committing.
-- [A child customized a managed caller] → Sync intentionally overwrites it;
-  caller workflows are managed resources and custom workflows remain outside
-  the fixed filenames.
+- [A child has a protected file under a managed directory] → Preserve it and
+  report that protection rather than overwriting it; sync never deletes files.
+- [A prior sync has an incomplete module set] → A one-time recovery replaces
+  the local sync entrypoint; future syncs stage the complete managed directory
+  before using newly added modules.
 - [Remote configuration cannot be read] → Sync makes no workflow changes and
   reports the configuration failure with recovery context.
 

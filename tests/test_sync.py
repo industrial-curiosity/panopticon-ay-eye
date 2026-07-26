@@ -36,6 +36,8 @@ def _make_urlopen(routes):
                 if isinstance(body, (bytes, bytearray)):
                     return BytesIO(body)
                 return BytesIO(json.dumps(body).encode())
+        if "contents/panopticon/callers.py" in url:
+            return BytesIO(json.dumps(_file_response(Path("panopticon/callers.py").read_bytes())).encode())
         if "contents/panopticon.config.json" in url:
             return BytesIO(json.dumps(_file_response(json.dumps(ORG_CONFIG).encode())).encode())
         raise AssertionError(f"unexpected url: {url}")
@@ -85,10 +87,13 @@ class TestSelfContained(unittest.TestCase):
         self.assertNotIn("bootstrap", imported_modules)
         self.assertNotIn("panopticon.bootstrap", imported_modules)
 
-    def test_local_tooling_modules_matches_bootstrap(self):
-        self.assertEqual(sync_module.LOCAL_TOOLING_MODULES, bootstrap.LOCAL_TOOLING_MODULES)
-        self.assertIn("callers.py", sync_module.LOCAL_TOOLING_MODULES)
-        self.assertIn("providers.py", sync_module.LOCAL_TOOLING_MODULES)
+    def test_sync_uses_the_complete_panopticon_directory_not_bootstraps_allowlist(self):
+        self.assertFalse(hasattr(sync_module, "LOCAL_TOOLING_MODULES"))
+        entries = sync_module._tooling_tree_entries([
+            _tree_entry("panopticon/llm.py", "x" * 40),
+            _tree_entry("panopticon/config.json", "y" * 40),
+        ])
+        self.assertEqual([entry["path"] for entry in entries], ["panopticon/llm.py"])
 
     def test_skills_prefix_matches_bootstrap(self):
         self.assertEqual(sync_module.SKILLS_PREFIX, bootstrap.SKILLS_PREFIX)
@@ -211,7 +216,7 @@ class TestCheckUpdates(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertIn("would be updated", findings[0])
 
-    def test_non_panopticon_and_unrelated_files_ignored(self):
+    def test_complete_panopticon_directory_is_managed(self):
         tree = [
             _tree_entry(".agents/skills/openspec-foo/SKILL.md", "x" * 40),
             _tree_entry("panopticon/llm.py", "y" * 40),
@@ -219,7 +224,26 @@ class TestCheckUpdates(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             findings = check_updates(tree, tmp, ".agents/skills")
-        self.assertEqual(findings, [])
+        self.assertEqual(findings, ["panopticon/llm.py would be created (missing locally)"])
+
+    def test_tooling_directory_is_fetched_completely_before_any_file_is_written(self):
+        first, second = b"first", b"second"
+        tree = [
+            _tree_entry("panopticon/first.py", git_blob_sha(first)),
+            _tree_entry("panopticon/second.py", git_blob_sha(second)),
+        ]
+
+        def urlopen(request, timeout=30):
+            if "first.py" in request.full_url:
+                return BytesIO(json.dumps(_file_response(first)).encode())
+            raise RuntimeError("second file unavailable")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RuntimeError, "second file unavailable"):
+                sync_module.download_local_tooling(
+                    "acme", "instance", "main", tree, child_root=tmp, urlopen=urlopen
+                )
+            self.assertFalse((Path(tmp) / "panopticon" / "first.py").exists())
 
 
 class TestMainCheckUpdates(unittest.TestCase):
@@ -275,8 +299,14 @@ class TestMainDefaultOverwrite(unittest.TestCase):
             f"blob {len(skill_content)}\0".encode() + skill_content
         ).hexdigest()
         tree = [_tree_entry(skill_path, skill_sha)]
+        source_files = {}
         for name in LOCAL_TOOLING_MODULES:
-            content = f"{tooling_content_prefix}{name}".encode()
+            content = (
+                Path("panopticon/callers.py").read_bytes()
+                if name == "callers.py"
+                else f"{tooling_content_prefix}{name}".encode()
+            )
+            source_files[name] = content
             tree.append(_tree_entry(f"panopticon/{name}", hashlib.sha1(
                 f"blob {len(content)}\0".encode() + content
             ).hexdigest()))
@@ -291,7 +321,7 @@ class TestMainDefaultOverwrite(unittest.TestCase):
                 return BytesIO(json.dumps(_file_response(skill_content)).encode())
             for name in LOCAL_TOOLING_MODULES:
                 if f"/contents/panopticon/{name}" in url:
-                    return BytesIO(json.dumps(_file_response(f"{tooling_content_prefix}{name}".encode())).encode())
+                    return BytesIO(json.dumps(_file_response(source_files[name])).encode())
             raise AssertionError(f"unexpected url: {url}")
 
         return urlopen
@@ -362,6 +392,23 @@ class TestMainDefaultOverwrite(unittest.TestCase):
             path = Path(tmp) / ".github" / "workflows" / "panopticon-resource-sync.yml"
             self.assertEqual(code, 0)
             self.assertIn("shared-child-resource-sync.yml@main", path.read_text())
+
+    def test_sync_preserves_protected_and_child_owned_files_without_deleting_legacy_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _init_repo_config(tmp)
+            root = Path(tmp)
+            config = root / "panopticon" / "config.json"
+            legacy = root / "panopticon" / "legacy-child-module.py"
+            workflow = root / ".github" / "workflows" / "child-owned.yml"
+            legacy.write_text("keep me", encoding="utf-8")
+            workflow.parent.mkdir(parents=True, exist_ok=True)
+            workflow.write_text("name: child owned\n", encoding="utf-8")
+
+            self.assertEqual(main([], env={}, child_root=tmp, urlopen=self._router()), 0)
+
+            self.assertEqual(json.loads(config.read_text())["repo"], "svc-a")
+            self.assertEqual(legacy.read_text(encoding="utf-8"), "keep me")
+            self.assertEqual(workflow.read_text(encoding="utf-8"), "name: child owned\n")
 
     def test_check_updates_reports_missing_caller_without_creating_it(self):
         with tempfile.TemporaryDirectory() as tmp:
