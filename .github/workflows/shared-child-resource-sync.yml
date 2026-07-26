@@ -1,0 +1,128 @@
+# Shared, caller-only implementation for a bootstrapped child's manual resource-sync workflow.
+# checkout operates on the calling child repository; the instance token is mapped only to sync.py.
+name: Shared child resource sync (caller only)
+
+on:
+  workflow_call:
+    secrets:
+      instance_token:
+        description: Read token for the child repository's configured Panopticon instance.
+        required: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Require the child default branch
+        shell: bash
+        env:
+          CURRENT_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          fail() {
+            {
+              echo "## Panopticon resource sync did not run"
+              echo
+              echo "$1"
+              echo
+              echo "Run this workflow from the child repository's default branch."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::$1"
+            exit 1
+          }
+          [ -n "${DEFAULT_BRANCH:-}" ] || fail "GitHub did not provide the child default branch."
+          [ "$CURRENT_REF" = "refs/heads/$DEFAULT_BRANCH" ] || \
+            fail "Resource sync may run only from the default branch ($DEFAULT_BRANCH)."
+
+      - name: Check out child default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Sync managed Panopticon resources
+        id: resources
+        shell: bash
+        env:
+          # The instance token is restricted to the resource download command.
+          GH_TOKEN: ${{ secrets.instance_token }}
+        run: |
+          set -euo pipefail
+          fail() {
+            {
+              echo "## Panopticon resource sync failed"
+              echo
+              echo "$1"
+              echo
+              echo "Verify that PANOPTICON_INSTANCE_TOKEN can read the configured instance repository, then retry."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::$1"
+            exit 1
+          }
+          python3 -m panopticon.sync || fail "Could not refresh managed Panopticon resources."
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or update resource-sync pull request
+        if: steps.resources.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          branch="panopticon/resource-sync"
+          fail() {
+            {
+              echo "## Panopticon resource-sync pull request failed"
+              echo
+              echo "$1"
+              echo
+              echo "Verify that this repository permits GitHub Actions to create branches and pull requests, then retry."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::$1"
+            exit 1
+          }
+          git diff --check || fail "Refreshed resources contain whitespace errors."
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Populate the lease when an earlier automation run already opened the branch.
+          git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" 2>/dev/null || true
+          git switch -c "$branch"
+          git add -A
+          git commit -m "chore: sync Panopticon resources"
+          git push --force-with-lease origin "HEAD:refs/heads/$branch" || \
+            fail "Could not push the automation-owned resource-sync branch."
+          if gh pr view "$branch" --json url --jq '.url' >/dev/null 2>&1; then
+            pr_url=$(gh pr view "$branch" --json url --jq '.url')
+            status="Updated existing resource-sync pull request: $pr_url"
+          else
+            pr_url=$(gh pr create --base "$DEFAULT_BRANCH" --head "$branch" \
+              --title "chore: sync Panopticon resources" \
+              --body "Refreshes managed Panopticon skills and vendored tooling from the configured instance repository.") || \
+              fail "Could not create the resource-sync pull request."
+            status="Created resource-sync pull request: $pr_url"
+          fi
+          {
+            echo "## Panopticon resources refreshed"
+            echo
+            echo "$status"
+            echo
+            echo "Review and merge this automation-owned pull request when ready."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report current resources
+        if: steps.resources.outputs.changed == 'false'
+        shell: bash
+        run: |
+          {
+            echo "## Panopticon resources are current"
+            echo
+            echo "No managed skills or vendored tooling changed; no branch or pull request was created."
+          } >> "$GITHUB_STEP_SUMMARY"

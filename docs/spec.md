@@ -76,6 +76,11 @@ validation, correction, reporting,
 and gating behavior; authentication and transport remain inside the provider
 entrypoint.
 
+Bootstrap also wires a stable, manual child resource-sync caller to a
+template-owned reusable workflow. It refreshes only managed Panopticon skills
+and vendored tooling, uses the instance token only for that read, and opens or
+updates a child-repository pull request for review when resources changed.
+
 The documentation-drift check first classifies the PR diff. Documentation,
 agent guidance and templates, OpenSpec artifacts, changelogs, and test-only
 changes are clean without an LLM request. For behavior-bearing changes, every

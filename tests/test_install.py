@@ -110,6 +110,17 @@ class TestCallerWorkflowText(unittest.TestCase):
         self.assertIn("types: [closed]", text)
         self.assertIn("@v2", text)
 
+    def test_resource_sync_workflow_is_manual_and_uses_minimal_permissions(self):
+        text = caller_workflow_text(
+            "panopticon-resource-sync.yml", "acme/instance", "v2", LITELLM_CONTRACT
+        )
+        self.assertIn("workflow_dispatch:", text)
+        self.assertIn("shared-child-resource-sync.yml@v2", text)
+        self.assertIn("contents: write", text)
+        self.assertIn("pull-requests: write", text)
+        self.assertIn("instance_token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}", text)
+        self.assertNotIn("secrets: inherit", text)
+
 
 class TestWireWorkflows(unittest.TestCase):
     def test_creates_all_three_workflow_files(self):

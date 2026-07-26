@@ -78,6 +78,11 @@ on demand:
 python3 -m panopticon.sync
 ```
 
+Alternatively, run **Actions → Panopticon resource sync → Run workflow** from
+this repository's default branch. It opens or updates one pull request for
+managed resource changes, so you can review them before merging. It creates no
+pull request when everything is current.
+
 This overwrites this repo's skills and vendored tooling unconditionally from the
 instance's current
 default branch. There's no per-file protection — review `git diff`/`git status`

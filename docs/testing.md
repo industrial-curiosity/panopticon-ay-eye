@@ -90,3 +90,11 @@ the child README and architecture overview use the resolver-produced absolute
 org-diagram URL, child-local links remain document-relative, and the instance
 org diagram uses `{repo}/architecture.md` for a mirrored child architecture
 document.
+
+## Shared child resource-sync workflow coverage
+
+`tests/test_install.py` verifies bootstrap wires and refreshes the manual child
+resource-sync caller. `tests/test_resource_sync_workflow.py` verifies that the
+shared workflow gates instance-token use to the child default branch, refreshes
+the existing managed resource set, creates or updates only its automation-owned
+pull request when resources changed, and creates no pull request when current.

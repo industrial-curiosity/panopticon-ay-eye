@@ -42,7 +42,12 @@ from .recovery import child_bootstrap_command, configuration_recovery
 
 DEFAULT_BRANCH = "main"
 SKILLS_PREFIX = ".agents/skills/"
-CALLER_WORKFLOWS = ("panopticon-pr.yml", "panopticon-merge.yml", "panopticon-pr-close.yml")
+CALLER_WORKFLOWS = (
+    "panopticon-pr.yml",
+    "panopticon-merge.yml",
+    "panopticon-pr-close.yml",
+    "panopticon-resource-sync.yml",
+)
 
 _CALLER_HEADER = (
     "# Wired by Panopticon install.py — a thin reference to the shared workflow in the instance repo.\n"
@@ -61,13 +66,21 @@ def caller_workflow_text(name, instance, ref, contract, default_branch=DEFAULT_B
         "panopticon-pr.yml": "on:\n  pull_request:\n",
         "panopticon-merge.yml": f"on:\n  push:\n    branches: [{default_branch}]\n",
         "panopticon-pr-close.yml": "on:\n  pull_request:\n    types: [closed]\n",
+        "panopticon-resource-sync.yml": "on:\n  workflow_dispatch:\n",
     }[name]
     workflow_name = {
         "panopticon-pr.yml": "Panopticon PR checks",
         "panopticon-merge.yml": "Panopticon merge sync",
         "panopticon-pr-close.yml": "Panopticon PR close",
+        "panopticon-resource-sync.yml": "Panopticon resource sync",
     }[name]
-    remote_name = contract["workflow"] if name == "panopticon-pr.yml" else name
+    remote_name = (
+        contract["workflow"]
+        if name == "panopticon-pr.yml"
+        else "shared-child-resource-sync.yml"
+        if name == "panopticon-resource-sync.yml"
+        else name
+    )
     lines = [
         f"{_CALLER_HEADER}"
         f"name: {workflow_name}\n"
@@ -107,6 +120,14 @@ def caller_workflow_text(name, instance, ref, contract, default_branch=DEFAULT_B
                 f"      {logical}: {_actions_expression('secrets', configured_name)}\n"
             )
     else:
+        if name == "panopticon-resource-sync.yml":
+            lines.extend(
+                [
+                    "    permissions:\n",
+                    "      contents: write\n",
+                    "      pull-requests: write\n",
+                ]
+            )
         token_name = contract["secrets"]["instance_token"]
         lines.extend(
             [
@@ -118,7 +139,7 @@ def caller_workflow_text(name, instance, ref, contract, default_branch=DEFAULT_B
 
 
 def wire_workflows(instance, ref, contract, child_root=".", default_branch=DEFAULT_BRANCH):
-    """Write/refresh the three caller workflows in place; returns their paths."""
+    """Write/refresh the managed child caller workflows in place; returns their paths."""
     workflows_dir = Path(child_root) / ".github" / "workflows"
     workflows_dir.mkdir(parents=True, exist_ok=True)
     written = []

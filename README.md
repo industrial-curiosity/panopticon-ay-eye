@@ -66,6 +66,10 @@ The workflow is intentionally simple:
 4. When planning a change, developers and agents use that shared view to
    understand affected connections.
 
+Child repositories can also run the manual **Panopticon resource sync** workflow
+to refresh their managed skills and local tooling. It opens or updates a
+reviewable pull request instead of changing the default branch directly.
+
 Child-local documentation links stay relative to the document that contains
 them. Generated links from a child README or architecture overview to the
 organization architecture use the resolver-produced direct GitHub URL, so they
