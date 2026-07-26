@@ -66,6 +66,10 @@ The workflow is intentionally simple:
 4. When planning a change, developers and agents use that shared view to
    understand affected connections.
 
+The organization architecture is a complete interface inventory: it includes
+interfaces even when only one repository participates, and highlights detected
+ownership/type conflicts and potential same-name collisions.
+
 Child repositories can also run the manual **Panopticon resource sync** workflow
 to refresh their managed skills and local tooling. It opens or updates a
 reviewable pull request instead of changing the default branch directly.

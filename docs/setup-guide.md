@@ -480,7 +480,7 @@ whether to keep, edit, or discard it before you commit.
   compiled index rebuilt,
   and the org-wide architecture diagram (`docs/architecture.md` in the instance
   repo — one section
-  per repo with cross-repo interfaces, a relationship diagram, and a table)
+  per repository with an interface or external dependency, a relationship diagram, and a table)
   rebuilt from the fresh
   compiled index, all pushed directly to the instance repo in the same commit;
   conflict issues

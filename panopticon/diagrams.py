@@ -7,14 +7,13 @@ markdown out. No LLM involvement — the content is mechanically derived from th
 ``owner``/``producer``/``consumer`` data, so it can never disagree with the index that produced it
 and is exempt from doc-drift checking by construction.
 
-One ``## {repo}`` section per repo with at least one *external* interface or dependency
+One ``## {repo}`` section per repo with at least one interface or external dependency
 (alphabetical), each with a small relationship graph (this repo as center node, one node per
-related repo; interface edges dashed, dependency edges solid, and a dependency linked to an
-interface via ``panopticon-dependency-of`` collapsed into one thick/double edge representing both —
-architecture-diagrams spec, "Linked dependency and interface edges deduplicate") and a table of
-that repo's external interfaces/dependencies. Repos whose every interface/dependency is
-internal-only (design's exclusion rule: the union of an entry's owner/producer/consumer repos names
-exactly one repo) get no section.
+interface resource and related repo; interface edges dashed, dependency edges solid, and a
+dependency linked to an interface via ``panopticon-dependency-of`` collapsed into one thick/double
+edge representing both — architecture-diagrams spec, "Linked dependency and interface edges
+deduplicate") and a table of that repo's interfaces and external dependencies. Single-repository
+interfaces remain visible; internal-only dependencies do not create a section.
 """
 
 import re
@@ -34,7 +33,7 @@ _GENERATED_HEADER = (
 _MERMAID_ID_RE = re.compile(r"[^A-Za-z0-9_]")
 
 # Empty-state placeholder (architecture-diagrams spec, "Org diagram renders an explicit
-# empty-state placeholder"): shown before any child repo has merged a cross-repo interface or
+# empty-state placeholder"): shown before any child repo has merged an interface or cross-repo
 # dependency. Six `?`-labeled nodes in a ring — deliberately uniform, unlike any real diagram, so
 # it can never be mistaken for actual data.
 #
@@ -62,7 +61,8 @@ def _empty_state_hexagon():
 
 def repo_set(entry):
     """The union of repo names in one interface/dependency entry's owner/producer/consumer
-    (design's internal-only exclusion rule input) — the same field shape serves both schemas."""
+    (used to identify external dependency relationships); the same field shape serves both
+    schemas."""
     repos = set()
     owner = entry.get("owner")
     if owner:
@@ -85,14 +85,13 @@ def _other_repo_role(entry, other_repo):
     return roles
 
 
-def _rows_for_index(doc, key, type_field, kind, repo):
-    """External rows for `repo` from one compiled index (interfaces or dependencies): one row per
-    (entry, other-repo) pair, sorted by name then other repo (per-entry, not deduplicated)."""
+def _rows_for_index(doc, key, type_field, kind, repo, include_internal=False):
+    """Rows for `repo` from one compiled index, optionally retaining local-only resources."""
     rows = []
     for name in sorted(doc.get(key, {})):
         for entry in doc[key][name]:
             repos = repo_set(entry)
-            if len(repos) <= 1 or repo not in repos:
+            if repo not in repos or (len(repos) <= 1 and not include_internal):
                 continue
             produces = any(robj["repo"] == repo for robj in entry["producer"])
             consumes = any(robj["repo"] == repo for robj in entry["consumer"])
@@ -100,7 +99,8 @@ def _rows_for_index(doc, key, type_field, kind, repo):
             if not direction:
                 # repo owns this entry but neither produces nor consumes it itself.
                 direction = ["owns"]
-            for other in sorted(repos - {repo}):
+            others = sorted(repos - {repo}) or [None]
+            for other in others:
                 rows.append(
                     {
                         "kind": kind,
@@ -110,7 +110,7 @@ def _rows_for_index(doc, key, type_field, kind, repo):
                         "produces": produces,
                         "consumes": consumes,
                         "other_repo": other,
-                        "other_role": "/".join(_other_repo_role(entry, other)) or "none",
+                        "other_role": "/".join(_other_repo_role(entry, other)) if other else "—",
                         "links_to_interface": entry.get("links_to_interface"),
                     }
                 )
@@ -152,10 +152,10 @@ def _dedupe_linked_rows(rows):
 
 
 def relationships_for_repo(interfaces_compiled, repo, dependencies_compiled=None):
-    """External interface and dependency rows for `repo`, combined into one list (deduplicated
-    when a dependency is explicitly linked to an interface). Empty when every one of `repo`'s
-    entries is internal-only. `dependencies_compiled` defaults to empty — interface-only callers
-    are unaffected."""
+    """Interface and external-dependency rows for `repo`, combined into one list (deduplicated
+    when a dependency is explicitly linked to an interface). Local-only interfaces are retained;
+    local-only dependencies are excluded. `dependencies_compiled` defaults to empty — interface-only
+    callers are unaffected."""
     exact_targets = set()
     name_targets = set()
     for conflict in interfaces_compiled.get("conflicts", []):
@@ -163,7 +163,9 @@ def relationships_for_repo(interfaces_compiled, repo, dependencies_compiled=None
             name_targets.add(conflict["name"])
         else:
             exact_targets.add((conflict["name"], conflict["type"]))
-    rows = _rows_for_index(interfaces_compiled, "interfaces", "type", "interface", repo)
+    rows = _rows_for_index(
+        interfaces_compiled, "interfaces", "type", "interface", repo, include_internal=True
+    )
     for row in rows:
         row["conflicted"] = (row["name"], row["type"]) in exact_targets or row["name"] in name_targets
     rows += _rows_for_index(dependencies_compiled or {}, "dependencies", "ecosystem", "dependency", repo)
@@ -174,23 +176,29 @@ def _mermaid_graph(repo, rows):
     lines = ["graph LR", f'    {_mermaid_id(repo)}["{repo}"]']
     seen = {repo}
     conflict_resources = set()
+    resource_nodes = set()
     for row in rows:
         other = row["other_repo"]
-        if other not in seen:
+        if other and other not in seen:
             lines.append(f'    {_mermaid_id(other)}["{other}"]')
             seen.add(other)
         # Visual distinction by kind (architecture-diagrams spec): dashed for interface, solid
         # for dependency, thick/double for a linked (deduplicated) pair.
         arrow = {"interface": "-.->", "dependency": "-->", "linked": "==>"}[row["kind"]]
-        if row.get("conflicted"):
+        if row["kind"] != "dependency":
             resource = _mermaid_id(f"resource_{row['name']}_{row['type']}")
-            if resource not in conflict_resources:
-                lines += [
-                    f'    {resource}["{row["name"]}"]',
-                    f"    class {resource} conflictResource",
-                ]
+            if resource not in resource_nodes:
+                lines.append(f'    {resource}["{row["name"]}"]')
+                resource_nodes.add(resource)
+            if row.get("conflicted") and resource not in conflict_resources:
+                lines.append(f"    class {resource} conflictResource")
                 conflict_resources.add(resource)
-            if row["consumes"] and not row["produces"]:
+            if other is None:
+                if row["consumes"] and not row["produces"]:
+                    lines.append(f"    {resource} {arrow} {_mermaid_id(repo)}")
+                else:
+                    lines.append(f"    {_mermaid_id(repo)} {arrow} {resource}")
+            elif row["consumes"] and not row["produces"]:
                 lines += [
                     f"    {_mermaid_id(other)} {arrow} {resource}",
                     f"    {resource} {arrow} {_mermaid_id(repo)}",
@@ -220,7 +228,7 @@ def _table(rows):
     ]
     for row in rows:
         other = row["other_repo"]
-        link = f"[{other}]({other}/architecture.md)"
+        link = f"[{other}]({other}/architecture.md)" if other else "—"
         name = f"🔴 **`{row['name']}`**" if row.get("conflicted") else f"`{row['name']}`"
         lines.append(
             f"| {_KIND_LABELS[row['kind']]} | {name} | {row['type']} | {row['direction']} | "
@@ -274,7 +282,7 @@ def render_org_diagram(interfaces_compiled, dependencies_compiled=None, diagram_
         ]
     if not any_section:
         lines += [
-            f"No cross-repo interface or dependency relationships yet — see [initializing a child "
+            f"No interfaces or external dependency relationships yet — see [initializing a child "
             f"repo]({_SETUP_GUIDE_LINK}).",
             "",
             f"```{fmt}",

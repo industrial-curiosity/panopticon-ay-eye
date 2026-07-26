@@ -57,6 +57,28 @@ class TestCompile(unittest.TestCase):
 
 
 class TestConflicts(unittest.TestCase):
+    @staticmethod
+    def potential_collision_shards():
+        left = load_fixture("local_svc_a.json")
+        right = load_fixture("local_svc_b.json")
+        left["interfaces"]["order-processing-queue"] = [
+            {
+                "owner": None,
+                "type": "rest",
+                "consumer": [{"repo": "svc-a", "source_files": ["client.py"]}],
+                "producer": [],
+            }
+        ]
+        right["interfaces"]["order-processing-queue"] = [
+            {
+                "owner": {"repo": "svc-b", "component": "worker"},
+                "type": "sqs",
+                "consumer": [],
+                "producer": [{"repo": "svc-b", "source_files": ["queues.yaml"]}],
+            }
+        ]
+        return {"svc-a": left, "svc-b": right}
+
     def test_ownership_dispute(self):
         shards = base_shards()
         shards["svc-c"] = load_fixture("local_svc_c_conflict.json")
@@ -91,6 +113,40 @@ class TestConflicts(unittest.TestCase):
         }
         shards = replace_shard(shards, "svc-c", withdrawn)
         self.assertEqual(compile_index(shards)["conflicts"], [])
+
+    def test_disjoint_same_name_types_create_one_potential_collision(self):
+        compiled = compile_index(self.potential_collision_shards())
+        (conflict,) = [c for c in compiled["conflicts"] if c["reason"] == "potential-name-collision"]
+        self.assertEqual(conflict["name"], "order-processing-queue")
+        self.assertEqual(conflict["type"], "<multiple>")
+        self.assertEqual([claim["claimed_by"] for claim in conflict["claims"]], ["svc-a", "svc-b"])
+        self.assertIn("rest", conflict["details"])
+        self.assertIn("sqs", conflict["details"])
+
+    def test_overlapping_same_name_types_are_not_a_potential_collision(self):
+        shards = {"svc-a": load_fixture("local_svc_a.json")}
+        shards["svc-a"]["interfaces"]["orders-api"].append(
+            {
+                "owner": {"repo": "svc-a", "component": "order-service"},
+                "type": "grpc",
+                "consumer": [],
+                "producer": [{"repo": "svc-a", "source_files": ["api.proto"]}],
+            }
+        )
+        self.assertNotIn(
+            "potential-name-collision",
+            [conflict["reason"] for conflict in compile_index(shards)["conflicts"]],
+        )
+
+    def test_potential_collision_is_removed_and_round_trips(self):
+        compiled = compile_index(self.potential_collision_shards())
+        self.assertEqual(dumps_index(compiled), dumps_index(compile_index(shards_from_compiled(compiled))))
+        cleared = self.potential_collision_shards()
+        del cleared["svc-b"]["interfaces"]["order-processing-queue"]
+        self.assertNotIn(
+            "potential-name-collision",
+            [conflict["reason"] for conflict in compile_index(cleared)["conflicts"]],
+        )
 
 
 class TestEntryLifecycle(unittest.TestCase):

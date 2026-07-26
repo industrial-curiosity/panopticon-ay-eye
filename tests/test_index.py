@@ -5,9 +5,11 @@ import unittest
 from pathlib import Path
 
 from panopticon.index import (
+    CONFLICT_REASON_POTENTIAL_NAME_COLLISION,
     KIND_COMPILED,
     KIND_LOCAL,
     IndexValidationError,
+    MULTIPLE_INTERFACE_TYPES,
     dumps_index,
     empty_index,
     load_index,
@@ -63,6 +65,27 @@ class TestValidation(unittest.TestCase):
         with self.assertRaises(IndexValidationError) as ctx:
             validate_index(doc, kind=KIND_COMPILED)
         self.assertIn("conflicts", str(ctx.exception))
+
+    def test_compiled_accepts_potential_name_collision(self):
+        doc = empty_index(KIND_COMPILED)
+        doc["interfaces"]["queue"] = [
+            {
+                "owner": None,
+                "type": "rest",
+                "consumer": [{"repo": "svc-a", "source_files": ["client.py"]}],
+                "producer": [],
+            }
+        ]
+        doc["conflicts"] = [
+            {
+                "name": "queue",
+                "type": MULTIPLE_INTERFACE_TYPES,
+                "reason": CONFLICT_REASON_POTENTIAL_NAME_COLLISION,
+                "details": "potential collision",
+                "claims": [{"claimed_by": "svc-a", "owner": None}],
+            }
+        ]
+        validate_index(doc, kind=KIND_COMPILED)
 
     def test_duplicate_type_under_key_rejected(self):
         doc = load_fixture("local_svc_a.json")

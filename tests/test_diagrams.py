@@ -1,9 +1,8 @@
 """Org-wide diagram rendering and child documentation link guidance.
 
-Covers internal-only exclusion, alphabetical ordering, per-interface
-(non-deduplicated) edges, navigation links, and (dependency-indexing capability)
-combined interface+dependency rendering with kind-based visual distinction and
-linked-pair deduplication.
+Covers complete interface inventory rendering, alphabetical ordering, navigation
+links, conflict emphasis, and combined interface+dependency rendering with
+kind-based visual distinction and linked-pair deduplication.
 """
 
 import unittest
@@ -64,7 +63,7 @@ class TestRelationshipsForRepo(unittest.TestCase):
         self.assertEqual(order_events_b["other_repo"], "svc-a")
         self.assertIn("owner", order_events_b["other_role"])
 
-    def test_internal_only_interface_excluded_from_both_repos(self):
+    def test_internal_only_interface_is_included_for_its_repo(self):
         shards = base_shards()
         # svc-a both produces and consumes its own interface, no other repo involved.
         shards["svc-a"]["interfaces"]["internal-only"] = [
@@ -77,7 +76,9 @@ class TestRelationshipsForRepo(unittest.TestCase):
         ]
         compiled = compile_index(shards)
         rows = relationships_for_repo(compiled, "svc-a")
-        self.assertNotIn("internal-only", [r["name"] for r in rows])
+        row = next(row for row in rows if row["name"] == "internal-only")
+        self.assertEqual(row["other_repo"], None)
+        self.assertEqual(row["other_role"], "—")
 
     def test_unrelated_repo_has_no_rows(self):
         compiled = compile_index(base_shards())
@@ -98,14 +99,15 @@ class TestRenderOrgDiagram(unittest.TestCase):
         text = render_org_diagram(compiled)
         self.assertLess(text.index("## svc-a"), text.index("## svc-b"))
 
-    def test_repo_with_only_internal_interfaces_gets_no_section(self):
+    def test_repo_with_only_internal_interfaces_gets_a_section(self):
         shards = {"svc-a": load_fixture("local_svc_a.json")}
         # svc-a's own local index only mentions itself; compiling alone has no cross-repo entries.
         compiled = compile_index(shards)
         text = render_org_diagram(compiled)
-        self.assertNotIn("## svc-a", text)
-        self.assertIn("setup-guide.md#4-initialize-a-child-repo", text)
-        self.assertEqual(text.count('("?")'), 6)
+        self.assertIn("## svc-a", text)
+        self.assertIn('repo_resource_order_events_kafka["order-events"]', text)
+        self.assertIn("| interface | `order-events` | kafka | produces | — | — |", text)
+        self.assertNotIn("setup-guide.md#4-initialize-a-child-repo", text)
 
     def test_populated_index_has_no_placeholder_content(self):
         compiled = compile_index(base_shards())
@@ -147,6 +149,29 @@ class TestRenderOrgDiagram(unittest.TestCase):
         compiled = compile_index(base_shards())
         text = render_org_diagram(compiled)
         self.assertNotIn("click ", text)
+
+    def test_conflict_summary_and_resource_highlighting(self):
+        left = load_fixture("local_svc_a.json")
+        right = load_fixture("local_svc_b.json")
+        left["interfaces"]["order-processing-queue"] = [
+            {"owner": None, "type": "rest", "consumer": [{"repo": "svc-a", "source_files": ["client.py"]}], "producer": []}
+        ]
+        right["interfaces"]["order-processing-queue"] = [
+            {"owner": {"repo": "svc-b", "component": "worker"}, "type": "sqs", "consumer": [], "producer": [{"repo": "svc-b", "source_files": ["queues.yaml"]}]}
+        ]
+        text = render_org_diagram(compile_index({"svc-a": left, "svc-b": right}))
+        self.assertLess(text.index("# Organization architecture"), text.index("## Detected interface conflicts"))
+        self.assertIn("potential-name-collision", text)
+        self.assertIn("repo_resource_order_processing_queue_rest", text)
+        self.assertIn("repo_resource_order_processing_queue_sqs", text)
+        self.assertIn("classDef conflictResource fill:#fee2e2,stroke:#dc2626,color:#b91c1c,font-weight:bold", text)
+        self.assertIn("🔴 **`order-processing-queue`**", text)
+
+    def test_clean_resources_have_no_conflict_summary_or_style(self):
+        text = render_org_diagram(compile_index(base_shards()))
+        self.assertNotIn("## Detected interface conflicts", text)
+        self.assertNotIn("conflictResource", text)
+        self.assertNotIn("🔴", text)
 
 
 class TestChildDiagramLinkGuidance(unittest.TestCase):
@@ -210,7 +235,8 @@ class TestCombinedInterfaceAndDependencyRendering(unittest.TestCase):
         from panopticon.diagrams import _mermaid_graph
 
         graph = _mermaid_graph("svc-a", rows)
-        self.assertIn("-.->|order-events|", graph)
+        self.assertIn('repo_resource_order_events_kafka["order-events"]', graph)
+        self.assertIn("repo_svc_a -.-> repo_resource_order_events_kafka", graph)
         self.assertIn("-->|github.com/acme/svc-a|", graph)
 
     def test_linked_dependency_and_interface_collapse_to_one_edge(self):

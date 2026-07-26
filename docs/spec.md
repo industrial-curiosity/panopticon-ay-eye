@@ -105,3 +105,10 @@ including links in the README and architecture overview, uses the resolved
 absolute GitHub URL with the child repository anchor. The instance org diagram
 continues to use `{repo}/architecture.md` relative links to its mirrored child
 documentation.
+
+The organization architecture inventories every participating repository
+interface, including interfaces used by one repository alone. Dependencies stay
+limited to external relationships. When the compiled index detects an
+ownership/type dispute or a potential same-name collision, `## Detected
+interface conflicts` summarizes it and highlights the affected Mermaid
+resources and table rows.
