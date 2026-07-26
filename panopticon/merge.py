@@ -13,11 +13,14 @@ Both paths end in ``diff_compiled`` producing the same report structure, so what
 what merges do.
 
 Conflict entries are recomputed deterministically on every rebuild and exist only in the compiled
-index. Two reasons are detected:
+index. Three reasons are detected:
 
 - ``ownership-dispute`` — two or more repos claim themselves as owner of one interface object.
 - ``owner-attribution-mismatch`` — repos attribute ownership to different repos (no dispute
   between self-claims, but the org's picture of who owns the interface disagrees).
+- ``potential-name-collision`` — different interface types reuse one canonical name with disjoint
+  participating repository sets; this is a deterministic prompt to review, not proof of a
+  semantic collision.
 
 ``merge_into_instance`` also rebuilds the org-wide diagram (``panopticon.diagrams``) immediately
 after ``compile_index`` produces the new compiled state, in the same commit as the compiled index
@@ -38,6 +41,8 @@ from .index import (
     KIND_COMPILED,
     KIND_LOCAL,
     KIND_SHARD,
+    CONFLICT_REASON_POTENTIAL_NAME_COLLISION,
+    MULTIPLE_INTERFACE_TYPES,
     dumps_index,
     empty_index,
     load_index,
@@ -131,6 +136,39 @@ def _resolve_owner(name, iface_type, claims):
     return None, conflicts
 
 
+def _participating_repos(entry):
+    """Return the repositories that produce or consume one folded interface object."""
+    return {repo_object["repo"] for role in ("consumer", "producer") for repo_object in entry[role]}
+
+
+def _potential_name_collision(name, typed_entries, claims):
+    """Return one multi-type finding when same-name objects have disjoint repo sets."""
+    disjoint_pairs = []
+    for index, (left_type, left_entry) in enumerate(typed_entries):
+        left_repos = _participating_repos(left_entry)
+        for right_type, right_entry in typed_entries[index + 1:]:
+            right_repos = _participating_repos(right_entry)
+            if left_repos.isdisjoint(right_repos):
+                disjoint_pairs.append((left_type, left_repos, right_type, right_repos))
+    if not disjoint_pairs:
+        return None
+    involved_types = sorted({iface_type for pair in disjoint_pairs for iface_type in (pair[0], pair[2])})
+    involved_repos = sorted({repo for pair in disjoint_pairs for repos in (pair[1], pair[3]) for repo in repos})
+    collision_claims = {
+        repo: claims[(name, iface_type)][repo]
+        for iface_type in involved_types
+        for repo in claims[(name, iface_type)]
+    }
+    return _conflict(
+        name,
+        MULTIPLE_INTERFACE_TYPES,
+        CONFLICT_REASON_POTENTIAL_NAME_COLLISION,
+        collision_claims,
+        f"'{name}' uses types {involved_types} across disjoint participating repositories "
+        f"{involved_repos}; review whether these are unrelated resources that share a name",
+    )
+
+
 def compile_index(shards):
     """Deterministically rebuild the compiled index from ``{repo_name: shard_doc}``. LLM-free."""
     folded = {}
@@ -159,6 +197,11 @@ def compile_index(shards):
         entry["owner"] = owner
         compiled["interfaces"].setdefault(name, []).append(entry)
         compiled["conflicts"].extend(conflicts)
+    for name, entries in compiled["interfaces"].items():
+        typed_entries = [(entry["type"], entry) for entry in entries]
+        conflict = _potential_name_collision(name, typed_entries, claims)
+        if conflict:
+            compiled["conflicts"].append(conflict)
     compiled = sorted_doc(compiled)
     validate_index(compiled, kind=KIND_COMPILED)
     return compiled
@@ -173,6 +216,8 @@ def shards_from_compiled(compiled):
     """
     conflict_claims = {}
     for conflict in compiled.get("conflicts", []):
+        if conflict["reason"] == CONFLICT_REASON_POTENTIAL_NAME_COLLISION:
+            continue
         ident = (conflict["name"], conflict["type"])
         for claim in conflict["claims"]:
             conflict_claims.setdefault(ident, {})[claim["claimed_by"]] = claim["owner"]

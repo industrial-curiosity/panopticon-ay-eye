@@ -41,7 +41,13 @@ KIND_LOCAL = "local"
 KIND_SHARD = "shard"
 KIND_COMPILED = "compiled"
 
-CONFLICT_REASONS = ("ownership-dispute", "owner-attribution-mismatch")
+CONFLICT_REASON_POTENTIAL_NAME_COLLISION = "potential-name-collision"
+MULTIPLE_INTERFACE_TYPES = "<multiple>"
+CONFLICT_REASONS = (
+    "ownership-dispute",
+    "owner-attribution-mismatch",
+    CONFLICT_REASON_POTENTIAL_NAME_COLLISION,
+)
 
 
 class IndexValidationError(Exception):

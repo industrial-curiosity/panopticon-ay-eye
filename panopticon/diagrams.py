@@ -21,6 +21,7 @@ import re
 from pathlib import Path
 
 from .config import DEFAULT_DIAGRAM_FORMAT
+from .index import CONFLICT_REASON_POTENTIAL_NAME_COLLISION, MULTIPLE_INTERFACE_TYPES
 
 # Instance repo root, distinct from docs/{repo}/architecture.md (each child repo's own copy).
 ORG_DIAGRAM_PATH = Path("docs") / "architecture.md"
@@ -155,7 +156,16 @@ def relationships_for_repo(interfaces_compiled, repo, dependencies_compiled=None
     when a dependency is explicitly linked to an interface). Empty when every one of `repo`'s
     entries is internal-only. `dependencies_compiled` defaults to empty — interface-only callers
     are unaffected."""
+    exact_targets = set()
+    name_targets = set()
+    for conflict in interfaces_compiled.get("conflicts", []):
+        if conflict["reason"] == CONFLICT_REASON_POTENTIAL_NAME_COLLISION:
+            name_targets.add(conflict["name"])
+        else:
+            exact_targets.add((conflict["name"], conflict["type"]))
     rows = _rows_for_index(interfaces_compiled, "interfaces", "type", "interface", repo)
+    for row in rows:
+        row["conflicted"] = (row["name"], row["type"]) in exact_targets or row["name"] in name_targets
     rows += _rows_for_index(dependencies_compiled or {}, "dependencies", "ecosystem", "dependency", repo)
     return _dedupe_linked_rows(rows)
 
@@ -163,20 +173,40 @@ def relationships_for_repo(interfaces_compiled, repo, dependencies_compiled=None
 def _mermaid_graph(repo, rows):
     lines = ["graph LR", f'    {_mermaid_id(repo)}["{repo}"]']
     seen = {repo}
+    conflict_resources = set()
     for row in rows:
         other = row["other_repo"]
         if other not in seen:
             lines.append(f'    {_mermaid_id(other)}["{other}"]')
             seen.add(other)
-        label = row["name"]
         # Visual distinction by kind (architecture-diagrams spec): dashed for interface, solid
         # for dependency, thick/double for a linked (deduplicated) pair.
         arrow = {"interface": "-.->", "dependency": "-->", "linked": "==>"}[row["kind"]]
-        if row["consumes"] and not row["produces"]:
-            lines.append(f"    {_mermaid_id(other)} {arrow}|{label}| {_mermaid_id(repo)}")
+        if row.get("conflicted"):
+            resource = _mermaid_id(f"resource_{row['name']}_{row['type']}")
+            if resource not in conflict_resources:
+                lines += [
+                    f'    {resource}["{row["name"]}"]',
+                    f"    class {resource} conflictResource",
+                ]
+                conflict_resources.add(resource)
+            if row["consumes"] and not row["produces"]:
+                lines += [
+                    f"    {_mermaid_id(other)} {arrow} {resource}",
+                    f"    {resource} {arrow} {_mermaid_id(repo)}",
+                ]
+            else:
+                lines += [
+                    f"    {_mermaid_id(repo)} {arrow} {resource}",
+                    f"    {resource} {arrow} {_mermaid_id(other)}",
+                ]
+        elif row["consumes"] and not row["produces"]:
+            lines.append(f"    {_mermaid_id(other)} {arrow}|{row['name']}| {_mermaid_id(repo)}")
         else:
             # produces (with or without also consuming), or owns-only: repo -> other.
-            lines.append(f"    {_mermaid_id(repo)} {arrow}|{label}| {_mermaid_id(other)}")
+            lines.append(f"    {_mermaid_id(repo)} {arrow}|{row['name']}| {_mermaid_id(other)}")
+    if conflict_resources:
+        lines.append("    classDef conflictResource fill:#fee2e2,stroke:#dc2626,color:#b91c1c,font-weight:bold")
     return "\n".join(lines)
 
 
@@ -191,8 +221,9 @@ def _table(rows):
     for row in rows:
         other = row["other_repo"]
         link = f"[{other}]({other}/architecture.md)"
+        name = f"🔴 **`{row['name']}`**" if row.get("conflicted") else f"`{row['name']}`"
         lines.append(
-            f"| {_KIND_LABELS[row['kind']]} | `{row['name']}` | {row['type']} | {row['direction']} | "
+            f"| {_KIND_LABELS[row['kind']]} | {name} | {row['type']} | {row['direction']} | "
             f"{link} | {row['other_role']} |"
         )
     return "\n".join(lines)
@@ -212,6 +243,17 @@ def render_org_diagram(interfaces_compiled, dependencies_compiled=None, diagram_
         | {r for entries in dependencies_compiled.get("dependencies", {}).values() for entry in entries for r in repo_set(entry)}
     )
     lines = [_GENERATED_HEADER, "", "# Organization architecture", ""]
+    conflicts = interfaces_compiled.get("conflicts", [])
+    if conflicts:
+        lines += ["## Detected interface conflicts", ""]
+        for conflict in conflicts:
+            type_label = "multiple types" if conflict["type"] == MULTIPLE_INTERFACE_TYPES else conflict["type"]
+            repositories = ", ".join(f"`{claim['claimed_by']}`" for claim in conflict["claims"])
+            lines.append(
+                f"- **`{conflict['name']}` ({type_label})** — {conflict['reason']}: "
+                f"{conflict['details']} (repositories: {repositories})"
+            )
+        lines.append("")
     any_section = False
     for repo in repos:
         rows = relationships_for_repo(interfaces_compiled, repo, dependencies_compiled)
