@@ -2,6 +2,13 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [fix-resource-sync-merged-pr] - 2026-07-26
+
+### Fixed
+
+- Child resource sync now opens a new review pull request after its prior
+  automation pull request is merged or closed.
+
 ## [sync-child-workflow-callers] - 2026-07-26
 
 ### Fixed

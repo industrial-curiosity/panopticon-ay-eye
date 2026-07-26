@@ -99,8 +99,11 @@ jobs:
           git commit -m "chore: sync Panopticon resources"
           git push --force-with-lease origin "HEAD:refs/heads/$branch" || \
             fail "Could not push the automation-owned resource-sync branch."
-          if gh pr view "$branch" --json url --jq '.url' >/dev/null 2>&1; then
-            pr_url=$(gh pr view "$branch" --json url --jq '.url')
+          # Only an open automation PR can receive a new resource-sync commit.
+          pr_url=$(gh pr list --head "$branch" --base "$DEFAULT_BRANCH" --state open \
+            --json url --jq '.[0].url // empty') || \
+            fail "Could not look up an existing resource-sync pull request."
+          if [ -n "$pr_url" ]; then
             status="Updated existing resource-sync pull request: $pr_url"
           else
             pr_url=$(gh pr create --base "$DEFAULT_BRANCH" --head "$branch" \

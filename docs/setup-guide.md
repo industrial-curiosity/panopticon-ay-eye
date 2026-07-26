@@ -532,8 +532,9 @@ python3 -m panopticon.sync
 
 Or, for a reviewable update, run **Actions → Panopticon resource sync → Run
 workflow** from the child repository's default branch. It creates or updates one
-pull request containing the managed resource changes; when resources are
-current, it creates no pull request.
+open pull request containing the managed resource changes. After that pull
+request is merged or closed, the next changed sync creates a new pull request;
+when resources are current, it creates no pull request.
 
 This overwrites the repo's skills and vendored `panopticon/` tooling
 unconditionally — there is no

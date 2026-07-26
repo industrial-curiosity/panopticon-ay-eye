@@ -96,5 +96,7 @@ document.
 `tests/test_install.py` verifies bootstrap wires and refreshes the manual child
 resource-sync caller. `tests/test_resource_sync_workflow.py` verifies that the
 shared workflow gates instance-token use to the child default branch, refreshes
-the existing managed resource set, creates or updates only its automation-owned
-pull request when resources changed, and creates no pull request when current.
+the existing managed resource set, creates or updates only its open
+automation-owned pull request when resources changed, creates a new one after a
+prior pull request is merged or closed, and creates no pull request when
+current.

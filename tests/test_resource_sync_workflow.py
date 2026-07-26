@@ -36,10 +36,14 @@ class TestSharedChildResourceSyncWorkflow(unittest.TestCase):
         self.assertIn("steps.resources.outputs.changed == 'false'", self.text)
         self.assertIn("no branch or pull request was created", self.text)
 
-    def test_changed_resources_update_one_automation_owned_pr(self):
+    def test_changed_resources_update_only_an_open_automation_owned_pr(self):
         self.assertIn('branch="panopticon/resource-sync"', self.text)
         self.assertIn("git push --force-with-lease", self.text)
-        self.assertIn('gh pr view "$branch"', self.text)
+        self.assertIn(
+            'gh pr list --head "$branch" --base "$DEFAULT_BRANCH" --state open', self.text
+        )
+        self.assertIn("'.[0].url // empty'", self.text)
+        self.assertNotIn('gh pr view "$branch"', self.text)
         self.assertIn("gh pr create --base", self.text)
         self.assertIn("pull-requests: write", self.text)
         self.assertIn("Review and merge this automation-owned pull request", self.text)

@@ -84,6 +84,9 @@ or child-bootstrap recovery commands; it never skips or falls back.
 - All Panopticon secrets are org-level. Child repos never configure per-repo
   secrets or env vars — generated callers explicitly map the instance-selected
   org names to canonical reusable-workflow inputs and secrets.
+- An automated child resource sync may update only its open automation pull
+  request. Once that pull request is merged or closed, a later sync creates a
+  new one.
 
 ## Index lifecycle
 
