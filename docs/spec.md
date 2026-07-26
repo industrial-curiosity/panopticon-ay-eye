@@ -76,6 +76,13 @@ validation, correction, reporting,
 and gating behavior; authentication and transport remain inside the provider
 entrypoint.
 
+The documentation-drift check first classifies the PR diff. Documentation,
+agent guidance and templates, OpenSpec artifacts, changelogs, and test-only
+changes are clean without an LLM request. For behavior-bearing changes, every
+stale-doc finding must name the changed behavior file that supports it and a
+specific required documentation update. Invalid, contradictory, or unsupported
+findings are operational failures, not stale-doc verdicts.
+
 On child merge, deterministic synchronization copies generated documentation,
 replaces that repository's
 index shard, and rebuilds compiled indexes in the instance. Pull requests

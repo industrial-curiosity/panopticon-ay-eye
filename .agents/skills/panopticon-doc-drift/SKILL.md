@@ -20,6 +20,9 @@ statement be wrong, incomplete, or missing for the behavior the PR introduces?
   failure modes, or interfaces.
 - Docs are NOT stale for internal refactors, formatting, comment-only changes, test-only changes,
   or dependency bumps that alter no documented behavior.
+- A PR that changes only documentation, agent skills or templates, OpenSpec artifacts, changelogs,
+  or tests is clean: it has no behavior-bearing change to evaluate. Do not invent a stale finding
+  from documentation guidance or templates changed in that PR.
 - If the diff itself updates the relevant docs adequately, the verdict is not stale.
 - Interface docs (`interfaces.md`) are generated from the index — when interface changes are
   missing from it, point remediation at updating `panopticon/index.json` and re-rendering, not at
@@ -31,8 +34,10 @@ statement be wrong, incomplete, or missing for the behavior the PR introduces?
   that names the diagram specifically (e.g. "the diagram still shows the `worker` component,
   removed in this diff"). Do not judge the diagram's rendering syntax or which format it's in —
   that's the deterministic diagram-existence check's job, not yours.
-- Be concrete: each reason names one doc file, why it is stale, and what must change. No generic
-  advice.
+- Be concrete: each stale reason names one doc file, why it is stale, what must change, and the
+  changed behavior-bearing file that proves it. The evidence path must be a file changed in this
+  PR; do not cite an unchanged doc, a skill, a test, or OpenSpec artifact as evidence. Never
+  return a stale reason that says no documentation update is needed.
 - When genuinely uncertain whether behavior is documented-relevant, lean **not stale** — this
   check blocks merges by default and false positives erode trust.
 
@@ -47,7 +52,8 @@ Respond with **only** a JSON object — no prose, no code fences:
     {
       "doc": "docs/components/api.md",
       "why": "The diff adds a /v2/orders endpoint but the component doc lists only /v1 routes.",
-      "update": "Document the /v2/orders endpoint and its request/response shape."
+      "update": "Document the /v2/orders endpoint and its request/response shape.",
+      "evidence": "src/api.py"
     }
   ],
   "summary": "API surface changed without a matching component-doc update."

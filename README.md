@@ -58,8 +58,9 @@ The workflow is intentionally simple:
 
 1. Initialize a child repository to generate its architecture documentation and
    local indexes.
-2. On pull requests, Panopticon checks documentation and predicts interface
-   conflicts.
+2. On pull requests, Panopticon checks behavior-bearing changes against
+   documentation and predicts interface conflicts; documentation-only changes
+   pass without an LLM review.
 3. On merge, the instance collects documentation and indexes to build an
    organization-wide view.
 4. When planning a change, developers and agents use that shared view to

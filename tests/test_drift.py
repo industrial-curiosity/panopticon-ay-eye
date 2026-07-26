@@ -20,6 +20,7 @@ STALE_VERDICT = {
             "doc": "docs/components/api.md",
             "why": "New endpoint /v2/orders is not documented.",
             "update": "Document the /v2/orders endpoint.",
+            "evidence": "src/api.py",
         }
     ],
     "summary": "API surface changed without a doc update.",
@@ -27,24 +28,26 @@ STALE_VERDICT = {
 
 
 class TestCheckDrift(unittest.TestCase):
+    behavior_diff = "diff --git a/src/api.py b/src/api.py\n+++ b/src/api.py\n+ new code"
+
     def test_verdict_round_trip_and_prompt_contents(self):
         client = FakeClient(json.dumps(STALE_VERDICT))
-        verdict = check_drift("+ new code", {"docs/architecture.md": "# arch"}, client, skill_root=REPO_ROOT)
+        verdict = check_drift(self.behavior_diff, {"docs/architecture.md": "# arch"}, client, skill_root=REPO_ROOT)
         self.assertEqual(verdict, STALE_VERDICT)
         skill_text, user_content = client.calls[0]
         self.assertIn("doc-drift verdict", skill_text)
-        self.assertIn("+ new code", user_content)
+        self.assertIn("src/api.py", user_content)
         self.assertIn("docs/architecture.md", user_content)
 
     def test_malformed_verdict_fails_loudly(self):
         client = FakeClient("the docs look fine to me")
         with self.assertRaises(LLMResponseError):
-            check_drift("diff", {}, client, skill_root=REPO_ROOT)
+            check_drift(self.behavior_diff, {}, client, skill_root=REPO_ROOT)
 
     def test_missing_stale_field_fails_loudly(self):
         client = FakeClient(json.dumps({"reasons": []}))
         with self.assertRaises(LLMResponseError):
-            check_drift("diff", {}, client, skill_root=REPO_ROOT)
+            check_drift(self.behavior_diff, {}, client, skill_root=REPO_ROOT)
 
     def test_prose_first_response_recovers_on_retry(self):
         """Regression test for the real CI failure this change fixes: a model reasoning aloud
@@ -54,9 +57,38 @@ class TestCheckDrift(unittest.TestCase):
             "Looking at this PR diff carefully, I need to determine whether...",
             json.dumps(STALE_VERDICT),
         ])
-        verdict = check_drift("+ new code", {"docs/architecture.md": "# arch"}, client, skill_root=REPO_ROOT)
+        verdict = check_drift(self.behavior_diff, {"docs/architecture.md": "# arch"}, client, skill_root=REPO_ROOT)
         self.assertEqual(verdict, STALE_VERDICT)
         self.assertEqual(len(client.chat_calls), 2)
+
+    def test_docs_skills_and_templates_change_without_llm_call(self):
+        diff = """diff --git a/.agents/skills/panopticon-doc-generation/SKILL.md b/.agents/skills/panopticon-doc-generation/SKILL.md
++++ b/.agents/skills/panopticon-doc-generation/SKILL.md
++Use absolute links to the org diagram.
+diff --git a/docs/architecture.md b/docs/architecture.md
++++ b/docs/architecture.md
++[org diagram](https://github.com/example/instance/blob/main/docs/architecture.md#child)
+"""
+        client = FakeClient(json.dumps(STALE_VERDICT))
+        verdict = check_drift(diff, {"docs/architecture.md": "# arch"}, client, skill_root=REPO_ROOT)
+        self.assertFalse(verdict["stale"])
+        self.assertEqual(client.calls, [])
+
+    def test_deleted_behavior_file_is_evaluated(self):
+        diff = "diff --git a/src/api.py b/src/api.py\n--- a/src/api.py\n+++ /dev/null\n- old code"
+        verdict = check_drift(diff, {}, FakeClient(json.dumps(STALE_VERDICT)), skill_root=REPO_ROOT)
+        self.assertEqual(verdict, STALE_VERDICT)
+
+    def test_invalid_or_unsupported_stale_reasons_fail_loudly(self):
+        invalid_verdicts = (
+            {"stale": True, "reasons": [], "summary": "missing reason"},
+            {"stale": True, "reasons": [{**STALE_VERDICT["reasons"][0], "update": "No update needed"}], "summary": "contradiction"},
+            {"stale": True, "reasons": [{**STALE_VERDICT["reasons"][0], "evidence": "docs/architecture.md"}], "summary": "unsupported"},
+        )
+        for verdict in invalid_verdicts:
+            with self.subTest(verdict=verdict):
+                with self.assertRaises(LLMResponseError):
+                    check_drift(self.behavior_diff, {}, FakeClient(json.dumps(verdict)), skill_root=REPO_ROOT)
 
 
 class TestReport(unittest.TestCase):
@@ -81,6 +113,7 @@ class TestReport(unittest.TestCase):
                     "doc": "docs/interfaces.md",
                     "why": "New Kafka topic is not reflected in the interface index.",
                     "update": "Add the topic to panopticon/index.json.",
+                    "evidence": "src/topics.py",
                 }
             ],
             "summary": "Interface index changed without updating interfaces.md.",
@@ -111,9 +144,9 @@ class TestCollectActions(unittest.TestCase):
         verdict = {
             "stale": True,
             "reasons": [
-                {"doc": "docs/architecture.md", "why": "x", "update": "y"},
-                {"doc": "docs/interfaces.md", "why": "missing entries", "update": "add them"},
-                {"doc": "docs/operations.md", "why": "x", "update": "y"},
+                {"doc": "docs/architecture.md", "why": "x", "update": "y", "evidence": "src/a.py"},
+                {"doc": "docs/interfaces.md", "why": "missing entries", "update": "add them", "evidence": "src/b.py"},
+                {"doc": "docs/operations.md", "why": "x", "update": "y", "evidence": "src/c.py"},
             ],
             "summary": "several docs stale",
         }

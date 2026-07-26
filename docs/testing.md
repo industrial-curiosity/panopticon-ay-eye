@@ -73,3 +73,12 @@ parser tests, and
 dependency parser tests. Tests that
 need to write files use `tempfile` and clean up after themselves —
 never add fixtures that tests mutate in place.
+
+## Documentation-drift regression coverage
+
+`tests/test_drift.py` verifies that documentation, agent skill/template,
+OpenSpec, changelog, and test-only diffs pass without an LLM request. It also
+requires each stale finding to cite a changed behavior-bearing file and a
+specific required update; invalid, contradictory, or unsupported findings are
+operational failures rather than stale-doc verdicts. `tests/test_provider_workflows.py`
+checks that LiteLLM, OpenAI, and Bedrock workflows preserve that distinction.

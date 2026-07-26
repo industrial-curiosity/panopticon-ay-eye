@@ -86,6 +86,15 @@ class TestProviderWorkflows(unittest.TestCase):
                     )
                     self.assertNotIn(f"${{{{ inputs.{input_name} }}}}", text)
 
+    def test_doc_drift_exit_codes_keep_invalid_verdicts_operational(self):
+        for provider in ("litellm", "openai", "bedrock"):
+            text = self.workflow(f"panopticon-pr-{provider}.yml")
+            with self.subTest(provider=provider):
+                self.assertIn('if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then', text)
+                self.assertIn('echo "error=true" >> "$GITHUB_OUTPUT"', text)
+                self.assertIn('echo "stale=false" >> "$GITHUB_OUTPUT"', text)
+                self.assertIn('echo "stale=$([ "$status" -eq 2 ] && echo true || echo false)"', text)
+
     def test_legacy_guard_prints_configuration_and_exact_bootstrap_commands(self):
         text = self.workflow("panopticon-pr.yml")
         self.assertNotIn("panopticon.drift", text)
