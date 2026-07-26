@@ -93,9 +93,10 @@ report the failing stage and recovery action when they cannot complete.
 
 ## Architecture diagram links
 
-Child documentation uses relative links for documents within its own
-documentation tree, so those links work both in the child repository and in its
-`docs/{repo}/` instance mirror. Links from child documentation to the org-wide
-architecture diagram use the resolved absolute GitHub URL, including the child
-repository anchor. The instance org diagram continues to use relative links to
-its mirrored child documentation.
+Child-local documentation links use paths relative to the document that
+contains them, so they work both in the child repository and in its
+`docs/{repo}/` instance mirror. Every generated child-to-org architecture link,
+including links in the README and architecture overview, uses the resolved
+absolute GitHub URL with the child repository anchor. The instance org diagram
+continues to use `{repo}/architecture.md` relative links to its mirrored child
+documentation.

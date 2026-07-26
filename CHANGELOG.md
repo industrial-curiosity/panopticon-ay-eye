@@ -2,6 +2,14 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [enforce-architecture-link-protocol] - 2026-07-26
+
+### Fixed
+
+- Generated child README and architecture-overview links now consistently use
+  the resolver-produced absolute organization-diagram URL; local and
+  org-to-child links retain their context-relative paths.
+
 ## [prevent-doc-drift-false-positives] - 2026-07-26
 
 ### Fixed

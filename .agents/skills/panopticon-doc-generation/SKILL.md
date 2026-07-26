@@ -76,8 +76,10 @@ components that no longer exist.
    diagram](https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a)`.
    The URL is absolute so the link works both in this child repository and after its docs are
    mirrored to `docs/{repo}/` in the instance repository. Do not re-derive the URL or write a
-   relative link to the org diagram. Links between documents within this child documentation tree
-   remain relative to the document that contains them. No node-level click-through inside the
+   relative link to the org diagram. When refreshing an existing architecture overview, replace
+   any legacy relative org-diagram back-link with this resolver-produced absolute URL. Links between
+   documents within this child documentation tree remain relative to the document that contains them.
+   No node-level click-through inside the
    diagram — GitHub's Mermaid renderer does not reliably support `click`-to-URL navigation; the
    back-link is a plain markdown link, not a diagram directive.
 8. **Write the README architecture links.** At the top of `README.md`, write or refresh two markdown

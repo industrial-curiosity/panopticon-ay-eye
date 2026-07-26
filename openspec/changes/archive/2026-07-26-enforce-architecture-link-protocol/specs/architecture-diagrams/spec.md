@@ -6,9 +6,8 @@
 
 The system SHALL apply the same link protocol to every generated child
 architecture navigation surface through the `panopticon-doc-generation` skill
-and its architecture overview template. Those generated surfaces include every
-child architecture
-navigation link. Links from a child README or child architecture overview to
+and its architecture overview template. The generated link surfaces include
+the child README and child architecture overview. Links from either surface to
 the organization diagram SHALL use exactly the absolute URL printed by
 `python3 -m panopticon.org_diagram_link`. Links between documents in the child
 documentation tree SHALL remain relative to the document that contains them.

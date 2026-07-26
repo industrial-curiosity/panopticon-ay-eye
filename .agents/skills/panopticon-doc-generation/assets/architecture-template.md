@@ -19,7 +19,9 @@ repo's section in the org diagram. Run `python3 -m panopticon.org_diagram_link` 
 verbatim, for example `[org
 diagram](https://github.com/acme/panopticon-instance/blob/main/docs/architecture.md#svc-a)`. This
 must be an absolute GitHub URL so it works in both the child repository and the mirrored instance
-documentation.}
+documentation. Replace any existing relative org-diagram back-link with this URL. All links to
+documents within this child documentation tree remain relative to this document, for example
+`components/{component-name}.md`.}
 
 ```mermaid
 {diagram content}

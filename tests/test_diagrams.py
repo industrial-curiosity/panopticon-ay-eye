@@ -129,6 +129,10 @@ class TestRenderOrgDiagram(unittest.TestCase):
         # the non-existent docs/docs/svc-a/architecture.md on GitHub).
         compiled = compile_index(base_shards())
         text = render_org_diagram(compiled)
+        self.assertIn(
+            "See this repo's own diagram: [svc-a/architecture.md](svc-a/architecture.md)",
+            text,
+        )
         self.assertIn("svc-a/architecture.md", text)
         self.assertIn("svc-b/architecture.md", text)
         self.assertNotIn("docs/svc-a/architecture.md", text)
@@ -157,10 +161,15 @@ class TestChildDiagramLinkGuidance(unittest.TestCase):
             self.assertIn("python3 -m panopticon.org_diagram_link", text)
             self.assertNotIn("[org diagram](../architecture.md#{repo})", text)
 
+        self.assertIn("**Write the README architecture links.**", skill)
+        self.assertIn("[org architecture](<output of the command below>)", skill)
         self.assertIn("The URL is absolute", skill)
+        self.assertIn("replace\n   any legacy relative org-diagram back-link", skill)
         self.assertIn("absolute GitHub URL", template)
+        self.assertIn("Replace any existing relative org-diagram back-link", template)
         self.assertIn("relative to the document that contains them", skill)
         self.assertIn("components/{component-name}.md", template)
+        self.assertIn("[interfaces.md](interfaces.md)", template)
 
 
 class TestCombinedInterfaceAndDependencyRendering(unittest.TestCase):

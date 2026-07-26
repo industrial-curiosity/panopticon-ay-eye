@@ -82,3 +82,11 @@ requires each stale finding to cite a changed behavior-bearing file and a
 specific required update; invalid, contradictory, or unsupported findings are
 operational failures rather than stale-doc verdicts. `tests/test_provider_workflows.py`
 checks that LiteLLM, OpenAI, and Bedrock workflows preserve that distinction.
+
+## Architecture link protocol coverage
+
+`tests/test_diagrams.py` checks the generated architecture-navigation protocol:
+the child README and architecture overview use the resolver-produced absolute
+org-diagram URL, child-local links remain document-relative, and the instance
+org diagram uses `{repo}/architecture.md` for a mirrored child architecture
+document.

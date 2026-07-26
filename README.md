@@ -66,9 +66,10 @@ The workflow is intentionally simple:
 4. When planning a change, developers and agents use that shared view to
    understand affected connections.
 
-Child documentation links stay relative within a child repository's docs, while
-links to the organization architecture use direct GitHub URLs that work from
-both the child and instance repositories.
+Child-local documentation links stay relative to the document that contains
+them. Generated links from a child README or architecture overview to the
+organization architecture use the resolver-produced direct GitHub URL, so they
+work from both the child and instance repositories.
 
 ## Documentation
 
