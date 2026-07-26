@@ -1,5 +1,10 @@
 # Doc Generation Spec
 
+## Purpose
+
+Define generation, validation, and maintenance of a child repository's
+Panopticon documentation.
+
 ## Requirements
 
 ### Requirement: Four documentation layers
@@ -49,16 +54,26 @@ index.
 ### Requirement: Doc-vs-code drift detection
 
 The tooling SHALL provide an LLM-based drift check that, given a PR's
-code/configuration changes and the
-current docs, judges whether documentation updates are required — developers
-keep their repo's docs and index
-up to date locally with their own agents, and CI verifies that they have. This
-judgment SHALL cover the
+behavior-bearing code or configuration changes and the current docs, judges
+whether documentation updates are required. Developers keep their repo's docs
+and index up to date locally with their own agents, and CI verifies that they
+have. Documentation-only, agent-skill, OpenSpec, changelog, and test-only diffs
+SHALL produce a clean doc-drift verdict without an LLM call.
+
+This judgment SHALL cover the
 architecture overview's diagram section the same as its prose: a diagram that no
 longer reflects the code's
 components or their relationships is stale, judged and reported the same way as
-stale prose. When docs are
-stale the check SHALL fail loudly and clearly, and the GitHub Actions step
+stale prose. A changed document that already covers the relevant behavior SHALL
+not be reported as stale.
+
+Every stale reason SHALL identify a changed behavior-bearing file that supports
+the claimed documentation gap, name one documentation file, explain the gap,
+and state a non-empty update needed to resolve it. A contradictory, empty, or
+untraceable stale reason SHALL be treated as an operational failure rather than
+an actionable stale-doc verdict.
+
+When docs are stale the check SHALL fail loudly and clearly, and the GitHub Actions step
 summary SHALL contain concrete,
 actionable remediation instructions, not just a description of the problem: for
 each stale doc, which doc it
@@ -74,8 +89,8 @@ advisory.
 #### Scenario: Code change affecting documented behavior
 
 - **WHEN** a PR changes a component's public behavior without touching its docs
-- **THEN** the drift check fails, and both the GitHub Actions summary and the PR
-  comment name which docs are
+- **THEN** the drift check fails with a stale reason tied to the changed
+  behavior-bearing file, and both the GitHub Actions summary and the PR comment name which docs are
   stale, why, the exact regeneration command or skill for each, and that pushing
   the fix to this branch
   re-triggers the check
@@ -84,6 +99,21 @@ advisory.
 
 - **WHEN** a PR updates docs consistently with its code changes
 - **THEN** the drift check passes and says so in the CI summary
+
+#### Scenario: Documentation-generation guidance and its generated document change together
+
+- **WHEN** a PR changes documentation-generation guidance and updates the
+  affected child architecture document to match, without a behavior-bearing
+  code or configuration change
+- **THEN** the drift check returns a clean verdict without calling the LLM
+
+#### Scenario: Contradictory stale reason is an operational failure
+
+- **WHEN** the LLM returns a stale reason whose required update is empty, says
+  no update is needed, or cannot identify a changed behavior-bearing file
+- **THEN** the drift check does not emit a stale-doc verdict and instead exits
+  through its operational-failure path with an explanation of the invalid
+  response
 
 #### Scenario: Remediation instructions are self-contained
 
@@ -117,10 +147,10 @@ NOT create parallel copies or leave stale sections for removed components.
 
 ### Requirement: Initialization-time drift resolution
 
-During initialization (interface naming, interface extraction, and doc
-generation — all run locally via the
-user's own agent harness, with full repo context and write access), when the
-tooling discovers that existing
+The initialization tooling SHALL resolve documentation contradictions it
+discovers. During initialization (interface naming, interface extraction, and
+doc generation — all run locally via the user's own agent harness, with full
+repo context and write access), when the tooling discovers that existing
 repository documentation contradicts the actual current state of the repository
 — describing code,
 configuration, or interfaces that have since changed, been removed, or were

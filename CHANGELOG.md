@@ -2,6 +2,14 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [prevent-doc-drift-false-positives] - 2026-07-26
+
+### Fixed
+
+- Documentation-only pull requests now pass the doc-drift check without an LLM
+  request. Stale-doc findings must cite a changed behavior-bearing file and a
+  required update; invalid findings report an operational failure instead.
+
 ## [fix-diagram-link-contexts] - 2026-07-26
 
 ### Fixed
