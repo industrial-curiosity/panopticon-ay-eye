@@ -2,6 +2,14 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [add-shared-child-resource-sync] - 2026-07-26
+
+### Added
+
+- A manual child resource-sync workflow that refreshes managed skills and
+  vendored tooling through a reviewable pull request instead of directly
+  changing the default branch.
+
 ## [enforce-architecture-link-protocol] - 2026-07-26
 
 ### Fixed
