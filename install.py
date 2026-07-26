@@ -332,6 +332,15 @@ def _load_default_payload_from_github(instance, ref=None):
         providers.__dict__,
     )
 
+    callers = types.ModuleType("panopticon.callers")
+    callers.__package__ = "panopticon"
+    package.callers = callers
+    sys.modules["panopticon.callers"] = callers
+    exec(
+        compile(fetch("panopticon/callers.py"), "panopticon/callers.py", "exec"),
+        callers.__dict__,
+    )
+
     bootstrap = types.ModuleType("panopticon.bootstrap")
     bootstrap.__package__ = "panopticon"
     package.bootstrap = bootstrap

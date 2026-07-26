@@ -13,9 +13,14 @@ from pathlib import Path
 
 from panopticon import bootstrap
 from panopticon import sync as sync_module
-from panopticon.bootstrap import LOCAL_TOOLING_MODULES, SKILLS_PREFIX
+from panopticon.bootstrap import LOCAL_TOOLING_MODULES, SKILLS_PREFIX, wire_workflows
+from panopticon.callers import CALLER_WORKFLOWS, caller_workflow_text
 from panopticon.config import save_repo_config
+from panopticon.providers import resolve_provider_contract
 from panopticon.sync import _api_get, check_updates, git_blob_sha, main
+
+
+ORG_CONFIG = {"llm": {"provider": "litellm"}}
 
 
 def _tree_entry(path, sha, type_="blob"):
@@ -31,6 +36,8 @@ def _make_urlopen(routes):
                 if isinstance(body, (bytes, bytearray)):
                     return BytesIO(body)
                 return BytesIO(json.dumps(body).encode())
+        if "contents/panopticon.config.json" in url:
+            return BytesIO(json.dumps(_file_response(json.dumps(ORG_CONFIG).encode())).encode())
         raise AssertionError(f"unexpected url: {url}")
     return urlopen
 
@@ -45,6 +52,17 @@ def _init_repo_config(child_root, instance="acme/instance"):
         {"repo": "svc-a", "instance": instance, "workflow_ref": "main", "docs_location": "docs"},
         repo_root=child_root,
     )
+
+
+def _write_current_callers(child_root, contract=None):
+    contract = contract or resolve_provider_contract(ORG_CONFIG["llm"])
+    workflows = Path(child_root) / ".github" / "workflows"
+    workflows.mkdir(parents=True, exist_ok=True)
+    for name in CALLER_WORKFLOWS:
+        (workflows / name).write_text(
+            caller_workflow_text(name, "acme/instance", "main", contract, "main"),
+            encoding="utf-8",
+        )
 
 
 class TestSelfContained(unittest.TestCase):
@@ -69,6 +87,7 @@ class TestSelfContained(unittest.TestCase):
 
     def test_local_tooling_modules_matches_bootstrap(self):
         self.assertEqual(sync_module.LOCAL_TOOLING_MODULES, bootstrap.LOCAL_TOOLING_MODULES)
+        self.assertIn("callers.py", sync_module.LOCAL_TOOLING_MODULES)
         self.assertIn("providers.py", sync_module.LOCAL_TOOLING_MODULES)
 
     def test_skills_prefix_matches_bootstrap(self):
@@ -82,6 +101,16 @@ class TestSelfContained(unittest.TestCase):
 
     def test_tool_locations_matches_bootstrap(self):
         self.assertEqual(sync_module.TOOL_LOCATIONS, bootstrap.TOOL_LOCATIONS)
+
+    def test_bootstrap_and_sync_share_caller_text(self):
+        contract = resolve_provider_contract(ORG_CONFIG["llm"])
+        with tempfile.TemporaryDirectory() as tmp:
+            wire_workflows("acme/instance", "main", contract, tmp)
+            expected = caller_workflow_text(
+                "panopticon-resource-sync.yml", "acme/instance", "main", contract, "main"
+            )
+            actual = (Path(tmp) / ".github" / "workflows" / "panopticon-resource-sync.yml").read_text()
+        self.assertEqual(actual, expected)
 
 
 class TestApiGetRetry(unittest.TestCase):
@@ -212,6 +241,7 @@ class TestMainCheckUpdates(unittest.TestCase):
     def test_check_updates_nothing_to_sync_reports_current(self):
         with tempfile.TemporaryDirectory() as tmp:
             _init_repo_config(tmp)
+            _write_current_callers(tmp)
             urlopen = _make_urlopen({"git/trees": {"tree": []}})
             out = StringIO()
             with contextlib.redirect_stdout(out):
@@ -227,9 +257,19 @@ class TestMainCheckUpdates(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("not Panopticon-initialized", out.getvalue())
 
+    def test_invalid_instance_provider_configuration_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _init_repo_config(tmp)
+            urlopen = _make_urlopen({
+                "contents/panopticon.config.json": _file_response(b'{"llm": {}}'),
+            })
+            code = main([], env={}, child_root=tmp, urlopen=urlopen)
+        self.assertEqual(code, 1)
+
 
 class TestMainDefaultOverwrite(unittest.TestCase):
-    def _router(self, skill_content=b"# panopticon-foo new", tooling_content_prefix="# "):
+    def _router(self, skill_content=b"# panopticon-foo new", tooling_content_prefix="# ",
+                org_config=ORG_CONFIG):
         skill_path = SKILLS_PREFIX + "panopticon-foo/SKILL.md"
         skill_sha = hashlib.sha1(
             f"blob {len(skill_content)}\0".encode() + skill_content
@@ -245,6 +285,8 @@ class TestMainDefaultOverwrite(unittest.TestCase):
             url = request.full_url
             if "git/trees" in url:
                 return BytesIO(json.dumps({"tree": tree}).encode())
+            if "contents/panopticon.config.json" in url:
+                return BytesIO(json.dumps(_file_response(json.dumps(org_config).encode())).encode())
             if f"contents/{skill_path}" in url:
                 return BytesIO(json.dumps(_file_response(skill_content)).encode())
             for name in LOCAL_TOOLING_MODULES:
@@ -282,6 +324,7 @@ class TestMainDefaultOverwrite(unittest.TestCase):
         skill_content = b"# panopticon-foo new"
         with tempfile.TemporaryDirectory() as tmp:
             _init_repo_config(tmp)
+            _write_current_callers(tmp)
             local = Path(tmp) / ".agents" / "skills" / "panopticon-foo" / "SKILL.md"
             local.parent.mkdir(parents=True)
             local.write_bytes(skill_content)
@@ -302,6 +345,8 @@ class TestMainDefaultOverwrite(unittest.TestCase):
                             f"blob {len(content)}\0".encode() + content
                         ).hexdigest()))
                     return BytesIO(json.dumps({"tree": tree}).encode())
+                if "contents/panopticon.config.json" in url:
+                    return BytesIO(json.dumps(_file_response(json.dumps(ORG_CONFIG).encode())).encode())
                 raise AssertionError(f"unexpected url (no download expected): {url}")
 
             out = StringIO()
@@ -309,6 +354,45 @@ class TestMainDefaultOverwrite(unittest.TestCase):
                 code = main([], env={}, child_root=tmp, urlopen=urlopen)
         self.assertEqual(code, 0)
         self.assertIn("current", out.getvalue())
+
+    def test_default_run_creates_missing_resource_sync_caller(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _init_repo_config(tmp)
+            code = main([], env={}, child_root=tmp, urlopen=self._router())
+            path = Path(tmp) / ".github" / "workflows" / "panopticon-resource-sync.yml"
+            self.assertEqual(code, 0)
+            self.assertIn("shared-child-resource-sync.yml@main", path.read_text())
+
+    def test_check_updates_reports_missing_caller_without_creating_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _init_repo_config(tmp)
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(["--check-updates"], env={}, child_root=tmp, urlopen=self._router())
+            path = Path(tmp) / ".github" / "workflows" / "panopticon-resource-sync.yml"
+            self.assertEqual(code, 0)
+            self.assertFalse(path.exists())
+            self.assertIn("panopticon-resource-sync.yml would be created", out.getvalue())
+
+    def test_stale_provider_caller_is_rewritten(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _init_repo_config(tmp)
+            path = Path(tmp) / ".github" / "workflows" / "panopticon-pr.yml"
+            path.parent.mkdir(parents=True)
+            path.write_text("stale")
+            self.assertEqual(main([], env={}, child_root=tmp, urlopen=self._router()), 0)
+            self.assertIn("panopticon-pr-litellm.yml@main", path.read_text())
+
+    def test_openai_configuration_generates_openai_caller(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _init_repo_config(tmp)
+            self.assertEqual(
+                main([], env={}, child_root=tmp, urlopen=self._router(org_config={"llm": {"provider": "openai"}})),
+                0,
+            )
+            path = Path(tmp) / ".github" / "workflows" / "panopticon-pr.yml"
+            self.assertIn("panopticon-pr-openai.yml@main", path.read_text())
+            self.assertNotIn("endpoint: ${{ vars.", path.read_text())
 
 
 if __name__ == "__main__":

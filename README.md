@@ -74,6 +74,10 @@ Child repositories can also run the manual **Panopticon resource sync** workflow
 to refresh their managed skills and local tooling. It opens or updates a
 reviewable pull request instead of changing the default branch directly.
 
+Run `python3 -m panopticon.sync` in an initialized child repository to refresh
+managed skills, local tooling, and Panopticon workflow callers. Use
+`python3 -m panopticon.sync --check-updates` to preview the resulting changes.
+
 Child-local documentation links stay relative to the document that contains
 them. Generated links from a child README or architecture overview to the
 organization architecture use the resolver-produced direct GitHub URL, so they

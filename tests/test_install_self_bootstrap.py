@@ -334,12 +334,14 @@ class TestDefaultInstancePayload(unittest.TestCase):
     FAKE_INIT = "SCHEMA_VERSION = 1\n"
     FAKE_RECOVERY = "def configuration_recovery(instance, branch):\n    return 'recovery'\n"
     FAKE_PROVIDERS = "PROVIDERS = {'test': {}}\n"
+    FAKE_CALLERS = "CALLER_WORKFLOWS = ('panopticon-pr.yml',)\n"
     FAKE_BOOTSTRAP = (
         "from . import SCHEMA_VERSION\n"
+        "from .callers import CALLER_WORKFLOWS\n"
         "from .providers import PROVIDERS\n"
         "from .recovery import configuration_recovery\n"
         "def main():\n"
-        "    print(f'DEFAULT_BOOTSTRAP_RAN schema={SCHEMA_VERSION} providers={sorted(PROVIDERS)} {configuration_recovery(None, None)}')\n"
+        "    print(f'DEFAULT_BOOTSTRAP_RAN schema={SCHEMA_VERSION} callers={len(CALLER_WORKFLOWS)} providers={sorted(PROVIDERS)} {configuration_recovery(None, None)}')\n"
         "    return 0\n"
     )
 
@@ -354,6 +356,8 @@ class TestDefaultInstancePayload(unittest.TestCase):
                 return _contents_response(self.FAKE_RECOVERY)
             if "/contents/panopticon/providers.py" in request.full_url:
                 return _contents_response(self.FAKE_PROVIDERS)
+            if "/contents/panopticon/callers.py" in request.full_url:
+                return _contents_response(self.FAKE_CALLERS)
             if "/contents/panopticon/bootstrap.py" in request.full_url:
                 return _contents_response(self.FAKE_BOOTSTRAP)
             raise AssertionError(f"unexpected URL: {request.full_url}")
@@ -373,8 +377,8 @@ class TestDefaultInstancePayload(unittest.TestCase):
                                 INSTALL_SOURCE, "acme/instance", "trunk"
                             )
         self.assertEqual(caught.exception.code, 0)
-        self.assertIn("DEFAULT_BOOTSTRAP_RAN schema=1 providers=['test'] recovery", output.getvalue())
-        self.assertEqual(len(requests), 4)
+        self.assertIn("DEFAULT_BOOTSTRAP_RAN schema=1 callers=1 providers=['test'] recovery", output.getvalue())
+        self.assertEqual(len(requests), 5)
         self.assertLess(
             next(i for i, url in enumerate(requests) if "providers.py" in url),
             next(i for i, url in enumerate(requests) if "bootstrap.py" in url),

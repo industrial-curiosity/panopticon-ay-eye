@@ -35,6 +35,7 @@ import urllib.request
 from pathlib import Path
 
 from . import SCHEMA_VERSION
+from .callers import CALLER_WORKFLOWS, caller_workflow_text as shared_caller_workflow_text
 from .providers import ProviderConfigError, resolve_provider_contract
 from .recovery import child_bootstrap_command, configuration_recovery
 
@@ -42,13 +43,6 @@ from .recovery import child_bootstrap_command, configuration_recovery
 
 DEFAULT_BRANCH = "main"
 SKILLS_PREFIX = ".agents/skills/"
-CALLER_WORKFLOWS = (
-    "panopticon-pr.yml",
-    "panopticon-merge.yml",
-    "panopticon-pr-close.yml",
-    "panopticon-resource-sync.yml",
-)
-
 _CALLER_HEADER = (
     "# Wired by Panopticon install.py — a thin reference to the shared workflow in the instance repo.\n"
     "# Re-run install.py to update. Secrets and variables are org-level; this repo configures none.\n"
@@ -147,7 +141,7 @@ def wire_workflows(instance, ref, contract, child_root=".", default_branch=DEFAU
     for i, name in enumerate(CALLER_WORKFLOWS, start=1):
         path = workflows_dir / name
         path.write_text(
-            caller_workflow_text(name, instance, ref, contract, default_branch), encoding="utf-8"
+            shared_caller_workflow_text(name, instance, ref, contract, default_branch), encoding="utf-8"
         )
         written.append(path)
         print(f"  [{i}/{total}] {name}")
@@ -409,7 +403,7 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
 # vendored into child repos. `recovery.py` is the exception because current workflows use it before
 # checking out the instance repository.
 LOCAL_TOOLING_MODULES = (
-    "__init__.py", "config.py", "providers.py", "dependencies.py", "docs.py", "index.py",
+    "__init__.py", "callers.py", "config.py", "providers.py", "dependencies.py", "docs.py", "index.py",
     "init_repo.py", "sync.py", "org_diagram_link.py", "recovery.py",
 )
 

@@ -78,8 +78,11 @@ entrypoint.
 
 Bootstrap also wires a stable, manual child resource-sync caller to a
 template-owned reusable workflow. It refreshes only managed Panopticon skills
-and vendored tooling, uses the instance token only for that read, and opens or
-updates a child-repository pull request for review when resources changed.
+vendored tooling and managed workflow callers, uses the instance token only for
+that read, and opens or updates a child-repository pull request for review when
+resources changed. Local sync derives caller workflows from the instance's
+current provider configuration so older children can acquire newly managed
+callers without re-running bootstrap.
 
 The documentation-drift check first classifies the PR diff. Documentation,
 agent guidance and templates, OpenSpec artifacts, changelogs, and test-only
