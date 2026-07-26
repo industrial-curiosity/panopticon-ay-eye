@@ -2,6 +2,13 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [sync-child-workflow-callers] - 2026-07-26
+
+### Fixed
+
+- Child resource sync now stages the complete managed `panopticon/` directory,
+  restores missing managed workflow callers, and preserves child-owned files.
+
 ## [surface-org-interface-conflicts] - 2026-07-26
 
 ### Added
