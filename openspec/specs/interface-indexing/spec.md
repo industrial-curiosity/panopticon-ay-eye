@@ -1,5 +1,10 @@
 # Interface Indexing Spec
 
+## Purpose
+
+Define the deterministic local, shard, and compiled interface-index lifecycle,
+including canonical naming, validation, extraction, merging, and conflicts.
+
 ## Requirements
 
 ### Requirement: Index schema
@@ -153,8 +158,8 @@ tooling's requirements.
 
 ### Requirement: LLM extraction fallback with parser-gap reporting
 
-For candidate interfaces not covered by any deterministic parser, extraction
-SHALL fall back to the LLM —
+Extraction SHALL fall back to the LLM for candidate interfaces not covered by
+any deterministic parser —
 through the user's agent locally and the agent runtime in CI. In CI, LLM
 evaluation SHALL be scoped to what
 changed plus the minimal context required to understand it; full-repo extraction
@@ -196,9 +201,8 @@ edited in place by tooling.
 ### Requirement: Conflict detection
 
 When merging or simulating, the tooling SHALL match incoming entries against
-existing entries per the name
-normalization and matching requirement: a clear match adds or updates the repo's
-objects in the interface's
+existing entries per the name normalization and matching requirement. A clear
+match SHALL add or update the repo's objects in the interface's
 `consumer`/`producer` lists. Entries without a clear match SHALL produce a
 **conflict entry** in the instance
 repo's `conflicts` array, recomputed deterministically on every compiled-index
@@ -223,3 +227,36 @@ reported in the CI summary.
   inconclusive, or two repos claim ownership of the same interface
 - **THEN** a conflict entry is added to the instance repo's `conflicts` array
   and reported in the CI summary
+
+### Requirement: Potential same-name interface collisions
+
+The compiled interface index SHALL contain one deterministic
+`potential-name-collision` conflict when interface objects sharing a canonical
+name use different types and their participating repository sets are disjoint.
+The conflict SHALL identify the canonical name, every involved type and
+repository, and that it is a potential rather than confirmed semantic conflict.
+The compiler SHALL recompute this conflict on every rebuild without an LLM call.
+Local indexes and instance shards SHALL NOT contain this conflict.
+
+#### Scenario: Disjoint repository sets use different types under one name
+
+- **GIVEN** one repository uses `order-processing-queue` as `rest` and another
+  repository uses it as `sqs`, with no participating repository in common
+- **WHEN** the compiled index is rebuilt
+- **THEN** it contains one `potential-name-collision` conflict for
+  `order-processing-queue` that identifies both types and repositories
+
+#### Scenario: A type migration overlaps a participating repository
+
+- **GIVEN** same-name interface objects of different types share at least one
+  participating repository
+- **WHEN** the compiled index is rebuilt
+- **THEN** it does not create a `potential-name-collision` conflict solely from
+  that type difference
+
+#### Scenario: A shard change removes the potential collision
+
+- **GIVEN** a compiled index contains a `potential-name-collision`
+- **WHEN** a shard update removes the disjoint type mismatch and the index is
+  rebuilt
+- **THEN** the derived conflict is absent from the rebuilt compiled index

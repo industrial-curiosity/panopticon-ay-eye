@@ -2,6 +2,14 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [surface-org-interface-conflicts] - 2026-07-26
+
+### Added
+
+- Organization architecture now inventories every participating repository
+  interface and highlights confirmed conflicts and potential same-name/type
+  collisions.
+
 ## [add-shared-child-resource-sync] - 2026-07-26
 
 ### Added
