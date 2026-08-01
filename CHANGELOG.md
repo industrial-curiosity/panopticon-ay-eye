@@ -2,6 +2,24 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [fix-bedrock-converse-request-shape] - 2026-08-01
+
+### Fixed
+
+- Bedrock Converse requests now omit unsupported optional inference parameters.
+
+## [harden-bedrock-workflow-contract] - 2026-08-01
+
+### Added
+
+- Deterministic validation for declared caller inputs and secrets in reusable
+  provider PR workflows.
+
+### Fixed
+
+- Bedrock PR evaluation no longer requires LiteLLM endpoint or API-key caller
+  configuration.
+
 ## [fix-resource-sync-merged-pr] - 2026-07-26
 
 ### Fixed

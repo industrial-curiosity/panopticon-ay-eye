@@ -449,7 +449,7 @@ class TestBedrockAdapter(unittest.TestCase):
         )
         self.assertEqual(client.chat([{"role": "user", "content": "hello"}]), "ok")
 
-    def test_converse_maps_system_and_conversation_messages(self):
+    def test_converse_maps_messages_without_unconfirmed_inference_parameters(self):
         client, runtime, _ = self.client()
         result = client.chat(
             [
@@ -469,7 +469,6 @@ class TestBedrockAdapter(unittest.TestCase):
                     {"role": "user", "content": [{"text": "review this"}]},
                     {"role": "assistant", "content": [{"text": "prior response"}]},
                 ],
-                "inferenceConfig": {"temperature": 0.2},
             },
         )
 

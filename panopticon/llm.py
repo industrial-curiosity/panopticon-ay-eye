@@ -427,6 +427,9 @@ class BedrockLLMClient(LLMClient):
         return response.get("Error", {}).get("Code") or type(exc).__name__
 
     def chat(self, messages, temperature=0):
+        # Preserve the provider-neutral adapter interface, but do not send an
+        # unconfirmed optional field to Bedrock Converse.
+        del temperature
         runtime = self._load_runtime()
         system, conversation = self._messages_for_converse(messages)
         resource = f"bedrock://{self.region}/{self.model}"
@@ -435,7 +438,6 @@ class BedrockLLMClient(LLMClient):
             request = {
                 "modelId": self.model,
                 "messages": conversation,
-                "inferenceConfig": {"temperature": temperature},
             }
             if system:
                 request["system"] = system

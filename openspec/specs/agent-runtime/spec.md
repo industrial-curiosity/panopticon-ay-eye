@@ -18,9 +18,11 @@ and response behavior. The OpenAI adapter SHALL use the fixed
 `https://api.openai.com/v1` base endpoint and the same request and response
 behavior without accepting an endpoint environment variable. The Bedrock adapter
 SHALL use AWS Bedrock Converse with OIDC-provided temporary credentials and
-provider-native message, response, and error mapping. A provider adapter MAY use
-a narrowly scoped, pinned, CI-only SDK; provider SDKs MUST NOT become a dependency
-of child-vendored tooling or local agent flows.
+provider-native message, response, and error mapping, and SHALL omit
+provider-unsupported optional inference parameters from native requests by
+default. A provider adapter MAY use a narrowly scoped, pinned, CI-only SDK;
+provider SDKs MUST NOT become a dependency of child-vendored tooling or local
+agent flows.
 
 #### Scenario: Configured LiteLLM workflow
 
@@ -47,6 +49,12 @@ of child-vendored tooling or local agent flows.
 - **THEN** the runtime completes requests through Bedrock Converse while
   retaining the same shared
   prompting, retry, validation, and exception contracts
+
+#### Scenario: Bedrock request omits unsupported inference parameters
+
+- **WHEN** the Bedrock adapter receives a shared temperature argument
+- **THEN** its Converse request omits `inferenceConfig.temperature` and any
+  other unconfirmed optional inference parameter
 
 #### Scenario: Provider-specific dependency remains CI-only
 
