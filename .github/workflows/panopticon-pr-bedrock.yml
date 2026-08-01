@@ -301,8 +301,6 @@ jobs:
         if: steps.init.outputs.initialized == 'true'
         shell: bash
         env:
-          PANOPTICON_LLM_API_KEY: ${{ secrets.api_key }}
-          PANOPTICON_LLM_ENDPOINT: ${{ inputs.endpoint }}
           PANOPTICON_LLM_MODEL: ${{ inputs.model }}
           PANOPTICON_LLM_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds || '90' }}
           PANOPTICON_LLM_MAX_ATTEMPTS: ${{ inputs.max_attempts || '2' }}
@@ -332,8 +330,6 @@ jobs:
         if: steps.init.outputs.initialized == 'true'
         shell: bash
         env:
-          PANOPTICON_LLM_API_KEY: ${{ secrets.api_key }}
-          PANOPTICON_LLM_ENDPOINT: ${{ inputs.endpoint }}
           PANOPTICON_LLM_MODEL: ${{ inputs.model }}
           PANOPTICON_LLM_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds || '90' }}
           PANOPTICON_LLM_MAX_ATTEMPTS: ${{ inputs.max_attempts || '2' }}

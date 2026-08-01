@@ -22,6 +22,27 @@ Run a single module while iterating:
 python3 -m unittest tests.test_merge -v
 ```
 
+## Reusable-workflow contracts
+
+GitHub Actions validates a reusable-workflow call before it creates any jobs.
+An undeclared `inputs.<name>` or `secrets.<name>` reference therefore appears as
+an **Invalid workflow file** or zero-job startup failure, rather than as a
+failing evaluation job.
+
+Validate the shipped provider workflow contracts locally before release:
+
+```bash
+python3 -m panopticon.workflow_contracts \
+  .github/workflows/panopticon-pr-litellm.yml \
+  .github/workflows/panopticon-pr-openai.yml \
+  .github/workflows/panopticon-pr-bedrock.yml
+```
+
+The command exits non-zero and identifies every undeclared reference. Either
+declare the caller value in the workflow's `on.workflow_call.inputs` or
+`on.workflow_call.secrets` map, or remove the reference if it belongs to a
+different provider. Then rerun the command and the full test suite.
+
 ## Important recovery coverage
 
 - `tests/test_install.py`, `tests/test_sync.py`, and

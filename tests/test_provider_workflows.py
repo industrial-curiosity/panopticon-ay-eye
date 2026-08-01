@@ -64,6 +64,10 @@ class TestProviderWorkflows(unittest.TestCase):
         self.assertIn("actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1", text)
         self.assertIn("pip install --upgrade -r", text)
         self.assertIn("requirements-bedrock.txt", text)
+        self.assertNotIn("secrets.api_key", text)
+        self.assertNotIn("inputs.endpoint", text)
+        self.assertNotIn("PANOPTICON_LLM_API_KEY", text)
+        self.assertNotIn("PANOPTICON_LLM_ENDPOINT", text)
 
     def test_openai_workflow_is_a_standalone_litellm_clone_with_openai_identity(self):
         text = self.workflow("panopticon-pr-openai.yml")
