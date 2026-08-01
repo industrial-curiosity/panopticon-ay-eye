@@ -83,7 +83,10 @@ that read, and opens or updates an open child-repository pull request for review
 when resources changed. Once a resource-sync pull request is merged or closed,
 the next changed sync creates a new pull request. Local sync derives caller
 workflows from the instance's current provider configuration so older children
-can acquire newly managed callers without re-running bootstrap.
+can acquire newly managed callers without re-running bootstrap. It also
+downloads the instance-owned child-safe local-tooling manifest on every run,
+then refreshes only the listed modules. CI-only runtime modules and child-owned
+files outside that manifest are not managed by local sync.
 
 The documentation-drift check first classifies the PR diff. Documentation,
 agent guidance and templates, OpenSpec artifacts, changelogs, and test-only

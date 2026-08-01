@@ -36,6 +36,7 @@ from pathlib import Path
 
 from . import SCHEMA_VERSION
 from .callers import CALLER_WORKFLOWS, caller_workflow_text as shared_caller_workflow_text
+from .local_tooling import LOCAL_TOOLING_MODULES
 from .providers import ProviderConfigError, resolve_provider_contract
 from .recovery import child_bootstrap_command, configuration_recovery
 
@@ -317,11 +318,8 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
 # tooling_currency.py, parsers/) is used only by the reusable GitHub Actions workflows that check
 # out the instance repo directly, and has no role in local Phase 2/3 work — it SHALL NOT be
 # vendored into child repos. `recovery.py` is the exception because current workflows use it before
-# checking out the instance repository.
-LOCAL_TOOLING_MODULES = (
-    "__init__.py", "callers.py", "config.py", "providers.py", "dependencies.py", "docs.py", "index.py",
-    "init_repo.py", "sync.py", "org_diagram_link.py", "recovery.py",
-)
+# checking out the instance repository. The explicit subset is declared in
+# local_tooling.py so bootstrap and child sync share the instance-owned manifest.
 
 
 def download_local_tooling(owner, repo, ref, token=None, child_root=".",

@@ -79,6 +79,9 @@ new pull request.
 Run `python3 -m panopticon.sync` in an initialized child repository to refresh
 managed skills, local tooling, and Panopticon workflow callers. Use
 `python3 -m panopticon.sync --check-updates` to preview the resulting changes.
+Each run downloads the child-safe tooling manifest from the selected instance
+branch, so a child repository's vendored manifest cannot expand the set of
+files sync manages.
 
 Child-local documentation links stay relative to the document that contains
 them. Generated links from a child README or architecture overview to the

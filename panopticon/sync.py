@@ -1,9 +1,10 @@
 """Local sync script: refreshes managed skills, tooling, and caller workflows in a child repo.
 
-Vendored into ``LOCAL_TOOLING_MODULES`` (``bootstrap.py``) so ``python3 -m panopticon.sync`` works
-immediately after Phase 1 bootstrap with no instance-repo clone and no ``PYTHONPATH`` setup — the
-same "no local instance clone required" constraint every other local-tooling module already
-satisfies (design D2).
+Vendored by the instance-owned ``local_tooling.py`` manifest so ``python3 -m panopticon.sync``
+works immediately after Phase 1 bootstrap with no instance-repo clone and no ``PYTHONPATH`` setup
+— the same "no local instance clone required" constraint every other local-tooling module already
+satisfies (design D2). Sync downloads that manifest from the selected instance ref on every run;
+the child's copy is never used to select modules.
 
 This module is deliberately self-contained rather than importing from ``.bootstrap``: bootstrap.py
 is CI-only and is never vendored into a child repo (repo-initialization spec: "CI-only modules...
@@ -44,6 +45,7 @@ from .providers import ProviderConfigError, resolve_provider_contract
 DEFAULT_BRANCH = "main"
 SKILLS_PREFIX = ".agents/skills/"
 DEFAULT_SKILLS_LOCATION = ".agents/skills"
+LOCAL_TOOLING_MANIFEST_PATH = "panopticon/local_tooling.py"
 
 # Mirrors bootstrap.py's TOOL_LOCATIONS exactly (test_sync.py asserts this; source of truth:
 # docs/agentskills-support.md) — needed here only for _detect_existing_location's search order,
@@ -201,15 +203,15 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
     return count
 
 
-def download_local_tooling(owner, repo, ref, tree, token=None, child_root=".",
+def download_local_tooling(owner, repo, ref, tree, tooling_modules, token=None, child_root=".",
                            urlopen=urllib.request.urlopen):
-    """Fetch the complete managed directory before writing any of its files.
+    """Fetch the manifest-managed directory before writing any of its files.
 
     This lets an older sync entrypoint acquire a newly-required module as part
     of the same reconciliation.  Applying is additive/overwrite-only: no
     local path is removed when the source directory no longer contains it.
     """
-    entries = _tooling_tree_entries(tree)
+    entries = _tooling_tree_entries(tree, tooling_modules)
     staged = [
         (item["path"], _fetch_file_bytes(owner, repo, item["path"], ref, token, urlopen))
         for item in entries
@@ -235,14 +237,44 @@ def _skill_tree_entries(tree):
     ]
 
 
-def _tooling_tree_entries(tree):
-    protected = {"panopticon/config.json", "panopticon/.gitignore"}
-    return [
-        item for item in tree
+def _remote_local_tooling_modules(owner, repo, ref, token=None, urlopen=urllib.request.urlopen):
+    """Load the instance-owned child-safe tooling manifest in an isolated namespace."""
+    source = _fetch_file_bytes(owner, repo, LOCAL_TOOLING_MANIFEST_PATH, ref, token, urlopen)
+    namespace = {"__name__": "panopticon.local_tooling_manifest"}
+    try:
+        exec(compile(source, LOCAL_TOOLING_MANIFEST_PATH, "exec"), namespace)
+    except Exception as exc:
+        raise RuntimeError(f"could not execute instance local-tooling manifest: {exc}") from exc
+    modules = namespace.get("LOCAL_TOOLING_MODULES")
+    if not isinstance(modules, tuple) or not modules:
+        raise RuntimeError("instance local-tooling manifest must define a non-empty tuple")
+    if len(set(modules)) != len(modules):
+        raise RuntimeError("instance local-tooling manifest must not contain duplicate modules")
+    if not all(
+        isinstance(name, str)
+        and name.endswith(".py")
+        and "/" not in name
+        and "\\" not in name
+        and name not in {".", ".."}
+        for name in modules
+    ):
+        raise RuntimeError("instance local-tooling manifest contains an invalid module path")
+    return modules
+
+
+def _tooling_tree_entries(tree, tooling_modules):
+    by_path = {
+        item["path"]: item
+        for item in tree
         if item["type"] == "blob"
-        and item["path"].startswith("panopticon/")
-        and item["path"] not in protected
-    ]
+    }
+    paths = [f"panopticon/{name}" for name in tooling_modules]
+    missing = [path for path in paths if path not in by_path]
+    if missing:
+        raise RuntimeError(
+            "instance local-tooling manifest lists files missing from its tree: " + ", ".join(missing)
+        )
+    return [by_path[path] for path in paths]
 
 
 def _compare(local, item, relative):
@@ -314,7 +346,7 @@ def _write_callers(child_root, updates):
         path.write_text(content, encoding="utf-8")
 
 
-def check_updates(tree, child_root, child_location, caller_updates=()):
+def check_updates(tree, child_root, child_location, tooling_modules, caller_updates=()):
     """Pure dry run: compare each relevant tree entry's blob sha against the child's local file,
     using no network calls beyond the already-fetched tree. Returns a list of finding strings;
     writes nothing."""
@@ -323,7 +355,7 @@ def check_updates(tree, child_root, child_location, caller_updates=()):
         relative = item["path"][len(SKILLS_PREFIX):]
         local = Path(child_root) / child_location / relative
         findings.extend(_compare(local, item, relative))
-    for item in _tooling_tree_entries(tree):
+    for item in _tooling_tree_entries(tree, tooling_modules):
         relative = item["path"]
         local = Path(child_root) / relative
         findings.extend(_compare(local, item, relative))
@@ -358,9 +390,20 @@ def main(argv=None, env=None, child_root=".", urlopen=urllib.request.urlopen):
         print(f"error: could not read valid instance provider configuration: {exc}")
         return 1
 
-    tree = _fetch_tree(owner, repo, default_branch, token, urlopen)
+    try:
+        tree = _fetch_tree(owner, repo, default_branch, token, urlopen)
+        tooling_modules = _remote_local_tooling_modules(
+            owner, repo, default_branch, token, urlopen
+        )
+    except RuntimeError as exc:
+        print(f"error: could not load instance local-tooling manifest: {exc}")
+        return 1
     callers_path = Path(child_root) / "panopticon/callers.py"
-    tooling_findings = check_updates(tree, child_root, location)
+    try:
+        tooling_findings = check_updates(tree, child_root, location, tooling_modules)
+    except RuntimeError as exc:
+        print(f"error: could not use instance local-tooling manifest: {exc}")
+        return 1
 
     if callers_path.is_file():
         callers = _caller_updates(
@@ -391,7 +434,9 @@ def main(argv=None, env=None, child_root=".", urlopen=urllib.request.urlopen):
         return 0
 
     n_skills = download_skills(owner, repo, default_branch, tree, token, child_root, location, urlopen)
-    n_modules = download_local_tooling(owner, repo, default_branch, tree, token, child_root, urlopen)
+    n_modules = download_local_tooling(
+        owner, repo, default_branch, tree, tooling_modules, token, child_root, urlopen
+    )
     # The staged directory may have added callers.py or changed its renderer.
     # Read the canonical contract only after that full resource set is applied.
     callers = _caller_updates(

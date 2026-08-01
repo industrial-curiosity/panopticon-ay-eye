@@ -13,9 +13,10 @@ from pathlib import Path
 
 from panopticon import bootstrap
 from panopticon import sync as sync_module
-from panopticon.bootstrap import LOCAL_TOOLING_MODULES, SKILLS_PREFIX, wire_workflows
+from panopticon.bootstrap import SKILLS_PREFIX, wire_workflows
 from panopticon.callers import CALLER_WORKFLOWS, caller_workflow_text
 from panopticon.config import save_repo_config
+from panopticon.local_tooling import LOCAL_TOOLING_MODULES
 from panopticon.providers import resolve_provider_contract
 from panopticon.sync import _api_get, check_updates, git_blob_sha, main
 
@@ -38,6 +39,8 @@ def _make_urlopen(routes):
                 return BytesIO(json.dumps(body).encode())
         if "contents/panopticon/callers.py" in url:
             return BytesIO(json.dumps(_file_response(Path("panopticon/callers.py").read_bytes())).encode())
+        if "contents/panopticon/local_tooling.py" in url:
+            return BytesIO(json.dumps(_file_response(Path("panopticon/local_tooling.py").read_bytes())).encode())
         if "contents/panopticon.config.json" in url:
             return BytesIO(json.dumps(_file_response(json.dumps(ORG_CONFIG).encode())).encode())
         raise AssertionError(f"unexpected url: {url}")
@@ -87,13 +90,13 @@ class TestSelfContained(unittest.TestCase):
         self.assertNotIn("bootstrap", imported_modules)
         self.assertNotIn("panopticon.bootstrap", imported_modules)
 
-    def test_sync_uses_the_complete_panopticon_directory_not_bootstraps_allowlist(self):
+    def test_sync_does_not_import_a_child_local_tooling_manifest(self):
         self.assertFalse(hasattr(sync_module, "LOCAL_TOOLING_MODULES"))
         entries = sync_module._tooling_tree_entries([
             _tree_entry("panopticon/llm.py", "x" * 40),
-            _tree_entry("panopticon/config.json", "y" * 40),
-        ])
-        self.assertEqual([entry["path"] for entry in entries], ["panopticon/llm.py"])
+            _tree_entry("panopticon/docs.py", "y" * 40),
+        ], ("docs.py",))
+        self.assertEqual([entry["path"] for entry in entries], ["panopticon/docs.py"])
 
     def test_skills_prefix_matches_bootstrap(self):
         self.assertEqual(sync_module.SKILLS_PREFIX, bootstrap.SKILLS_PREFIX)
@@ -184,12 +187,19 @@ class TestGitBlobSha(unittest.TestCase):
 
 
 class TestCheckUpdates(unittest.TestCase):
+    def test_invalid_remote_manifest_fails_with_actionable_error(self):
+        def urlopen(request, timeout=30):
+            return BytesIO(json.dumps(_file_response(b"this is not valid Python")).encode())
+
+        with self.assertRaisesRegex(RuntimeError, "could not execute instance local-tooling manifest"):
+            sync_module._remote_local_tooling_modules("acme", "instance", "main", urlopen=urlopen)
+
     def test_missing_file_reported_as_would_be_created(self):
         content = b"# skill"
         sha = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
         tree = [_tree_entry(SKILLS_PREFIX + "panopticon-foo/SKILL.md", sha)]
         with tempfile.TemporaryDirectory() as tmp:
-            findings = check_updates(tree, tmp, ".agents/skills")
+            findings = check_updates(tree, tmp, ".agents/skills", ())
         self.assertEqual(len(findings), 1)
         self.assertIn("would be created", findings[0])
 
@@ -201,7 +211,7 @@ class TestCheckUpdates(unittest.TestCase):
             local = Path(tmp) / ".agents" / "skills" / "panopticon-foo" / "SKILL.md"
             local.parent.mkdir(parents=True)
             local.write_bytes(content)
-            findings = check_updates(tree, tmp, ".agents/skills")
+            findings = check_updates(tree, tmp, ".agents/skills", ())
         self.assertEqual(findings, [])
 
     def test_differing_content_reported_as_would_be_updated(self):
@@ -212,19 +222,19 @@ class TestCheckUpdates(unittest.TestCase):
             local = Path(tmp) / "panopticon" / "docs.py"
             local.parent.mkdir(parents=True)
             local.write_bytes(b"# old")
-            findings = check_updates(tree, tmp, ".agents/skills")
+            findings = check_updates(tree, tmp, ".agents/skills", ("docs.py",))
         self.assertEqual(len(findings), 1)
         self.assertIn("would be updated", findings[0])
 
-    def test_complete_panopticon_directory_is_managed(self):
+    def test_ci_only_module_is_not_managed_when_absent_from_manifest(self):
         tree = [
             _tree_entry(".agents/skills/openspec-foo/SKILL.md", "x" * 40),
             _tree_entry("panopticon/llm.py", "y" * 40),
             _tree_entry("README.md", "z" * 40),
         ]
         with tempfile.TemporaryDirectory() as tmp:
-            findings = check_updates(tree, tmp, ".agents/skills")
-        self.assertEqual(findings, ["panopticon/llm.py would be created (missing locally)"])
+            findings = check_updates(tree, tmp, ".agents/skills", ())
+        self.assertEqual(findings, [])
 
     def test_tooling_directory_is_fetched_completely_before_any_file_is_written(self):
         first, second = b"first", b"second"
@@ -241,7 +251,8 @@ class TestCheckUpdates(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(RuntimeError, "second file unavailable"):
                 sync_module.download_local_tooling(
-                    "acme", "instance", "main", tree, child_root=tmp, urlopen=urlopen
+                    "acme", "instance", "main", tree, ("first.py", "second.py"),
+                    child_root=tmp, urlopen=urlopen
                 )
             self.assertFalse((Path(tmp) / "panopticon" / "first.py").exists())
 
@@ -250,10 +261,18 @@ class TestMainCheckUpdates(unittest.TestCase):
     def test_check_updates_writes_nothing(self):
         content = b"# skill"
         sha = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
+        manifest = b'LOCAL_TOOLING_MODULES = ("local_tooling.py",)\n'
+        manifest_sha = git_blob_sha(manifest)
         with tempfile.TemporaryDirectory() as tmp:
             _init_repo_config(tmp)
-            tree_body = {"tree": [_tree_entry(SKILLS_PREFIX + "panopticon-foo/SKILL.md", sha)]}
-            urlopen = _make_urlopen({"git/trees": tree_body})
+            tree_body = {"tree": [
+                _tree_entry(SKILLS_PREFIX + "panopticon-foo/SKILL.md", sha),
+                _tree_entry("panopticon/local_tooling.py", manifest_sha),
+            ]}
+            urlopen = _make_urlopen({
+                "git/trees": tree_body,
+                "contents/panopticon/local_tooling.py": _file_response(manifest),
+            })
             out = StringIO()
             with contextlib.redirect_stdout(out):
                 code = main(["--check-updates"], env={}, child_root=tmp, urlopen=urlopen)
@@ -263,10 +282,18 @@ class TestMainCheckUpdates(unittest.TestCase):
         self.assertIn("would be created", out.getvalue())
 
     def test_check_updates_nothing_to_sync_reports_current(self):
+        manifest = b'LOCAL_TOOLING_MODULES = ("local_tooling.py",)\n'
         with tempfile.TemporaryDirectory() as tmp:
             _init_repo_config(tmp)
             _write_current_callers(tmp)
-            urlopen = _make_urlopen({"git/trees": {"tree": []}})
+            local_manifest = Path(tmp) / "panopticon" / "local_tooling.py"
+            local_manifest.write_bytes(manifest)
+            urlopen = _make_urlopen({
+                "git/trees": {"tree": [
+                    _tree_entry("panopticon/local_tooling.py", git_blob_sha(manifest)),
+                ]},
+                "contents/panopticon/local_tooling.py": _file_response(manifest),
+            })
             out = StringIO()
             with contextlib.redirect_stdout(out):
                 code = main(["--check-updates"], env={}, child_root=tmp, urlopen=urlopen)
@@ -280,6 +307,29 @@ class TestMainCheckUpdates(unittest.TestCase):
                 code = main(["--check-updates"], env={}, child_root=tmp, urlopen=_make_urlopen({}))
         self.assertEqual(code, 1)
         self.assertIn("not Panopticon-initialized", out.getvalue())
+
+    def test_check_updates_uses_the_remote_manifest_not_the_child_copy(self):
+        manifest = b'LOCAL_TOOLING_MODULES = ("docs.py",)\n'
+        docs = b"# current instance docs\n"
+        llm = b"# ci only\n"
+        tree = [
+            _tree_entry("panopticon/docs.py", git_blob_sha(docs)),
+            _tree_entry("panopticon/llm.py", git_blob_sha(llm)),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            _init_repo_config(tmp)
+            local_manifest = Path(tmp) / "panopticon" / "local_tooling.py"
+            local_manifest.write_text('LOCAL_TOOLING_MODULES = ("llm.py",)\n', encoding="utf-8")
+            urlopen = _make_urlopen({
+                "git/trees": {"tree": tree},
+                "contents/panopticon/local_tooling.py": _file_response(manifest),
+            })
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(["--check-updates"], env={}, child_root=tmp, urlopen=urlopen)
+        self.assertEqual(code, 0)
+        self.assertIn("panopticon/docs.py would be created", out.getvalue())
+        self.assertNotIn("panopticon/llm.py", out.getvalue())
 
     def test_invalid_instance_provider_configuration_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -304,6 +354,8 @@ class TestMainDefaultOverwrite(unittest.TestCase):
             content = (
                 Path("panopticon/callers.py").read_bytes()
                 if name == "callers.py"
+                else Path("panopticon/local_tooling.py").read_bytes()
+                if name == "local_tooling.py"
                 else f"{tooling_content_prefix}{name}".encode()
             )
             source_files[name] = content
@@ -339,7 +391,7 @@ class TestMainDefaultOverwrite(unittest.TestCase):
             self.assertEqual(stale.read_text(), "# panopticon-foo new")
             self.assertIn("synced", out.getvalue())
 
-    def test_default_run_vendors_all_tooling_modules(self):
+    def test_default_run_vendors_the_instance_manifest_modules(self):
         with tempfile.TemporaryDirectory() as tmp:
             _init_repo_config(tmp)
             out = StringIO()
@@ -360,7 +412,12 @@ class TestMainDefaultOverwrite(unittest.TestCase):
             local.write_bytes(skill_content)
             for name in LOCAL_TOOLING_MODULES:
                 (Path(tmp) / "panopticon").mkdir(exist_ok=True)
-                (Path(tmp) / "panopticon" / name).write_text(f"# {name}")
+                content = (
+                    Path("panopticon/local_tooling.py").read_text(encoding="utf-8")
+                    if name == "local_tooling.py"
+                    else f"# {name}"
+                )
+                (Path(tmp) / "panopticon" / name).write_text(content, encoding="utf-8")
 
             def urlopen(request, timeout=30):
                 url = request.full_url
@@ -370,13 +427,21 @@ class TestMainDefaultOverwrite(unittest.TestCase):
                     ).hexdigest()
                     tree = [_tree_entry(SKILLS_PREFIX + "panopticon-foo/SKILL.md", skill_sha)]
                     for name in LOCAL_TOOLING_MODULES:
-                        content = f"# {name}".encode()
+                        content = (
+                            Path("panopticon/local_tooling.py").read_bytes()
+                            if name == "local_tooling.py"
+                            else f"# {name}".encode()
+                        )
                         tree.append(_tree_entry(f"panopticon/{name}", hashlib.sha1(
                             f"blob {len(content)}\0".encode() + content
                         ).hexdigest()))
                     return BytesIO(json.dumps({"tree": tree}).encode())
                 if "contents/panopticon.config.json" in url:
                     return BytesIO(json.dumps(_file_response(json.dumps(ORG_CONFIG).encode())).encode())
+                if "contents/panopticon/local_tooling.py" in url:
+                    return BytesIO(json.dumps(_file_response(
+                        Path("panopticon/local_tooling.py").read_bytes()
+                    )).encode())
                 raise AssertionError(f"unexpected url (no download expected): {url}")
 
             out = StringIO()
