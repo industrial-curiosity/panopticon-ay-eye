@@ -2,6 +2,20 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [model-effective-provider-requirements] - 2026-08-02
+
+### Added
+
+- Trusted optional-provider value resolution with fixed instance-action and
+  instance-configuration defaults, plus a source-safe integrator guide.
+
+### Changed
+
+- Child callers and reusable provider workflows now report the effective source
+  of each request budget; job timeout is resolved before job creation.
+- Bootstrap and finalization now distinguish required organization settings from
+  optional values supplied by a trusted default.
+
 ## [complete-rollout-status-and-legacy-tooling-guidance] - 2026-08-02
 
 ### Added
