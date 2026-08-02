@@ -107,3 +107,11 @@ this repo's wired
 workflow ref, skills, or vendored tooling have drifted from the instance's
 current default branch —
 acting on that warning is at your discretion.
+
+## Provider configuration defaults
+
+Provider credentials, model identity, and repository access are required
+organization settings. Request budgets are optional and have a documented
+precedence order; see the instance's `docs/provider-configuration.md` for the
+required/optional table, configuration steps, fixed Action contract, and
+recovery commands. Never put credentials or tokens in a default.

@@ -60,6 +60,17 @@ The OpenAI workflow fixes its base URL to `https://api.openai.com/v1`; it does
 not expose, persist, or forward an endpoint variable. LiteLLM remains the
 provider for a configurable OpenAI-compatible endpoint.
 
+Provider contracts distinguish required values from optional request-budget
+values. Required credentials, model identity, repository access, LiteLLM
+endpoint, and applicable Bedrock identity settings come from organization
+Actions configuration. Runtime budgets resolve in order from an organization
+variable, the fixed instance default Action, a non-secret instance-configured
+default, then the template workflow default. Job timeout is resolved in the
+generated caller from an organization variable, instance-configured default, or
+template default because GitHub determines it before an Action can run. The
+workflow summary and initialization report expose only each value's source
+label, never its value.
+
 Provider configuration selects trusted reusable PR workflow paths and canonical
 input mappings; it cannot
 inject an arbitrary repository, workflow, action, or command. Splitting the

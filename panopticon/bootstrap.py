@@ -365,7 +365,27 @@ def download_getting_started_guide(owner, repo, ref, token=None, child_root=".",
 # ── Prerequisite check ────────────────────────────────────────────────────────
 
 def _required_actions_names(contract):
-    return tuple(contract["secrets"].values()), tuple(contract["variables"].values())
+    required_variables = (
+        configured_name
+        for logical, configured_name in contract["variables"].items()
+        if logical not in contract["optional_variables"]
+    )
+    return tuple(contract["secrets"].values()), tuple(required_variables)
+
+
+def _optional_value_status(contract):
+    """Return source-safe status lines for optional provider values."""
+    status = []
+    for logical in contract["optional_variables"]:
+        configured_name = contract["variables"][logical]
+        if logical in contract["defaults"]:
+            source = "instance config"
+        elif logical == "job_timeout_minutes":
+            source = "workflow default in generated caller"
+        else:
+            source = "workflow default (the fixed instance action can override it in CI)"
+        status.append(f"    optional {configured_name} ({logical}): {source}")
+    return status
 
 
 def manual_verification_steps(org, contract):
@@ -381,6 +401,7 @@ def manual_verification_steps(org, contract):
         "variables can't be checked automatically. Verify manually that these are configured:",
         f"    secrets:   {', '.join(secrets)}",
         f"    variables: {', '.join(variables)}",
+        *_optional_value_status(contract),
         "",
         "  Web UI:",
         f"    {settings_url}",
@@ -420,7 +441,16 @@ def check_prerequisites(org, contract, token=None, urlopen=urllib.request.urlope
 
     _check("secrets", "secrets", secrets, "secret")
     _check("variables", "variables", variables, "variable")
+    report.extend(_optional_value_status(contract))
     return report
+
+
+def _has_required_prerequisite_problem(report):
+    """Whether a prerequisite report contains a missing or unverifiable required value."""
+    return any(
+        line.lstrip().startswith(("missing org-level", "could not verify org"))
+        for line in report
+    )
 
 # ── Skills location selection ───────────────────────────────────────────────────
 # The bootstrap script prompts for the skills location itself — even when piped via
@@ -769,10 +799,13 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
     elif issues:
         for issue in issues:
             print(issue)
-        print(
-            "\n  See the setup guide in the instance repo for configuration instructions.\n"
-            "  Missing items will not block initialization — fix before the first PR."
-        )
+        if _has_required_prerequisite_problem(issues):
+            print(
+                "\n  See the setup guide in the instance repo for configuration instructions.\n"
+                "  Missing items will not block initialization — fix before the first PR."
+            )
+        else:
+            print("  All required org-level secrets and variables are configured.")
     else:
         print("  All org-level secrets and variables are configured.")
 

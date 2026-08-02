@@ -24,6 +24,8 @@ initialize child repositories. The [org-owner setup guide](docs/setup-guide.md)
 walks through that process,
 including credentials, provider choices, template sync, customization
 protection, and local recovery from failed syncs.
+For required values, optional request budgets, defaults, and the exact
+organization integration path, use the [provider-configuration guide](docs/provider-configuration.md).
 
 To initialize a child repository, run the public launcher from that repository:
 
@@ -92,6 +94,7 @@ work from both the child and instance repositories.
 ## Documentation
 
 - [Set up an organization instance](docs/setup-guide.md)
+- [Configure provider defaults](docs/provider-configuration.md)
 - [Contribution guidelines](CONTRIBUTING.md)
 - [Contribute a parser](docs/parser-contribution.md)
 - [Use interface and dependency hints](docs/hint-reference.md)

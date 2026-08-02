@@ -45,6 +45,10 @@ The persisted `llm` block will accept a validated `defaults` map for non-secret
 optional logical names. Its values are literal non-empty strings and become part
 of the effective provider contract and its revision. This lets an instance
 record a stable organization default without putting it in every child repo.
+For `job_timeout_minutes`, which GitHub evaluates before any job step, the
+generated child caller embeds the validated instance default. Its supported
+order is therefore organization Actions value, instance configuration default,
+then template workflow default; the instance action cannot participate.
 
 ### Fixed instance default resolver
 
@@ -73,6 +77,12 @@ The choice favors a single deterministic Python implementation over duplicated
 shell/YAML precedence logic. It also prevents a workflow default from masking a
 higher-priority empty source before the fixed action can run.
 
+Job timeout is resolved in the generated caller rather than this runtime
+resolver. GitHub evaluates `timeout-minutes` before checkout, so action output
+is unavailable at that boundary. Embedding the reviewed non-secret instance
+default preserves a visible, deterministic value and causes caller regeneration
+when it changes.
+
 ### Integrator-first guidance
 
 The setup guide and workflow summaries will use the same generated contract
@@ -100,7 +110,8 @@ secret value.
 1. Extend the registry and instance-config validator while retaining existing
    configurations as valid required-name contracts.
 2. Add the fixed default-resolver action, reusable resolver, and workflow
-   wiring without changing existing organization variables.
+   wiring without changing existing organization variables; embed any validated
+   instance job-timeout default in regenerated callers.
 3. Regenerate child callers when the new contract revision is detected.
 4. Publish an ordered setup guide: configure required values first, then choose
    an optional-value source only when needed, run the validation command, and

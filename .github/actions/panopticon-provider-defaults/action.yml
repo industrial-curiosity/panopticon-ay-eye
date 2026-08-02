@@ -1,0 +1,28 @@
+name: Resolve Panopticon provider defaults
+description: >-
+  Fixed instance-owned source for optional non-secret provider runtime values.
+  Organizations may customize its declared outputs but must never emit credentials.
+
+outputs:
+  timeout_seconds:
+    description: Optional non-secret request-timeout value
+    value: ${{ steps.defaults.outputs.timeout_seconds }}
+  max_attempts:
+    description: Optional non-secret transport-attempt value
+    value: ${{ steps.defaults.outputs.max_attempts }}
+  max_correction_attempts:
+    description: Optional non-secret correction-attempt value
+    value: ${{ steps.defaults.outputs.max_correction_attempts }}
+
+runs:
+  using: composite
+  steps:
+    - id: defaults
+      shell: bash
+      run: |
+        set -euo pipefail
+        {
+          echo "timeout_seconds="
+          echo "max_attempts="
+          echo "max_correction_attempts="
+        } >> "$GITHUB_OUTPUT"

@@ -88,6 +88,22 @@ class TestCallerWorkflowText(unittest.TestCase):
         self.assertIn("api_key: ${{ secrets.PANOPTICON_LLM_API_KEY }}", text)
         self.assertIn(f"configuration_revision: {LITELLM_CONTRACT['revision']}", text)
         self.assertIn('configuration_names: \'{"api_key":"PANOPTICON_LLM_API_KEY"', text)
+        self.assertIn('configuration_defaults: "{}"', text)
+        self.assertIn("job_timeout_minutes: ${{ vars.PANOPTICON_LLM_JOB_TIMEOUT_MINUTES || '20' }}", text)
+        self.assertIn(
+            "job_timeout_source: ${{ vars.PANOPTICON_LLM_JOB_TIMEOUT_MINUTES && "
+            "'organization variable' || 'workflow default' }}",
+            text,
+        )
+
+    def test_pr_caller_embeds_a_validated_instance_job_timeout_default(self):
+        contract = resolve_provider_contract(
+            {"provider": "openai", "defaults": {"job_timeout_minutes": "25"}}
+        )
+        text = caller_workflow_text("panopticon-pr.yml", "acme/instance", "v1", contract)
+        self.assertIn('configuration_defaults: "{\\"job_timeout_minutes\\": \\"25\\"}"', text)
+        self.assertIn("job_timeout_minutes: ${{ vars.PANOPTICON_LLM_JOB_TIMEOUT_MINUTES || '25' }}", text)
+        self.assertIn("'organization variable' || 'instance config'", text)
 
     def test_openai_pr_workflow_does_not_map_an_endpoint_variable(self):
         contract = resolve_provider_contract({"provider": "openai"})
@@ -499,10 +515,21 @@ class TestCheckPrerequisites(unittest.TestCase):
             return BytesIO(json.dumps(body).encode())
         return urlopen
 
-    def test_all_present_returns_empty_report(self):
+    def test_all_required_values_present_reports_optional_default_sources(self):
         urlopen = self._make_urlopen_for_prereqs(ORG_SECRETS, ORG_VARS)
         report = check_prerequisites("acme", LITELLM_CONTRACT, token="tok", urlopen=urlopen)
-        self.assertEqual(report, [])
+        text = "\n".join(report)
+        self.assertNotIn("missing org-level", text)
+        self.assertIn("optional PANOPTICON_LLM_TIMEOUT_SECONDS", text)
+        self.assertIn("workflow default", text)
+
+    def test_missing_optional_budget_is_not_a_missing_prerequisite(self):
+        required_variables = ("PANOPTICON_LLM_MODEL", "PANOPTICON_LLM_ENDPOINT")
+        urlopen = self._make_urlopen_for_prereqs(ORG_SECRETS, required_variables)
+        report = check_prerequisites("acme", LITELLM_CONTRACT, token="tok", urlopen=urlopen)
+        text = "\n".join(report)
+        self.assertNotIn("missing org-level variable", text)
+        self.assertIn("optional PANOPTICON_LLM_MAX_ATTEMPTS", text)
 
     def test_missing_secret_reported(self):
         urlopen = self._make_urlopen_for_prereqs(["PANOPTICON_LLM_API_KEY"], list(ORG_VARS))

@@ -260,6 +260,11 @@ workflow inputs.
 | `PANOPTICON_AWS_ROLE_ARN` *(Bedrock github-oidc only)* | IAM role ARN that child PR workflows assume through GitHub OIDC, for example `arn:aws:iam::123456789012:role/panopticon-bedrock` |
 | `PANOPTICON_LLM_MODEL` | LiteLLM or OpenAI model name (for example, `gpt-4o-mini`) or Bedrock Converse-compatible model identifier |
 
+Request timeout and retry-budget variables are optional. See [provider
+configuration defaults](provider-configuration.md) for their source precedence,
+the configuration-workflow default fields, the fixed instance Action path, and
+the exact child-bootstrap recovery path.
+
 These are consumed only by the shared CI workflows. Local flows —
 initialization, doc generation,
 index updates — run in each developer's own AI agent harness and need none of

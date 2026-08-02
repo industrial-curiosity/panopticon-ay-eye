@@ -114,6 +114,27 @@ class TestConfigureInstance(unittest.TestCase):
             configured = configure(tmp, "litellm", self.litellm_names())
         self.assertEqual(resolve_provider_contract(configured)["revision"], expected)
 
+    def test_non_secret_optional_defaults_are_persisted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            llm = configure(
+                tmp,
+                "litellm",
+                self.litellm_names(),
+                defaults={"timeout_seconds": "45", "job_timeout_minutes": "25"},
+            )
+            document = json.loads((Path(tmp) / "panopticon.config.json").read_text())
+        self.assertEqual(llm["defaults"], {"timeout_seconds": "45", "job_timeout_minutes": "25"})
+        self.assertEqual(document["llm"]["defaults"]["timeout_seconds"], "45")
+
+    def test_required_default_does_not_modify_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "panopticon.config.json"
+            path.write_text('{"schema_version": 1}\n')
+            before = path.read_bytes()
+            with self.assertRaises(ProviderConfigError):
+                configure(tmp, "litellm", self.litellm_names(), defaults={"model": "x"})
+            self.assertEqual(path.read_bytes(), before)
+
     def test_cli_rejects_unknown_provider_without_writing(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "panopticon.config.json"

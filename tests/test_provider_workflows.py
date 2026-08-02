@@ -7,9 +7,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github" / "workflows"
 CONFIGURATION_ACTION = ROOT / ".github" / "actions" / "configure-panopticon" / "action.yml"
+DEFAULTS_ACTION = (
+    ROOT / ".github" / "actions" / "panopticon-provider-defaults" / "action.yml"
+)
 COMMON_PR_PHASES = (
     "Initialization check",
     "Validate provider inputs",
+    "Validate instance provider defaults action",
+    "Resolve instance provider defaults",
+    "Resolve effective provider values",
     "Validate provider configuration revision",
     "Provider preflight",
     "Tooling-currency check (advisory only)",
@@ -79,16 +85,41 @@ class TestProviderWorkflows(unittest.TestCase):
         self.assertNotIn("inputs.endpoint", text)
         self.assertNotIn("endpoint:\n        required:", text)
 
-    def test_optional_request_budgets_default_in_every_provider_workflow_environment(self):
+    def test_optional_request_budgets_remain_raw_until_the_shared_resolver_runs(self):
         for provider in ("litellm", "openai", "bedrock"):
             text = self.workflow(f"panopticon-pr-{provider}.yml")
             for input_name, default in REQUEST_BUDGET_DEFAULTS.items():
                 with self.subTest(provider=provider, input_name=input_name):
-                    self.assertIn(
-                        f"${{{{ inputs.{input_name} || '{default}' }}}}",
-                        text,
-                    )
-                    self.assertNotIn(f"${{{{ inputs.{input_name} }}}}", text)
+                    self.assertIn(f"${{{{ inputs.{input_name} }}}}", text)
+            self.assertIn("panopticon-provider-defaults", text)
+            self.assertIn("python3 -m panopticon.provider_defaults", text)
+
+    def test_fixed_default_action_has_a_closed_nonsecret_output_contract(self):
+        text = DEFAULTS_ACTION.read_text(encoding="utf-8")
+        self.assertIn("outputs:", text)
+        for logical in REQUEST_BUDGET_DEFAULTS:
+            with self.subTest(logical=logical):
+                self.assertIn(f"  {logical}:", text)
+        self.assertNotIn("inputs:", text)
+        self.assertNotIn("secrets:", text)
+
+    def test_provider_workflows_explain_a_missing_fixed_action(self):
+        for provider in ("litellm", "openai", "bedrock"):
+            text = self.workflow(f"panopticon-pr-{provider}.yml")
+            with self.subTest(provider=provider):
+                self.assertIn("Panopticon provider defaults action is missing", text)
+                self.assertIn(
+                    ".github/actions/panopticon-provider-defaults/action.yml", text
+                )
+
+    def test_effective_values_resolve_before_provider_preflight(self):
+        for provider in ("litellm", "openai", "bedrock"):
+            text = self.workflow(f"panopticon-pr-{provider}.yml")
+            with self.subTest(provider=provider):
+                self.assertLess(
+                    text.index("- name: Resolve effective provider values"),
+                    text.index("- name: Provider preflight"),
+                )
 
     def test_doc_drift_exit_codes_keep_invalid_verdicts_operational(self):
         for provider in ("litellm", "openai", "bedrock"):
@@ -159,6 +190,8 @@ class TestProviderWorkflows(unittest.TestCase):
         self.assertIn("Panopticon provider configuration is invalid", text)
         self.assertIn("GITHUB_STEP_SUMMARY", text)
         self.assertIn("No credential values were accepted or persisted", text)
+        self.assertIn("required organization-level Actions names", text)
+        self.assertIn("Optional request-budget variables", text)
         self.assertIn("git diff --quiet -- panopticon.config.json", text)
         self.assertIn("Configuration already matches", text)
         self.assertIn("could not be pushed", text)

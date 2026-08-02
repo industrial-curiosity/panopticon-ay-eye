@@ -39,6 +39,13 @@ _EXISTING_DOC_DIRS = ("docs", "doc", "documentation")
 CALLER_WORKFLOW_FOR_REF = Path(".github") / "workflows" / "panopticon-pr.yml"
 _USES_REF_RE = re.compile(r"^\s*uses:\s*\S+/\.github/workflows/\S+@(\S+)\s*$", re.MULTILINE)
 _ACTIONS_NAME_RE = re.compile(r"\$\{\{\s*(secrets|vars)\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+_CONFIGURATION_NAMES_RE = re.compile(r"^\s*configuration_names:\s+'([^']+)'\s*$", re.MULTILINE)
+_OPTIONAL_PROVIDER_VARIABLES_RE = re.compile(
+    r"^# Optional provider variables: (.+)$", re.MULTILINE
+)
+_INSTANCE_PROVIDER_DEFAULTS_RE = re.compile(
+    r"^# Instance provider defaults: (.+)$", re.MULTILINE
+)
 
 FALLBACK_WORKFLOW_REF = "main"
 INITIALIZATION_REPORT = "panopticon-initialization-report.md"
@@ -205,11 +212,57 @@ def configured_actions_names(child_root):
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return (), ()
+    optional_names = set()
+    names_match = _CONFIGURATION_NAMES_RE.search(text)
+    optional_match = _OPTIONAL_PROVIDER_VARIABLES_RE.search(text)
+    if names_match and optional_match:
+        try:
+            configured = json.loads(names_match.group(1))
+            optional_logicals = json.loads(optional_match.group(1))
+            optional_names = {
+                configured[logical] for logical in optional_logicals if logical in configured
+            }
+        except (TypeError, ValueError):
+            optional_names = set()
     names = {"secrets": [], "vars": []}
     for kind, name in _ACTIONS_NAME_RE.findall(text):
+        if kind == "vars" and name in optional_names:
+            continue
         if name not in names[kind]:
             names[kind].append(name)
     return tuple(names["secrets"]), tuple(names["vars"])
+
+
+def configured_optional_value_status(child_root):
+    """Read source-safe optional-value status embedded by the generated caller."""
+    try:
+        text = (Path(child_root) / CALLER_WORKFLOW_FOR_REF).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ()
+    names_match = _CONFIGURATION_NAMES_RE.search(text)
+    optional_match = _OPTIONAL_PROVIDER_VARIABLES_RE.search(text)
+    defaults_match = _INSTANCE_PROVIDER_DEFAULTS_RE.search(text)
+    if not (names_match and optional_match and defaults_match):
+        return ()
+    try:
+        configured = json.loads(names_match.group(1))
+        optional_logicals = json.loads(optional_match.group(1))
+        defaults = json.loads(defaults_match.group(1))
+    except (TypeError, ValueError):
+        return ()
+    status = []
+    for logical in optional_logicals:
+        configured_name = configured.get(logical)
+        if not configured_name:
+            continue
+        if logical in defaults:
+            source = "instance config"
+        elif logical == "job_timeout_minutes":
+            source = "workflow default in generated caller"
+        else:
+            source = "workflow default (or fixed instance action during CI)"
+        status.append(f"optional {configured_name} ({logical}): {source}")
+    return tuple(status)
 
 
 def _manual_verification_message(org, reason, secrets, variables):
@@ -307,6 +360,7 @@ def _resolve_instance_default_branch(instance, env=None, urlopen=urllib.request.
 def verify_org_secrets(org, child_root=".", runner=subprocess.run):
     """Report-only org secret/variable verification via the gh CLI. Never blocks local init."""
     secrets, variables = configured_actions_names(child_root)
+    optional_status = configured_optional_value_status(child_root)
     if not secrets and not variables:
         return [
             "could not derive org-level Actions names because the generated "
@@ -330,6 +384,7 @@ def verify_org_secrets(org, child_root=".", runner=subprocess.run):
             f"all org-level secrets present: {', '.join(secrets)}; "
             f"all org-level variables present: {', '.join(variables)}"
         )
+    report.extend(optional_status)
     return report
 
 

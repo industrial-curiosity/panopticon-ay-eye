@@ -14,6 +14,10 @@ resolution so a template workflow default cannot mask a higher-precedence
 source. It SHALL expose only source labels in its summary and environment
 diagnostics, never a resolved value or credential.
 
+The workflow SHALL receive `job_timeout_minutes` already resolved by the
+generated caller. It SHALL NOT attempt to obtain that job-level value from the
+fixed instance action because GitHub evaluates job timeout before job steps run.
+
 #### Scenario: Workflow uses a template default only after higher sources are absent
 
 - **GIVEN** an optional input is absent from organization Actions, the fixed
@@ -29,6 +33,14 @@ diagnostics, never a resolved value or credential.
 - **WHEN** the reusable workflow starts
 - **THEN** it fails before invoking the default-resolver action or provider
   preflight and identifies the required logical name and configuration path
+
+#### Scenario: Job timeout is resolved before the workflow starts
+
+- **GIVEN** an instance configuration supplies a valid non-secret job-timeout
+  default and the organization Actions variable is absent
+- **WHEN** the generated caller invokes the reusable workflow
+- **THEN** the workflow uses the caller-supplied timeout and does not invoke the
+  fixed instance action to resolve it
 
 #### Scenario: Fixed default action output is invalid
 

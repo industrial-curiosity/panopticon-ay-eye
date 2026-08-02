@@ -19,7 +19,13 @@ from panopticon.config import (
     require_supported_diagram_format,
     save_repo_config,
 )
-from panopticon.providers import PROVIDERS, ProviderConfigError, resolve_provider_contract
+from panopticon.providers import (
+    PROVIDERS,
+    ProviderConfigError,
+    resolve_effective_values,
+    resolve_provider_contract,
+)
+from panopticon.provider_defaults import resolve_for_workflow
 
 
 class TestOrgConfig(unittest.TestCase):
@@ -44,6 +50,19 @@ class TestOrgConfig(unittest.TestCase):
     def test_litellm_provider_defaults_are_resolved(self):
         contract = resolve_provider_contract({"provider": "litellm"})
         self.assertEqual(contract["workflow"], "panopticon-pr-litellm.yml")
+
+    def test_workflow_resolution_reports_the_pre_job_timeout_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, {"llm": {"provider": "openai"}})
+            values, sources = resolve_for_workflow(
+                tmp,
+                {
+                    "PANOPTICON_LLM_MODEL": "gpt-test",
+                    "PANOPTICON_JOB_TIMEOUT_SOURCE": "organization variable",
+                },
+            )
+        self.assertEqual(values["model"], "gpt-test")
+        self.assertEqual(sources["job_timeout_minutes"], "organization variable")
 
     def test_openai_provider_defaults_are_resolved(self):
         contract = resolve_provider_contract({"provider": "openai"})
@@ -103,6 +122,56 @@ class TestOrgConfig(unittest.TestCase):
         first = resolve_provider_contract({"provider": "bedrock"})
         second = resolve_provider_contract({"provider": "bedrock", "variables": {}})
         self.assertEqual(first["revision"], second["revision"])
+
+    def test_optional_defaults_change_contract_revision(self):
+        original = resolve_provider_contract({"provider": "litellm"})
+        configured = resolve_provider_contract(
+            {"provider": "litellm", "defaults": {"timeout_seconds": "45"}}
+        )
+        self.assertNotEqual(original["revision"], configured["revision"])
+
+    def test_default_for_required_value_is_rejected(self):
+        with self.assertRaisesRegex(ProviderConfigError, "defaults"):
+            resolve_provider_contract({"provider": "litellm", "defaults": {"model": "x"}})
+
+    def test_runtime_effective_values_use_source_precedence(self):
+        contract = resolve_provider_contract(
+            {"provider": "litellm", "defaults": {"timeout_seconds": "45"}}
+        )
+        values, sources = resolve_effective_values(
+            contract,
+            {"model": "model", "endpoint": "https://example.test", "timeout_seconds": "30"},
+            {"timeout_seconds": "15", "max_attempts": "7"},
+        )
+        self.assertEqual(values["timeout_seconds"], "30")
+        self.assertEqual(sources["timeout_seconds"], "organization variable")
+        self.assertEqual(values["max_attempts"], "7")
+        self.assertEqual(sources["max_attempts"], "instance action")
+        self.assertEqual(values["max_correction_attempts"], "2")
+        self.assertEqual(sources["max_correction_attempts"], "workflow default")
+
+    def test_required_runtime_value_cannot_use_a_default(self):
+        contract = resolve_provider_contract({"provider": "openai"})
+        with self.assertRaisesRegex(ProviderConfigError, "model"):
+            resolve_effective_values(contract, {})
+
+    def test_workflow_resolver_uses_instance_default_without_exposing_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(
+                tmp,
+                {"llm": {"provider": "openai", "defaults": {"timeout_seconds": "45"}}},
+            )
+            values, sources = resolve_for_workflow(
+                tmp,
+                {
+                    "PANOPTICON_LLM_MODEL": "gpt-4o-mini",
+                    "PANOPTICON_LLM_TIMEOUT_SECONDS": "",
+                    "PANOPTICON_LLM_MAX_ATTEMPTS": "",
+                    "PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS": "",
+                },
+            )
+        self.assertEqual(values["timeout_seconds"], "45")
+        self.assertEqual(sources["timeout_seconds"], "instance config")
 
     def test_invalid_actions_name_is_rejected(self):
         with self.assertRaisesRegex(ProviderConfigError, "GitHub Actions name"):

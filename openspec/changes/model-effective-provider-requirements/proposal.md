@@ -14,7 +14,9 @@ must be configured.
   them in its deterministic revision.
 - Resolve each logical provider value using a documented precedence order:
   organization Actions value, fixed instance-action output, non-secret instance
-  configuration default, then template workflow default.
+  configuration default, then template workflow default; generated callers carry
+  the instance default for job timeout because GitHub resolves job timeout before
+  an action can run.
 - Fail before provider work when an optional value has no effective value, while
   preserving repository access and authentication as mandatory requirements.
 - Update bootstrap, finalization, caller generation, workflow summaries, and

@@ -19,6 +19,13 @@ configuration default, then the declared non-empty template workflow default.
 If no source supplies a value, provider configuration SHALL fail before
 provider preflight or LLM work.
 
+`job_timeout_minutes` SHALL be resolved in the generated caller because GitHub
+evaluates job timeout before an instance action can run. Its supported order is
+an explicit organization Actions variable, a non-secret instance configuration
+default embedded in the generated caller, then the declared template workflow
+default. The fixed instance default-resolver action SHALL NOT provide this
+value.
+
 #### Scenario: Organization Actions variable has precedence
 
 - **GIVEN** an optional provider variable has values from all four trusted
@@ -34,6 +41,14 @@ provider preflight or LLM work.
 - **WHEN** the provider workflow resolves its effective configuration
 - **THEN** it uses the action output before any instance-configured or workflow
   default
+
+#### Scenario: Caller carries an instance job-timeout default
+
+- **GIVEN** `job_timeout_minutes` is absent from organization Actions variables
+  and the instance configuration declares a valid non-secret default
+- **WHEN** child bootstrap generates a caller
+- **THEN** the caller supplies that default to the reusable workflow before job
+  timeout is evaluated and does not invoke the fixed action for it
 
 #### Scenario: Optional value has no effective source
 

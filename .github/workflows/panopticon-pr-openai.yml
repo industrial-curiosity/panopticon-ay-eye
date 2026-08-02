@@ -4,7 +4,9 @@
 # written by the bootstrap installer with explicit secret and variable mappings.
 # Org-level variables: PANOPTICON_LLM_MODEL,
 # PANOPTICON_LLM_TIMEOUT_SECONDS, PANOPTICON_LLM_MAX_ATTEMPTS,
-# PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS, PANOPTICON_LLM_JOB_TIMEOUT_MINUTES.
+# PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS, PANOPTICON_LLM_JOB_TIMEOUT_MINUTES. Optional request
+# budgets resolve after instance checkout: org variable → fixed instance action → instance config
+# default → workflow default. Job timeout resolves in the caller before this job starts.
 #
 # Checks (pr-evaluation spec): initialization → doc drift → index currency → diagram existence →
 # pre-merge simulation → branch state push. Check outcomes honor the org gating configuration in
@@ -28,6 +30,10 @@ on:
       configuration_names:
         required: true
         type: string
+      configuration_defaults:
+        required: false
+        type: string
+        default: "{}"
       model:
         required: false
         type: string
@@ -48,6 +54,10 @@ on:
         required: false
         type: string
         default: ""
+      job_timeout_source:
+        required: false
+        type: string
+        default: "workflow default"
     secrets:
       instance_token:
         required: false
@@ -72,9 +82,9 @@ jobs:
       PANOPTICON_LLM_PROVIDER: openai
       PANOPTICON_LLM_API_KEY: ${{ secrets.api_key }}
       PANOPTICON_LLM_MODEL: ${{ inputs.model }}
-      PANOPTICON_LLM_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds || '90' }}
-      PANOPTICON_LLM_MAX_ATTEMPTS: ${{ inputs.max_attempts || '2' }}
-      PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS: ${{ inputs.max_correction_attempts || '2' }}
+      PANOPTICON_LLM_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
+      PANOPTICON_LLM_MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+      PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS: ${{ inputs.max_correction_attempts }}
       PANOPTICON_INSTANCE_TOKEN: ${{ secrets.instance_token }}
     steps:
       - name: Check out PR branch
@@ -163,6 +173,40 @@ jobs:
           token: ${{ secrets.instance_token }}
           ref: ${{ inputs.workflow_ref }}
           path: .panopticon-instance
+
+      - name: Validate instance provider defaults action
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          action="$PANOPTICON_INSTANCE_DIR/.github/actions/panopticon-provider-defaults/action.yml"
+          if [ ! -f "$action" ]; then
+            {
+              echo "## Panopticon provider defaults action is missing"
+              echo
+              echo "Restore the fixed instance action at \`$action\`, then rerun this workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Panopticon provider defaults action is missing; see the step summary"
+            exit 1
+          fi
+
+      - name: Resolve instance provider defaults
+        id: provider_defaults
+        if: steps.init.outputs.initialized == 'true'
+        uses: ./.panopticon-instance/.github/actions/panopticon-provider-defaults
+
+      - name: Resolve effective provider values
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        env:
+          PANOPTICON_JOB_TIMEOUT_SOURCE: ${{ inputs.job_timeout_source }}
+          PANOPTICON_ACTION_TIMEOUT_SECONDS: ${{ steps.provider_defaults.outputs.timeout_seconds }}
+          PANOPTICON_ACTION_MAX_ATTEMPTS: ${{ steps.provider_defaults.outputs.max_attempts }}
+          PANOPTICON_ACTION_MAX_CORRECTION_ATTEMPTS: ${{ steps.provider_defaults.outputs.max_correction_attempts }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/$PANOPTICON_INSTANCE_DIR" \
+            python3 -m panopticon.provider_defaults
 
       - name: Validate provider configuration revision
         if: steps.init.outputs.initialized == 'true'
