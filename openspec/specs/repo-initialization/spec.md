@@ -1842,14 +1842,19 @@ Child bootstrap and child resource sync SHALL manage the same explicit,
 instance-owned local-tooling manifest. Resource sync SHALL download the
 manifest from the selected instance ref on every run and SHALL NOT use a child
 copy to select modules. It SHALL fetch, preview, and overwrite only
-manifest-listed modules, SHALL NOT add CI-only runtime modules, and SHALL NOT
-delete existing child files outside the manifest.
+manifest-listed modules and SHALL NOT delete existing child files outside the
+manifest. For Python source paths under `panopticon/` outside the manifest,
+sync SHALL ignore child configuration, indexes, `.gitignore`, and bytecode. It
+SHALL report an advisory instance-excluded warning for paths also present in
+the selected instance tree and an advisory child-only-and-unknown warning for
+all other candidates. These warnings SHALL preserve every candidate and SHALL
+not alter sync's exit status.
 
 #### Scenario: Sync encounters CI-only module
 
 - **WHEN** the instance tree contains a CI-only `panopticon/` module outside
   the local-tooling manifest
-- **THEN** child sync neither reports nor writes that module
+- **THEN** child sync reports it as instance-excluded and leaves it unchanged
 
 #### Scenario: Sync refreshes child-safe tooling
 
@@ -1866,4 +1871,12 @@ delete existing child files outside the manifest.
 
 - **WHEN** a child repository contains a `panopticon/` file outside the
   local-tooling manifest
-- **THEN** child sync leaves that file unchanged
+- **THEN** child sync reports it as child-only and unknown, then leaves it
+  unchanged
+
+#### Scenario: Child state is not a tooling candidate
+
+- **GIVEN** a child contains `panopticon/config.json`, `panopticon/index.json`,
+  `.gitignore`, or bytecode
+- **WHEN** child resource sync runs
+- **THEN** sync emits no unmanaged-tooling warning for that state file

@@ -2,6 +2,18 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [complete-rollout-status-and-legacy-tooling-guidance] - 2026-08-02
+
+### Added
+
+- Advisory detection for instance-excluded and child-only Python tooling in
+  child synchronization and tooling-currency checks.
+
+### Changed
+
+- Rollout documentation now records implementation status, current verification
+  evidence, and a reviewed migration process for legacy child tooling.
+
 ## [restrict-child-sync-tooling-manifest] - 2026-08-02
 
 ### Changed
