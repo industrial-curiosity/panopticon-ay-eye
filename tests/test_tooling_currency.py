@@ -10,6 +10,7 @@ from pathlib import Path
 
 from panopticon.tooling_currency import (
     _diff_files,
+    _unmanaged_tooling_findings,
     _panopticon_skill_files,
     _tooling_module_files,
     check_skills_and_tooling_drift,
@@ -104,6 +105,39 @@ class TestToolingModuleFiles(unittest.TestCase):
             (root / "panopticon" / "docs.py").write_text("x")
             files = _tooling_module_files(tmp, ("docs.py", "index.py"))
         self.assertEqual(set(files), {Path("panopticon/docs.py")})
+
+
+class TestUnmanagedToolingFindings(unittest.TestCase):
+    def test_classifies_instance_excluded_and_child_only_modules(self):
+        with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
+            instance_tooling = Path(instance_root) / "panopticon"
+            child_tooling = Path(child_root) / "panopticon"
+            instance_tooling.mkdir()
+            child_tooling.mkdir()
+            (instance_tooling / "llm.py").write_text("ci only", encoding="utf-8")
+            (child_tooling / "llm.py").write_text("ci only", encoding="utf-8")
+            (child_tooling / "legacy_child_module.py").write_text("child owned", encoding="utf-8")
+            findings = _unmanaged_tooling_findings(child_root, instance_root, ("docs.py",))
+        self.assertEqual(
+            findings,
+            [
+                "panopticon/legacy_child_module.py is child-only and unknown to the instance",
+                "panopticon/llm.py is instance-excluded by the local-tooling manifest",
+            ],
+        )
+
+    def test_ignores_child_state_and_bytecode(self):
+        with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
+            tooling = Path(child_root) / "panopticon"
+            tooling.mkdir()
+            (tooling / "config.json").write_text("{}", encoding="utf-8")
+            (tooling / "index.json").write_text("{}", encoding="utf-8")
+            (tooling / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+            cache = tooling / "__pycache__"
+            cache.mkdir()
+            (cache / "ignored.py").write_text("cache", encoding="utf-8")
+            findings = _unmanaged_tooling_findings(child_root, instance_root, ())
+        self.assertEqual(findings, [])
 
 
 class TestDiffFiles(unittest.TestCase):
@@ -227,6 +261,23 @@ class TestMain(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("::warning::", out.getvalue())
             self.assertIn("panopticon-new", out.getvalue())
+
+    def test_unmanaged_tooling_is_a_non_blocking_warning(self):
+        with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
+            self._init_git_repo(instance_root)
+            self._write_caller_workflow(child_root, "main")
+            instance_tooling = Path(instance_root) / "panopticon"
+            child_tooling = Path(child_root) / "panopticon"
+            instance_tooling.mkdir()
+            child_tooling.mkdir()
+            (instance_tooling / "llm.py").write_text("ci only", encoding="utf-8")
+            (child_tooling / "llm.py").write_text("ci only", encoding="utf-8")
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(["--child-root", child_root, "--instance-root", instance_root])
+            self.assertEqual(code, 0)
+            self.assertIn("::warning::", out.getvalue())
+            self.assertIn("llm.py is instance-excluded", out.getvalue())
 
 
 if __name__ == "__main__":

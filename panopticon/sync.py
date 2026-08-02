@@ -19,8 +19,9 @@ bootstrap.py's copies as a drift guard.
 Default behavior overwrites the child's managed skills, vendored tooling, and generated callers
 unconditionally from the instance's current configuration — no per-file protection at the child
 layer: the user's own review of the resulting ``git diff``/``git status`` before committing is the
-safety net. ``--check-updates`` makes the entire run a pure dry run: it reports which files would
-change via a git-blob-sha
+safety net. Python modules outside the remote manifest remain untouched and are reported as
+instance-excluded or child-only candidates for reviewed removal. ``--check-updates`` makes the
+entire run a pure dry run: it reports which files would change via a git-blob-sha
 comparison (GitHub's tree API already returns each file's blob ``sha``; confirmed
 ``sha1(f"blob {len(data)}\\0".encode() + data)`` reproduces ``git hash-object``'s output exactly)
 and writes nothing.
@@ -277,6 +278,37 @@ def _tooling_tree_entries(tree, tooling_modules):
     return [by_path[path] for path in paths]
 
 
+def _unmanaged_tooling_findings(tree, child_root, tooling_modules):
+    """Classify child Python modules outside the remotely selected manifest."""
+    managed_paths = {f"panopticon/{name}" for name in tooling_modules}
+    instance_paths = {
+        item["path"]
+        for item in tree
+        if item["type"] == "blob"
+        and item["path"].startswith("panopticon/")
+        and item["path"].endswith(".py")
+    }
+    tooling_root = Path(child_root) / "panopticon"
+    if not tooling_root.is_dir():
+        return []
+    findings = []
+    for path in sorted(tooling_root.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        relative = path.relative_to(child_root).as_posix()
+        if relative in managed_paths:
+            continue
+        if relative in instance_paths:
+            findings.append(
+                f"{relative} is instance-excluded by the local-tooling manifest; review before removal"
+            )
+        else:
+            findings.append(
+                f"{relative} is child-only and unknown to the instance; review before removal"
+            )
+    return findings
+
+
 def _compare(local, item, relative):
     if not local.is_file():
         return [f"{relative} would be created (missing locally)"]
@@ -348,7 +380,7 @@ def _write_callers(child_root, updates):
 
 def check_updates(tree, child_root, child_location, tooling_modules, caller_updates=()):
     """Pure dry run: compare each relevant tree entry's blob sha against the child's local file,
-    using no network calls beyond the already-fetched tree. Returns a list of finding strings;
+    using no network calls beyond the already-fetched tree. Returns only managed-resource findings;
     writes nothing."""
     findings = []
     for item in _skill_tree_entries(tree):
@@ -417,21 +449,29 @@ def main(argv=None, env=None, child_root=".", urlopen=urllib.request.urlopen):
             caller_source, child_root, repo_config["instance"], workflow_ref, contract,
             default_branch,
         )
-    findings = tooling_findings + [
+    resource_findings = tooling_findings + [
         f"{relative} {reason}" for relative, _, reason in callers
     ]
+    unmanaged_findings = _unmanaged_tooling_findings(tree, child_root, tooling_modules)
 
     if args.check_updates:
-        if not findings:
+        if not resource_findings and not unmanaged_findings:
             print("Everything is current — no managed skills, tooling, or workflow callers would change.")
         else:
-            for finding in findings:
+            for finding in unmanaged_findings:
+                print(f"  warning: {finding}")
+            for finding in resource_findings:
                 print(f"  {finding}")
         return 0
 
-    if not findings:
+    if not resource_findings:
+        for finding in unmanaged_findings:
+            print(f"  warning: {finding}")
         print("Everything is current — no managed skills, tooling, or workflow callers changed.")
         return 0
+
+    for finding in unmanaged_findings:
+        print(f"  warning: {finding}")
 
     n_skills = download_skills(owner, repo, default_branch, tree, token, child_root, location, urlopen)
     n_modules = download_local_tooling(

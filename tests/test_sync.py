@@ -187,6 +187,33 @@ class TestGitBlobSha(unittest.TestCase):
 
 
 class TestCheckUpdates(unittest.TestCase):
+    def test_unmanaged_python_modules_are_classified_without_state_files(self):
+        tree = [
+            _tree_entry("panopticon/docs.py", "x" * 40),
+            _tree_entry("panopticon/llm.py", "y" * 40),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            tooling = Path(tmp) / "panopticon"
+            tooling.mkdir()
+            (tooling / "docs.py").write_text("managed", encoding="utf-8")
+            (tooling / "llm.py").write_text("ci only", encoding="utf-8")
+            (tooling / "legacy_child_module.py").write_text("child owned", encoding="utf-8")
+            (tooling / "config.json").write_text("{}", encoding="utf-8")
+            (tooling / "index.json").write_text("{}", encoding="utf-8")
+            cache = tooling / "__pycache__"
+            cache.mkdir()
+            (cache / "ignored.py").write_text("cache", encoding="utf-8")
+            findings = sync_module._unmanaged_tooling_findings(tree, tmp, ("docs.py",))
+        self.assertEqual(
+            findings,
+            [
+                "panopticon/legacy_child_module.py is child-only and unknown to the instance; "
+                "review before removal",
+                "panopticon/llm.py is instance-excluded by the local-tooling manifest; "
+                "review before removal",
+            ],
+        )
+
     def test_invalid_remote_manifest_fails_with_actionable_error(self):
         def urlopen(request, timeout=30):
             return BytesIO(json.dumps(_file_response(b"this is not valid Python")).encode())
@@ -330,6 +357,33 @@ class TestMainCheckUpdates(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("panopticon/docs.py would be created", out.getvalue())
         self.assertNotIn("panopticon/llm.py", out.getvalue())
+
+    def test_check_updates_warns_about_unmanaged_modules_without_writing_them(self):
+        manifest = b'LOCAL_TOOLING_MODULES = ("docs.py",)\n'
+        docs = b"# current instance docs\n"
+        llm = b"# ci only\n"
+        tree = [
+            _tree_entry("panopticon/docs.py", git_blob_sha(docs)),
+            _tree_entry("panopticon/llm.py", git_blob_sha(llm)),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            _init_repo_config(tmp)
+            legacy = Path(tmp) / "panopticon" / "legacy_child_module.py"
+            excluded = Path(tmp) / "panopticon" / "llm.py"
+            legacy.write_text("keep child file", encoding="utf-8")
+            excluded.write_text("keep ci module", encoding="utf-8")
+            urlopen = _make_urlopen({
+                "git/trees": {"tree": tree},
+                "contents/panopticon/local_tooling.py": _file_response(manifest),
+            })
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(["--check-updates"], env={}, child_root=tmp, urlopen=urlopen)
+            self.assertEqual(code, 0)
+            self.assertEqual(legacy.read_text(encoding="utf-8"), "keep child file")
+            self.assertEqual(excluded.read_text(encoding="utf-8"), "keep ci module")
+        self.assertIn("legacy_child_module.py is child-only", out.getvalue())
+        self.assertIn("llm.py is instance-excluded", out.getvalue())
 
     def test_invalid_instance_provider_configuration_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:

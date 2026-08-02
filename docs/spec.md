@@ -86,7 +86,9 @@ workflows from the instance's current provider configuration so older children
 can acquire newly managed callers without re-running bootstrap. It also
 downloads the instance-owned child-safe local-tooling manifest on every run,
 then refreshes only the listed modules. CI-only runtime modules and child-owned
-files outside that manifest are not managed by local sync.
+files outside that manifest are not managed by local sync. It reports those
+unmanaged Python modules as instance-excluded or child-only advisory candidates
+for reviewed removal, without changing them.
 
 The documentation-drift check first classifies the PR diff. Documentation,
 agent guidance and templates, OpenSpec artifacts, changelogs, and test-only

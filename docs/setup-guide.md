@@ -61,6 +61,7 @@ created from a
    access to the instance repo.
    If it is missing, the workflow stops before pushing and shows these
    instructions in its step summary.
+
 4. No tagging is required to get started — child caller workflows default to the
    instance repo's
    default branch until you opt into pinning a ref (see step 3's
@@ -106,6 +107,7 @@ repo:
 
    Replace `YOUR-ORG/YOUR-INSTANCE-REPO` with your instance, for example
    `acme/panopticon-instance`.
+
 2. Select **Run workflow** and choose the instance's default branch. The
    workflow fixes the provider
    identity and displays only that provider's configuration fields.
@@ -523,6 +525,13 @@ commit, or a skill/tooling file's content differs, is missing, or is extra. It's
 always advisory
 and never gated — acting on it is entirely at your discretion.
 
+The check and local sync also identify unmanaged Python modules under
+`panopticon/`. An **instance-excluded** warning means the selected instance
+contains the module but its local-tooling manifest excludes it (for example, a
+CI-only runtime module). A **child-only and unknown** warning means the module
+is absent from the selected instance. Neither warning deletes or changes the
+file.
+
 To pull the instance's current skills and tooling into an already-bootstrapped
 child repo:
 
@@ -547,6 +556,11 @@ anything:
 ```bash
 python3 -m panopticon.sync --check-updates
 ```
+
+For each warning, review the module's owner and imports before acting. Keep
+child-owned modules that are still needed. For an unwanted legacy or CI-only
+module, remove it only in a separate, reviewed change, run the child test suite,
+and commit that removal separately from the tooling refresh.
 
 If you've customized a skill or tooling module at the **instance** level and
 want that

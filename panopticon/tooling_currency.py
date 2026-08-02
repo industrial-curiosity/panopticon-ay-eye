@@ -7,6 +7,9 @@ repo's current copies. Both checks run against the instance repo checkout the PR
 performs (``.panopticon-instance`` by convention) — no additional network calls beyond the
 ``git ls-remote`` the ref-alignment check needs.
 
+It also reports child Python modules outside the local-tooling manifest as either instance-excluded
+or child-only candidates. All findings remain advisory and leave child files untouched.
+
 This module never gates (tooling-currency capability: "always advisory") — it has no entry in
 ``panopticon.config``'s ``CHECK_TYPES``/``DEFAULT_GATING`` and its ``main()`` always exits ``0``,
 unlike drift.py/currency.py/diagram_check.py's business-verdict exit-code contract (0=clean,
@@ -85,6 +88,29 @@ def _tooling_module_files(root, modules):
     return files
 
 
+def _unmanaged_tooling_findings(child_root, instance_root, modules):
+    """Classify child Python modules outside the instance-owned tooling manifest."""
+    managed_paths = {Path("panopticon") / name for name in modules}
+    child_tooling = Path(child_root) / "panopticon"
+    if not child_tooling.is_dir():
+        return []
+    findings = []
+    for path in sorted(child_tooling.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        relative = path.relative_to(child_root)
+        if relative in managed_paths:
+            continue
+        instance_path = Path(instance_root) / relative
+        if instance_path.is_file():
+            findings.append(
+                f"{relative} is instance-excluded by the local-tooling manifest"
+            )
+        else:
+            findings.append(f"{relative} is child-only and unknown to the instance")
+    return findings
+
+
 def _diff_files(instance_files, child_files):
     """Content-diff two relative-path -> Path maps (design D2: content, never timestamps).
     Returns one finding string per file that differs, is missing from the child, or is missing
@@ -117,7 +143,11 @@ def check_skills_and_tooling_drift(child_root=".", instance_root=DEFAULT_INSTANC
     instance_tooling = _tooling_module_files(instance_root, LOCAL_TOOLING_MODULES)
     child_tooling = _tooling_module_files(child_root, LOCAL_TOOLING_MODULES)
 
-    return _diff_files(instance_skills, child_skills) + _diff_files(instance_tooling, child_tooling)
+    return (
+        _diff_files(instance_skills, child_skills)
+        + _diff_files(instance_tooling, child_tooling)
+        + _unmanaged_tooling_findings(child_root, instance_root, LOCAL_TOOLING_MODULES)
+    )
 
 
 def main(argv=None):
