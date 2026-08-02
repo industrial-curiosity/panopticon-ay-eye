@@ -2,6 +2,13 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [restrict-child-sync-tooling-manifest] - 2026-08-02
+
+### Changed
+
+- Child tooling sync now retrieves the instance-owned manifest on every run
+  and updates only its listed modules, excluding CI-only and child-owned files.
+
 ## [fix-bedrock-converse-request-shape] - 2026-08-01
 
 ### Fixed
