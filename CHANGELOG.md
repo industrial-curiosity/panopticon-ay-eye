@@ -2,6 +2,24 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [harden-bootstrap-manifest-and-workflow-ci] - 2026-08-03
+
+### Added
+
+- Credential-free template CI now validates every reusable workflow contract
+  and runs the full Python test suite for pull requests, pushes, and manual
+  dispatches.
+
+### Changed
+
+- Child bootstrap, sync, and tooling-currency now use a validated versioned
+  JSON local-tooling manifest from the authoritative instance source.
+
+### Fixed
+
+- Uncustomized instance bootstrap no longer depends on an executable manifest
+  module that the default payload loader does not load.
+
 ## [model-effective-provider-requirements] - 2026-08-02
 
 ### Added
