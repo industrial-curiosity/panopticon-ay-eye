@@ -27,6 +27,7 @@ documents within this child documentation tree remain relative to this document,
 {diagram content}
 ```
 
+[Panopticon analysis scope](operations.md#panopticon-analysis-scope)
 [org diagram]({output of `python3 -m panopticon.org_diagram_link`})
 
 ## Data flow

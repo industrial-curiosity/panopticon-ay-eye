@@ -180,6 +180,60 @@ class TestFallbackSelection(unittest.TestCase):
         self.assertEqual(files, ["config/topics.yaml"])
 
 
+class TestAnalysisScope(unittest.TestCase):
+    def write_config(self, root):
+        config_dir = root / "panopticon"
+        config_dir.mkdir()
+        (config_dir / "config.json").write_text(
+            '{"schema_version": 1, "repo": "svc", "instance": "acme/panopticon", "docs_location": "docs"}'
+        )
+
+    def test_declaration_hint_filters_only_annotated_go_dependency(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_config(root)
+            (root / "go.mod").write_text(
+                "module github.com/acme/svc\n\n# panopticon-ignore declaration\n"
+                "require github.com/acme/ignored v1.0.0\nrequire github.com/acme/kept v1.0.0\n"
+            )
+            doc, summary = extract_repo(root, "svc")
+        self.assertIn("github.com/acme/kept", doc["dependencies"])
+        self.assertNotIn("github.com/acme/ignored", doc["dependencies"])
+        self.assertIn("excluded go.mod:4 (explicit declaration hint)", summary)
+
+    def test_illustrative_fallback_file_is_never_sent_to_llm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "examples").mkdir()
+            (root / "examples" / "package.json").write_text('{"name": "example"}')
+            client = FakeClient("[]")
+            extract_repo(root, "svc", client=client, changed_files=["examples/package.json"], skill_root=REPO_ROOT)
+        self.assertEqual(client.calls, [])
+
+    def test_internal_dependencies_in_samples_and_fixtures_are_neither_indexed_nor_sent_to_llm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for directory, package in (("samples", "sample-library"), ("fixtures", "fixture-library")):
+                path = root / directory
+                path.mkdir()
+                (path / "package.json").write_text(
+                    f'{{"dependencies": {{"@acme/{package}": "1.0.0"}}}}'
+                )
+            client = FakeClient('[{"raw_name": "@acme/sample-library", "ecosystem": "npm", '
+                                '"source_file": "samples/package.json"}]')
+            doc, summary = extract_repo(
+                root,
+                "svc",
+                client=client,
+                changed_files=["samples/package.json", "fixtures/package.json"],
+                skill_root=REPO_ROOT,
+            )
+        self.assertEqual(doc["dependencies"], {})
+        self.assertEqual(client.calls, [])
+        self.assertIn("excluded samples/package.json (illustrative directory: samples)", summary)
+        self.assertIn("excluded fixtures/package.json (illustrative directory: fixtures)", summary)
+
+
 class TestLLMFallback(unittest.TestCase):
     def llm_candidates(self):
         return [

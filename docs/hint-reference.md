@@ -140,6 +140,28 @@ interface index at extraction time, the link is silently left unset rather than
 fabricated — the
 dependency entry itself is still recorded correctly either way.
 
+## `panopticon-ignore file` and `panopticon-ignore declaration`
+
+**Capability:** analysis scope.
+**Effect:** excludes illustrative or deliberately out-of-scope material from interface extraction,
+dependency extraction, and doc-drift analysis. The exclusion is visible in extraction summaries;
+it never includes the ignored file's contents.
+
+`panopticon-ignore file` must appear in one of the first five nonblank lines of a file and excludes
+the whole file. `panopticon-ignore declaration` must appear on the declaration it excludes or on the
+immediately preceding line; it excludes only that candidate.
+
+```properties
+# panopticon-ignore declaration
+topic=deprecated-demo-topic
+topic=production-topic
+```
+
+The first topic is excluded while `production-topic` remains in scope. In addition to explicit
+hints, exact directory components named `examples`, `samples`, `fixtures`, `testdata`, `demos`,
+`scaffolding`, `demo`, or `scaffold` are excluded case-insensitively. This does not exclude
+similarly named production paths such as `src/sample-service`.
+
 ## CI behavior when a hint is needed but missing
 
 Every hint form above is a local-judgment mechanism: the local agent (guided by

@@ -29,6 +29,7 @@ from .llm import (
 )
 from .report import format_operational_failure
 from .skills import load_skill
+from .scope import file_reason, path_reason, redact_ignored_declarations
 
 DRIFT_SKILL = "panopticon-doc-drift"
 MAX_DOC_BYTES = 200_000
@@ -36,7 +37,7 @@ NON_BEHAVIOR_PATH_PREFIXES = (".agents/", "docs/", "openspec/", "tests/")
 NON_BEHAVIOR_FILENAMES = {"CHANGELOG.md", "README.md"}
 
 
-def behavior_bearing_paths(diff_text):
+def behavior_bearing_paths(diff_text, repo_root=None):
     """Return changed paths whose contents can change the repository's behavior."""
     paths = []
     for line in diff_text.splitlines():
@@ -50,8 +51,15 @@ def behavior_bearing_paths(diff_text):
             path.startswith(NON_BEHAVIOR_PATH_PREFIXES)
             or path in NON_BEHAVIOR_FILENAMES
             or path.endswith(".md")
+            or path_reason(path)
         ):
             continue
+        if repo_root is not None:
+            source_path = Path(repo_root) / path
+            if source_path.is_file() and file_reason(
+                path, source_path.read_text(encoding="utf-8", errors="replace")
+            ):
+                continue
         if path not in paths:
             paths.append(path)
     return paths
@@ -81,9 +89,9 @@ def _validate_drift_verdict(verdict, behavior_paths):
             raise ValueError("a stale reason must describe a required documentation update")
 
 
-def check_drift(diff_text, docs, client, skill_root="."):
+def check_drift(diff_text, docs, client, skill_root=".", repo_root=None):
     """Judge whether the docs require updates for this diff. ``docs`` is ``{path: text}``."""
-    behavior_paths = behavior_bearing_paths(diff_text)
+    behavior_paths = behavior_bearing_paths(diff_text, repo_root=repo_root)
     if not behavior_paths:
         return {
             "stale": False,
@@ -92,7 +100,8 @@ def check_drift(diff_text, docs, client, skill_root="."):
         }
     doc_sections = [f"### {path}\n```markdown\n{text}\n```" for path, text in sorted(docs.items())]
     user_content = (
-        "## PR diff\n```diff\n" + diff_text + "\n```\n\n## Current documentation\n\n"
+        "## PR diff\n```diff\n" + redact_ignored_declarations(diff_text)
+        + "\n```\n\n## Current documentation\n\n"
         + "\n\n".join(doc_sections)
     )
     return client.complete_json(
@@ -169,6 +178,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="LLM doc-vs-code drift check (CI only).")
     parser.add_argument("--diff-file", required=True, help="file containing the PR diff")
     parser.add_argument("--docs-root", required=True)
+    parser.add_argument("--repo-root", default=".")
     parser.add_argument("--skill-root", default=".", help="checkout containing .agents/skills")
     parser.add_argument("--report-file", help="write the markdown report here (for PR comments)")
     parser.add_argument("--actions-file", help="write the structured TL;DR actions JSON here")
@@ -181,7 +191,10 @@ def main(argv=None):
     try:
         client = LLMClient.from_env()
         diff_text = Path(args.diff_file).read_text(encoding="utf-8", errors="replace")
-        verdict = check_drift(diff_text, collect_docs(args.docs_root), client, skill_root=args.skill_root)
+        verdict = check_drift(
+            diff_text, collect_docs(args.docs_root), client, skill_root=args.skill_root,
+            repo_root=args.repo_root,
+        )
     except (MissingRequirementError, LLMConfigurationError, LLMRequestError, LLMResponseError) as exc:
         print(f"::error::Panopticon doc-drift check could not run: {exc}")
         # Written to --report-file so the combined report shows this failure (pr-evaluation spec:

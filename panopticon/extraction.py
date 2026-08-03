@@ -23,8 +23,9 @@ from pathlib import Path
 
 from .index import KIND_LOCAL, empty_index, save_index, sorted_doc, validate_index
 from .naming import resolve_name
-from .parsers import EXCLUDED_DIRS, iter_files, relative_posix, run_parsers
+from .parsers import iter_files, relative_posix, run_parsers
 from .skills import load_skill
+from .scope import exclusion_reports, filter_candidates, redact_ignored_declarations
 
 EXTRACTION_SKILL = "panopticon-interface-extraction"
 
@@ -106,6 +107,7 @@ def llm_extract(client, repo_root, candidate_files, skill_root="."):
     sections = []
     for rel in candidate_files:
         text = (repo_root / rel).read_text(encoding="utf-8", errors="replace")
+        text = redact_ignored_declarations(text)
         sections.append(f"### {rel}\n```\n{text}\n```")
     raw = client.complete_json(
         load_skill(EXTRACTION_SKILL, root=skill_root),
@@ -155,12 +157,20 @@ def extract_repo(repo_root, repo_name, client=None, changed_files=None, skill_ro
     ``client=None`` runs deterministic parsers only (the local agent harness handles LLM
     judgment itself); passing an ``LLMClient`` enables the CI fallback over ``changed_files``.
     """
+    repo_root = Path(repo_root)
     candidates = [c for group in run_parsers(repo_root).values() for c in group]
+    candidate_texts = {
+        source_file: (repo_root / source_file).read_text(encoding="utf-8", errors="replace")
+        for source_file in {candidate["source_file"] for candidate in candidates}
+        if (repo_root / source_file).is_file()
+    }
+    candidates, scope_summary = filter_candidates(candidates, candidate_texts)
     if client is not None:
         covered = {c["source_file"] for c in candidates}
         fallback_files = fallback_candidate_files(repo_root, covered, changed_files)
         candidates.extend(llm_extract(client, repo_root, fallback_files, skill_root=skill_root))
-    return candidates_to_index(candidates, repo_name), parser_gap_recommendations(candidates)
+    summary = exclusion_reports(repo_root) + scope_summary + parser_gap_recommendations(candidates)
+    return candidates_to_index(candidates, repo_name), summary
 
 
 def main(argv=None):

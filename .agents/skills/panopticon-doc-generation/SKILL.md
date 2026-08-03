@@ -29,7 +29,7 @@ components that no longer exist.
 
 1. **Follow the templates.** Every generated file keeps its template's heading structure; fill
    each section or state explicitly why it does not apply. Do not invent extra top-level
-   sections.
+   sections, except for the template's managed `## Panopticon analysis scope` section.
 2. **Never write `interfaces.md` yourself.** It is rendered from the local index so it can never
    disagree with it. After the index changes, run:
 
@@ -65,8 +65,10 @@ components that no longer exist.
    available; default `mermaid` when absent or no instance checkout is available locally) —
    depicting this repo's components and how they relate, same "ground every statement in the
    code" discipline as the rest of this layer. Do not invent components or relationships that
-   aren't in the code. Directly below the fenced block, add a markdown link back to this repo's
-   section in the org diagram. Run the command below and use its printed URL verbatim:
+   aren't in the code. Directly below the fenced block, retain the relative
+   `[Panopticon analysis scope](operations.md#panopticon-analysis-scope)` link and add a markdown
+   link back to this repo's section in the org diagram. Run the command below and use its printed
+   URL verbatim:
 
    ```bash
    python3 -m panopticon.org_diagram_link

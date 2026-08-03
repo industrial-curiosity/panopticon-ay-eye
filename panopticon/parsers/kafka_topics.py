@@ -45,7 +45,7 @@ def detect(repo_root):
     return bool(_config_files(repo_root))
 
 
-def _candidate(name, hint, role, owned, source_file):
+def _candidate(name, hint, role, owned, source_file, source_line=None):
     return {
         "raw_name": name,
         "hint": hint,
@@ -54,6 +54,7 @@ def _candidate(name, hint, role, owned, source_file):
         "source_file": source_file,
         "owned": owned,
         "component": None,
+        "source_line": source_line,
     }
 
 
@@ -68,7 +69,7 @@ def _from_properties(text, source_file):
         hint = nearest_hint(text, line_number)
         for name in match.group("value").split(","):
             if name:
-                candidates.append(_candidate(name, hint, "consumer", False, source_file))
+                candidates.append(_candidate(name, hint, "consumer", False, source_file, line_number))
     return candidates
 
 
@@ -112,7 +113,9 @@ def _from_yaml(text, source_file):
         match = _YAML_TOPIC_RE.match(line)
         if match:
             hint = nearest_hint(text, line_number)
-            candidates.append(_candidate(match.group("value").strip("'\""), hint, "consumer", False, source_file))
+            candidates.append(
+                _candidate(match.group("value").strip("'\""), hint, "consumer", False, source_file, line_number)
+            )
             continue
         if in_topics_list:
             match = _YAML_LIST_NAME_RE.match(line)
@@ -122,7 +125,7 @@ def _from_yaml(text, source_file):
                 hint = nearest_hint(text, line_number)
                 role = "producer" if creates else "consumer"
                 candidates.append(
-                    _candidate(match.group("value").strip("'\""), hint, role, creates, source_file)
+                    _candidate(match.group("value").strip("'\""), hint, role, creates, source_file, line_number)
                 )
     return candidates
 

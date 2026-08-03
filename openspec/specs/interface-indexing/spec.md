@@ -177,6 +177,20 @@ interface type extracted this way.
   the workflow summary recommends
   generating a parser for that interface type
 
+### Requirement: Interface extraction honors analysis scope
+
+Interface extraction SHALL exclude files in exact illustrative directory components and files with
+an early `panopticon-ignore file` annotation before parser detection or LLM fallback. Parsers SHALL
+retain declaration-line metadata when available so a `panopticon-ignore declaration` annotation on
+the declaration or immediately preceding line excludes only that candidate. Summaries SHALL report
+excluded paths or declaration locations without exposing unrelated file contents.
+
+#### Scenario: Production near-match remains indexed
+
+- **WHEN** a Kafka declaration is in `src/sample-service/kafka.properties`
+- **THEN** extraction retains the declaration because `sample-service` is not an exact excluded
+  directory component
+
 ### Requirement: Shard merge and compiled index
 
 The instance repo SHALL store one shard per repo (`interfaces/{repo}.json`) and

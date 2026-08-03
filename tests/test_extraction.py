@@ -1,6 +1,7 @@
 """Extraction driver: parser folding, LLM fallback tagging, parser-gap recommendations."""
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -95,6 +96,48 @@ class TestFallbackSelection(unittest.TestCase):
     def test_ci_mode_restricts_to_changed_files(self):
         files = fallback_candidate_files(SAMPLE_REPO, set(), changed_files=["config/topics.yaml"])
         self.assertEqual(files, ["config/topics.yaml"])
+
+
+class TestAnalysisScope(unittest.TestCase):
+    def test_excludes_examples_and_file_hints_but_keeps_production_near_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "demos").mkdir()
+            (root / "demos" / "kafka.properties").write_text("topic=demo-events\n")
+            production = root / "src" / "sample-service"
+            production.mkdir(parents=True)
+            (production / "kafka.properties").write_text("topic=production-events\n")
+            (root / "config").mkdir()
+            (root / "config" / "kafka.properties").write_text(
+                "# panopticon-ignore file\ntopic=ignored-events\n"
+            )
+            doc, summary = extract_repo(root, "svc-x")
+        self.assertIn("production-events", doc["interfaces"])
+        self.assertNotIn("demo-events", doc["interfaces"])
+        self.assertNotIn("ignored-events", doc["interfaces"])
+        self.assertIn("excluded demos/kafka.properties (illustrative directory: demos)", summary)
+        self.assertIn("excluded config/kafka.properties (explicit file hint)", summary)
+
+    def test_declaration_hint_filters_only_annotated_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "config").mkdir()
+            (root / "config" / "kafka.properties").write_text(
+                "# panopticon-ignore declaration\ntopic=ignored-events\ntopic=kept-events\n"
+            )
+            doc, summary = extract_repo(root, "svc-x")
+        self.assertIn("kept-events", doc["interfaces"])
+        self.assertNotIn("ignored-events", doc["interfaces"])
+        self.assertIn("excluded config/kafka.properties:2 (explicit declaration hint)", summary)
+
+    def test_ignored_fallback_file_is_never_sent_to_llm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "demos").mkdir()
+            (root / "demos" / "queues.yaml").write_text("queue: demo\n")
+            client = FakeClient("[]")
+            extract_repo(root, "svc-x", client=client, changed_files=["demos/queues.yaml"], skill_root=REPO_ROOT)
+        self.assertEqual(client.calls, [])
 
 
 class TestLLMFallback(unittest.TestCase):

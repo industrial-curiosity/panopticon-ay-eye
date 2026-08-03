@@ -45,6 +45,10 @@ For example, `examples/openapi.yaml` is excluded while
 `src/sample-service/openapi.yaml` remains in scope. Matching ignores directory-name case but
 does not match a longer component such as `examples-api`.
 
+The policy applies identically to dependency evidence. An internal dependency declaration or
+import under an illustrative directory is excluded before deterministic parsing or LLM fallback;
+the dependency index must not retain it merely because its package identity is internal.
+
 ### Hints use explicit modes and fixed placement
 
 The new valued forms are `panopticon-ignore file` and

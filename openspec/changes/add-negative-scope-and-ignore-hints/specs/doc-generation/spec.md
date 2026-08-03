@@ -4,7 +4,17 @@
 
 ### Requirement: Four documentation layers
 
-Doc generation SHALL produce four layers per repo: an architecture overview (purpose, components, data flow, dependencies, and an architecture diagram section per the architecture-diagrams capability), per-component docs following a fixed template, interface docs, and operational docs (how to run/deploy/test, required configuration, and a managed `## Panopticon analysis scope` section). Generated docs SHALL live in the repo's configured documentation location (adopted or chosen at initialization and recorded in `panopticon/config.json`) so the sync workflow can copy them to `docs/{repo}/` in the instance repo. Generation and doc updating SHALL be defined as harness-portable agent skills, so that local runs execute in the user's preferred AI agent harness with no Panopticon LLM configuration. The managed analysis-scope section SHALL list each actual repository directory excluded by the illustrative-path policy, its reason, the complete default directory set, and the explicit file and declaration hint forms.
+Doc generation SHALL produce four layers per repo: an architecture overview (purpose, components,
+data flow, dependencies, and an architecture diagram section per the architecture-diagrams
+capability), per-component docs following a fixed template, interface docs, and operational docs
+(how to run/deploy/test, required configuration, and a managed `## Panopticon analysis scope`
+section). Generated docs SHALL live in the repo's configured documentation location (adopted or
+chosen at initialization and recorded in `panopticon/config.json`) so the sync workflow can copy
+them to `docs/{repo}/` in the instance repo. Generation and doc updating SHALL be defined as
+harness-portable agent skills, so that local runs execute in the user's preferred AI agent harness
+with no Panopticon LLM configuration. The managed analysis-scope section SHALL list each actual
+repository directory excluded by the illustrative-path policy, its reason, the complete default
+directory set, and the explicit file and declaration hint forms.
 
 #### Scenario: Local doc update through the user's harness
 

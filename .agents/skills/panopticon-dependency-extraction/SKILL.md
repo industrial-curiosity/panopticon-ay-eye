@@ -10,6 +10,15 @@ description: >-
 
 # Panopticon dependency extraction (LLM fallback)
 
+## Analysis scope
+
+Never identify dependencies from an exact illustrative directory component (`examples`, `samples`,
+`fixtures`, `testdata`, `demos`, `scaffolding`, `demo`, or `scaffold`, case-insensitive), from a
+file carrying `panopticon-ignore file` in its first five nonblank lines, or from a declaration
+marked `panopticon-ignore declaration` on that line or immediately before it. The driver filters
+those files before invoking this skill and redacts marked declarations from fallback content; do
+not reconstruct or return an ignored candidate from surrounding context.
+
 You are given file contents from one repository. Identify every **internal (same-org) library or
 package dependency** they declare, publish, or import: package-manager manifests (`go.mod`,
 `package.json`, `pyproject.toml`, `build.gradle`, etc.), lockfiles, and any other file that names a

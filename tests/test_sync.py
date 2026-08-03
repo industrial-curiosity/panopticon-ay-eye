@@ -126,6 +126,9 @@ class TestSelfContained(unittest.TestCase):
             actual = (Path(tmp) / ".github" / "workflows" / "panopticon-resource-sync.yml").read_text()
         self.assertEqual(actual, expected)
 
+    def test_scope_module_is_in_the_child_safe_manifest(self):
+        self.assertIn("scope.py", LOCAL_TOOLING_MODULES)
+
 
 class TestApiGetRetry(unittest.TestCase):
     def test_retry_after_is_used_for_rate_limit(self):

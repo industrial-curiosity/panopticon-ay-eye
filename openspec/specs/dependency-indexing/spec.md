@@ -193,6 +193,20 @@ behavior.
 - **THEN** the check fails, instructing the developer to add a
   `panopticon-dependency` hint
 
+### Requirement: Dependency extraction honors analysis scope
+
+Dependency extraction SHALL use the shared analysis scope before deterministic parsing and LLM
+fallback. It SHALL exclude exact illustrative directory components and early
+`panopticon-ignore file` annotations, filter a candidate marked by
+`panopticon-ignore declaration` on its declaration or immediately preceding line, redact that
+declaration from fallback prompts, and report every exclusion location without file content.
+
+#### Scenario: Ignored dependency is absent from the index
+
+- **WHEN** a `go.mod` requirement is immediately preceded by `panopticon-ignore declaration`
+- **THEN** the requirement is absent from the dependency index while other requirements remain
+  eligible for extraction
+
 ### Requirement: Interface-linking hint
 
 No naming heuristic SHALL infer a link between a dependency entry and an

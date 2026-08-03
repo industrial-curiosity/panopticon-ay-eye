@@ -86,6 +86,16 @@ and that the check re-runs
 automatically on that push. Org gating configuration MAY downgrade the check to
 advisory.
 
+Illustrative paths and explicit analysis-scope hints SHALL be removed before behavior-path
+selection and LLM prompt construction. If this leaves no behavior-bearing content, the check SHALL
+return its existing clean verdict without invoking the LLM.
+
+#### Scenario: Ignored-only pull request is clean
+
+- **WHEN** a PR changes only an `examples/` file or a file with an early
+  `panopticon-ignore file` annotation
+- **THEN** the doc-drift check returns a clean verdict without an LLM request
+
 #### Scenario: Code change affecting documented behavior
 
 - **WHEN** a PR changes a component's public behavior without touching its docs
