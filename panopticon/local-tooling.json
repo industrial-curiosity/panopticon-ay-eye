@@ -10,6 +10,7 @@
     "index.py",
     "init_repo.py",
     "sync.py",
+    "scope.py",
     "org_diagram_link.py",
     "recovery.py"
   ]

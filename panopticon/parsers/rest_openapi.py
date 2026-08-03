@@ -46,7 +46,7 @@ def _title_from_json(text):
 def _title_from_yaml(text):
     """Line-wise scrape of ``info: / title:`` — indentation-based, comments ignored."""
     info_indent = None
-    for line in text.splitlines():
+    for line_number, line in enumerate(text.splitlines(), start=1):
         stripped = line.split("#", 1)[0]
         match = _YAML_KEY_RE.match(stripped)
         if not match:
@@ -58,8 +58,8 @@ def _title_from_yaml(text):
         elif indent <= info_indent:
             info_indent = indent if key == "info" and not value else None
         elif key == "title" and value:
-            return value.strip("'\"")
-    return None
+            return value.strip("'\""), line_number
+    return None, None
 
 
 def extract(repo_root):
@@ -71,9 +71,9 @@ def extract(repo_root):
     for path in _spec_files(repo_root):
         text = path.read_text(encoding="utf-8", errors="replace")
         if path.suffix.lower() == ".json":
-            title = _title_from_json(text)
+            title, source_line = _title_from_json(text), None
         else:
-            title = _title_from_yaml(text)
+            title, source_line = _title_from_yaml(text)
         hints = interface_hints(text)
         if title is None and not hints:
             continue
@@ -86,6 +86,7 @@ def extract(repo_root):
                 "source_file": relative_posix(path, repo_root),
                 "owned": True,
                 "component": None,
+                "source_line": source_line,
             }
         )
     return candidates

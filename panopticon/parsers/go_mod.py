@@ -106,7 +106,9 @@ def _owning_module(import_path, internal_prefixes):
     return None
 
 
-def _candidate(name, hint, role, owned, source_file, apis=None, links_to_interface_hint=None):
+def _candidate(
+    name, hint, role, owned, source_file, apis=None, links_to_interface_hint=None, source_line=None,
+):
     return {
         "raw_name": name,
         "hint": hint,
@@ -117,6 +119,7 @@ def _candidate(name, hint, role, owned, source_file, apis=None, links_to_interfa
         "component": None,
         "apis": apis,
         "links_to_interface_hint": links_to_interface_hint,
+        "source_line": source_line,
     }
 
 
@@ -151,6 +154,7 @@ def extract(repo_root):
                 True,
                 source_file,
                 links_to_interface_hint=nearest_hint(text, line_number, hint_type=DEPENDENCY_OF_HINT),
+                source_line=line_number,
             )
         )
     for path in requires:
@@ -167,6 +171,7 @@ def extract(repo_root):
                 False,
                 source_file,
                 links_to_interface_hint=nearest_hint(text, line_number, hint_type=DEPENDENCY_OF_HINT),
+                source_line=line_number,
             )
         )
 

@@ -2,6 +2,19 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [add-negative-scope-and-ignore-hints] - 2026-08-03
+
+### Added
+
+- Deterministic analysis-scope rules exclude illustrative paths and explicit
+  file or declaration annotations from interface, dependency, and doc-drift
+  analysis.
+
+### Changed
+
+- Generated operations documentation now lists the repository's excluded
+  directories, and architecture diagrams link to that scope explanation.
+
 ## [harden-bootstrap-manifest-and-workflow-ci] - 2026-08-03
 
 ### Added

@@ -68,6 +68,12 @@ The workflow is intentionally simple:
 4. When planning a change, developers and agents use that shared view to
    understand affected connections.
 
+Panopticon deliberately excludes illustrative directories (`examples`, `samples`, `fixtures`,
+`testdata`, `demos`, `scaffolding`, `demo`, and `scaffold`) from analysis while retaining similarly
+named production paths such as `src/sample-service`. A child repository's generated
+`operations.md` lists the excluded folders actually present and documents the explicit
+`panopticon-ignore file` and `panopticon-ignore declaration` escape hatches.
+
 The organization architecture is a complete interface inventory: it includes
 interfaces even when only one repository participates, and highlights detected
 ownership/type conflicts and potential same-name collisions.

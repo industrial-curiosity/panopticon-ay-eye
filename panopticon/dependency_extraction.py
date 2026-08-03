@@ -31,9 +31,10 @@ from pathlib import Path
 from .dependencies import KIND_LOCAL, empty_index, save_index, sorted_doc, validate_index
 from .dependency_lookup import is_internal_registry, lookup_registered_producer
 from .naming import resolve_dependency_name
-from .parsers import EXCLUDED_DIRS, iter_files, relative_posix
+from .parsers import iter_files, relative_posix
 from .parsers import go_mod
 from .skills import load_skill
+from .scope import exclusion_reports, filter_candidates, redact_ignored_declarations
 
 EXTRACTION_SKILL = "panopticon-dependency-extraction"
 
@@ -197,6 +198,7 @@ def llm_extract(client, repo_root, candidate_files, skill_root="."):
     sections = []
     for rel in candidate_files:
         text = (repo_root / rel).read_text(encoding="utf-8", errors="replace")
+        text = redact_ignored_declarations(text)
         sections.append(f"### {rel}\n```\n{text}\n```")
     raw = client.complete_json(
         load_skill(EXTRACTION_SKILL, root=skill_root),
@@ -254,13 +256,21 @@ def extract_repo(repo_root, repo_name, client=None, changed_files=None, skill_ro
     they aren't wired in here. That function is independently tested and ready for a future
     manifest-based parser (npm, Python, JVM) that can't self-resolve the way Go can.
     """
+    repo_root = Path(repo_root)
     candidates = [c for group in run_dependency_parsers(repo_root).values() for c in group]
+    candidate_texts = {
+        source_file: (repo_root / source_file).read_text(encoding="utf-8", errors="replace")
+        for source_file in {candidate["source_file"] for candidate in candidates}
+        if (repo_root / source_file).is_file()
+    }
+    candidates, scope_summary = filter_candidates(candidates, candidate_texts)
     if client is not None:
         covered = {c["source_file"] for c in candidates}
         fallback_files = fallback_candidate_files(repo_root, covered, changed_files)
         candidates.extend(llm_extract(client, repo_root, fallback_files, skill_root=skill_root))
     doc = dependency_candidates_to_index(candidates, repo_name, repo_root=repo_root)
-    return doc, parser_gap_recommendations(candidates)
+    summary = exclusion_reports(repo_root) + scope_summary + parser_gap_recommendations(candidates)
+    return doc, summary
 
 
 def main(argv=None):

@@ -61,6 +61,7 @@ names and folds them into the index:
     "source_file": "config/topics.yaml",  # repo-root-relative, posix separators
     "owned": True,                    # the repo declares/creates the interface
     "component": "order-service" or None,
+    "source_line": 42 or None,       # declaration line when the parser can determine it
 }
 ```
 
@@ -69,6 +70,10 @@ vendored/generated directories,
 returns sorted paths — required for determinism),
 `panopticon.parsers.relative_posix`, and
 `panopticon.naming.nearest_hint` / `interface_hints` for hint comments.
+`iter_files` also applies the repository analysis scope: exact illustrative directory components
+and `panopticon-ignore file` headers are never passed to parsers. When a parser can identify a
+declaration line, emit `source_line` so the shared driver can honor a
+`panopticon-ignore declaration` annotation on that line or the one immediately before it.
 
 ## Rules (enforced in review)
 
@@ -93,6 +98,8 @@ returns sorted paths — required for determinism),
    names/shapes the parser reads and which role/ownership it assigns to each. A
    parser that does
    one shape well beats one that guesses at many.
+7. **Preserve scope metadata.** Do not bypass `iter_files`, and attach `source_line` whenever the
+   parser can identify the declaration. Ignored candidates must be omitted before index folding.
 
 ## Tests
 

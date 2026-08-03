@@ -8,6 +8,14 @@ description: >-
 
 # Panopticon doc-drift verdict
 
+## Analysis scope
+
+Treat a changed path in an exact illustrative directory component (`examples`, `samples`,
+`fixtures`, `testdata`, `demos`, `scaffolding`, `demo`, or `scaffold`, case-insensitive) as out of
+scope. The runtime also excludes files with `panopticon-ignore file` in their first five nonblank
+lines and redacts declarations marked `panopticon-ignore declaration` on that line or immediately
+before it. Do not cite excluded paths or redacted declarations as evidence for stale documentation.
+
 You are given a PR diff and the repo's current documentation (the four Panopticon layers:
 architecture overview, per-component docs, interface docs, operational docs). Decide whether the
 documentation is **stale with respect to this diff** — i.e., after this PR merges, would any doc

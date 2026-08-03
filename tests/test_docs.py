@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from panopticon.docs import (
+    ANALYSIS_SCOPE_LINK,
     diagram_section_problems,
     prune_component_docs,
     regenerate,
@@ -20,9 +21,14 @@ def make_docs_tree(root):
     root = Path(root)
     (root / "components").mkdir(parents=True)
     (root / "architecture.md").write_text(
-        "# svc-a — architecture overview\n\n## Architecture diagram\n\n```mermaid\ngraph TD\n  api --> worker\n```\n"
+        "# svc-a — architecture overview\n\n## Architecture diagram\n\n```mermaid\ngraph TD\n  api --> worker\n```\n\n"
+        f"{ANALYSIS_SCOPE_LINK}\n[org diagram](https://example.test/architecture.md#svc-a)\n"
     )
-    (root / "operations.md").write_text("# svc-a — operations\n")
+    (root / "operations.md").write_text(
+        "# svc-a — operations\n\n<!-- panopticon-analysis-scope:start -->\n"
+        "## Panopticon analysis scope\n\nInitial generated content.\n"
+        "<!-- panopticon-analysis-scope:end -->\n"
+    )
     (root / "components" / "api.md").write_text("# api\n")
     (root / "components" / "worker.md").write_text("# worker\n")
 
@@ -74,6 +80,18 @@ class TestRegeneration(unittest.TestCase):
             self.assertEqual(again["removed_components"], [])
             self.assertEqual(sorted(p.name for p in Path(tmp).glob("*.md")),
                              ["architecture.md", "interfaces.md", "operations.md"])
+
+    def test_regenerate_lists_only_actual_excluded_directories(self):
+        doc = load_fixture("local_svc_a.json")
+        with tempfile.TemporaryDirectory() as tmp:
+            make_docs_tree(tmp)
+            Path(tmp, "demos", "nested").mkdir(parents=True)
+            Path(tmp, "src", "sample-service").mkdir(parents=True)
+            regenerate(tmp, doc, "svc-a", repo_root=tmp)
+            operations = Path(tmp, "operations.md").read_text()
+        self.assertIn("`demos/`", operations)
+        self.assertNotIn("`src/sample-service/`", operations)
+        self.assertIn("panopticon-ignore file", operations)
 
     def test_prune_without_components_dir_is_noop(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -168,6 +186,17 @@ class TestDiagramSection(unittest.TestCase):
             problems = validate_docs(tmp)
         architecture_problems = [p for p in problems if "architecture" in p]
         self.assertEqual(len(architecture_problems), 1)
+
+    def test_architecture_template_links_scope_before_org_diagram(self):
+        root = Path(__file__).resolve().parent.parent
+        template = (root / ".agents/skills/panopticon-doc-generation/assets/architecture-template.md").read_text()
+        self.assertLess(template.index(ANALYSIS_SCOPE_LINK), template.index("[org diagram]"))
+
+    def test_operations_template_has_managed_scope_markers(self):
+        root = Path(__file__).resolve().parent.parent
+        template = (root / ".agents/skills/panopticon-doc-generation/assets/operations-template.md").read_text()
+        self.assertIn("<!-- panopticon-analysis-scope:start -->", template)
+        self.assertIn("<!-- panopticon-analysis-scope:end -->", template)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,15 @@ description: >-
 
 # Panopticon interface extraction (LLM fallback)
 
+## Analysis scope
+
+Never identify interfaces from an exact illustrative directory component (`examples`, `samples`,
+`fixtures`, `testdata`, `demos`, `scaffolding`, `demo`, or `scaffold`, case-insensitive), from a
+file carrying `panopticon-ignore file` in its first five nonblank lines, or from a declaration
+marked `panopticon-ignore declaration` on that line or immediately before it. The driver filters
+those files before invoking this skill and redacts marked declarations from fallback content; do
+not reconstruct or return an ignored candidate from surrounding context.
+
 You are given file contents from one repository. Identify every **service interface** they
 declare, create, or consume: HTTP/REST/gRPC/GraphQL APIs, message queues and topics, shared
 databases or buckets, RPC endpoints, webhooks, file drops. Ignore purely internal wiring

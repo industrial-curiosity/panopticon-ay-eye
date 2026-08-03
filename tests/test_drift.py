@@ -74,6 +74,22 @@ diff --git a/docs/architecture.md b/docs/architecture.md
         self.assertFalse(verdict["stale"])
         self.assertEqual(client.calls, [])
 
+    def test_illustrative_only_diff_is_clean_without_llm_call(self):
+        diff = "diff --git a/demos/kafka.properties b/demos/kafka.properties\n+++ b/demos/kafka.properties\n+topic=demo"
+        client = FakeClient(json.dumps(STALE_VERDICT))
+        verdict = check_drift(diff, {}, client, skill_root=REPO_ROOT)
+        self.assertFalse(verdict["stale"])
+        self.assertEqual(client.calls, [])
+
+    def test_file_hint_excludes_changed_file_without_llm_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "config.py").write_text("# panopticon-ignore file\nVALUE = 1\n")
+            diff = "diff --git a/config.py b/config.py\n+++ b/config.py\n+VALUE = 1"
+            client = FakeClient(json.dumps(STALE_VERDICT))
+            verdict = check_drift(diff, {}, client, skill_root=REPO_ROOT, repo_root=tmp)
+        self.assertFalse(verdict["stale"])
+        self.assertEqual(client.calls, [])
+
     def test_deleted_behavior_file_is_evaluated(self):
         diff = "diff --git a/src/api.py b/src/api.py\n--- a/src/api.py\n+++ /dev/null\n- old code"
         verdict = check_drift(diff, {}, FakeClient(json.dumps(STALE_VERDICT)), skill_root=REPO_ROOT)

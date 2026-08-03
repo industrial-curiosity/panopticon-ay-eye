@@ -50,7 +50,9 @@ components and their relationships. This section is part of the
 architecture-overview documentation layer
 (doc-generation capability) and SHALL be agent-drawn and grounded in the actual
 code, following the same
-rules as the rest of that layer.
+rules as the rest of that layer. Directly below the diagram, it SHALL include
+proper markdown links to the repository's organization-diagram anchor and to
+`operations.md#panopticon-analysis-scope`.
 
 #### Scenario: Diagram section present after doc generation
 
@@ -67,6 +69,12 @@ rules as the rest of that layer.
   this repo, built exactly as specified in "Diagram navigation uses plain links,
   not in-diagram
   click-through"
+
+#### Scenario: Diagram links to analysis scope
+
+- **WHEN** doc generation produces the `## Architecture diagram` section
+- **THEN** directly below the diagram it includes a proper relative markdown
+  link to `operations.md#panopticon-analysis-scope`
 
 ### Requirement: Org diagram document shape
 
@@ -378,6 +386,20 @@ merge, no need to already know the instance repo's URL or branch by heart.
   and the live lookup
   also failed, and how to fix either — it SHALL NOT print a link built from a
   guessed branch name
+
+### Requirement: Architecture diagrams link to analysis scope
+
+A child architecture overview SHALL place
+`[Panopticon analysis scope](operations.md#panopticon-analysis-scope)` directly below its required
+diagram fence and retain the existing organization-diagram link. The linked operations document
+SHALL visibly list the actual repository-relative illustrative directories excluded from analysis,
+the default exact-component rule, and the explicit file/declaration hint syntax.
+
+#### Scenario: Reader can inspect exclusions from the diagram
+
+- **WHEN** a child documentation set contains an architecture diagram and operations document
+- **THEN** the architecture document links directly to the operations analysis-scope section and
+  that section lists the illustrative directories currently present in the repository
 
 ### Requirement: Child repo README links to both diagrams
 

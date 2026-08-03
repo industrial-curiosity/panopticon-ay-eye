@@ -148,13 +148,22 @@ self-contained Python module exposing
 Extraction SHALL run every parser
 whose `detect` returns true. Parsers MUST NOT import org-specific code or
 require dependencies beyond the core
-tooling's requirements.
+tooling's requirements. Before parser detection or extraction, shared file
+iteration SHALL apply the analysis-scope policy. A parser that supports
+declaration-level annotations SHALL preserve the candidate declaration line so
+the shared analysis-scope filter can exclude that declaration.
 
 #### Scenario: Parser handles its interface type
 
 - **WHEN** extraction runs on a repo containing an OpenAPI specification
 - **THEN** the REST parser detects it and emits index entries derived from the
   specification
+
+#### Scenario: Parser skips an illustrative specification
+
+- **WHEN** an OpenAPI specification is under `examples/`
+- **THEN** interface extraction does not emit an entry from that file and
+  reports its illustrative-directory exclusion
 
 ### Requirement: LLM extraction fallback with parser-gap reporting
 
@@ -167,7 +176,8 @@ happens locally through the
 user's agent. LLM-extracted entries SHALL be tagged `"extracted_by": "llm"`, and
 the workflow summary SHALL
 include a warning recommending creation of a deterministic parser for each
-interface type extracted this way.
+interface type extracted this way. Analysis scope SHALL filter candidate files
+and annotated declarations before the LLM prompt is assembled.
 
 #### Scenario: Unparsed interface type found
 
@@ -176,6 +186,27 @@ interface type extracted this way.
 - **THEN** the LLM extractor emits the entry tagged `"extracted_by": "llm"` and
   the workflow summary recommends
   generating a parser for that interface type
+
+#### Scenario: Ignored fallback declaration is omitted
+
+- **WHEN** an otherwise eligible fallback file contains an annotated ignored
+  declaration
+- **THEN** the LLM prompt omits the annotation and declaration, and no extracted
+  interface names that declaration
+
+### Requirement: Interface extraction honors analysis scope
+
+Interface extraction SHALL exclude files in exact illustrative directory components and files with
+an early `panopticon-ignore file` annotation before parser detection or LLM fallback. Parsers SHALL
+retain declaration-line metadata when available so a `panopticon-ignore declaration` annotation on
+the declaration or immediately preceding line excludes only that candidate. Summaries SHALL report
+excluded paths or declaration locations without exposing unrelated file contents.
+
+#### Scenario: Production near-match remains indexed
+
+- **WHEN** a Kafka declaration is in `src/sample-service/kafka.properties`
+- **THEN** extraction retains the declaration because `sample-service` is not an exact excluded
+  directory component
 
 ### Requirement: Shard merge and compiled index
 

@@ -42,7 +42,9 @@ EXCLUDED_DIRS = {
 
 
 def iter_files(repo_root, suffixes=None):
-    """Repo files (pruned of vendored/generated directories), sorted for determinism."""
+    """Repo files in analysis scope, sorted for determinism."""
+    from ..scope import file_reason, path_reason
+
     repo_root = Path(repo_root)
     results = []
     for path in repo_root.rglob("*"):
@@ -50,7 +52,16 @@ def iter_files(repo_root, suffixes=None):
             continue
         if any(part in EXCLUDED_DIRS for part in path.relative_to(repo_root).parts):
             continue
+        relative = path.relative_to(repo_root).as_posix()
+        if path_reason(relative):
+            continue
         if suffixes and path.suffix.lower() not in suffixes:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if file_reason(relative, text):
             continue
         results.append(path)
     return sorted(results)
