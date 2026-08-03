@@ -16,12 +16,18 @@ from panopticon import sync as sync_module
 from panopticon.bootstrap import SKILLS_PREFIX, wire_workflows
 from panopticon.callers import CALLER_WORKFLOWS, caller_workflow_text
 from panopticon.config import save_repo_config
-from panopticon.local_tooling import LOCAL_TOOLING_MODULES
 from panopticon.providers import resolve_provider_contract
 from panopticon.sync import _api_get, check_updates, git_blob_sha, main
 
 
 ORG_CONFIG = {"llm": {"provider": "litellm"}}
+LOCAL_TOOLING_MANIFEST_PATH = sync_module.LOCAL_TOOLING_MANIFEST_PATH
+LOCAL_TOOLING_MANIFEST = (Path(__file__).resolve().parent.parent / LOCAL_TOOLING_MANIFEST_PATH).read_bytes()
+LOCAL_TOOLING_MODULES = tuple(json.loads(LOCAL_TOOLING_MANIFEST)["modules"])
+
+
+def _manifest(modules):
+    return json.dumps({"schema_version": 1, "modules": list(modules)}).encode()
 
 
 def _tree_entry(path, sha, type_="blob"):
@@ -39,8 +45,8 @@ def _make_urlopen(routes):
                 return BytesIO(json.dumps(body).encode())
         if "contents/panopticon/callers.py" in url:
             return BytesIO(json.dumps(_file_response(Path("panopticon/callers.py").read_bytes())).encode())
-        if "contents/panopticon/local_tooling.py" in url:
-            return BytesIO(json.dumps(_file_response(Path("panopticon/local_tooling.py").read_bytes())).encode())
+        if f"contents/{LOCAL_TOOLING_MANIFEST_PATH}" in url:
+            return BytesIO(json.dumps(_file_response(LOCAL_TOOLING_MANIFEST)).encode())
         if "contents/panopticon.config.json" in url:
             return BytesIO(json.dumps(_file_response(json.dumps(ORG_CONFIG).encode())).encode())
         raise AssertionError(f"unexpected url: {url}")
@@ -74,7 +80,7 @@ class TestSelfContained(unittest.TestCase):
     """sync.py must never import from bootstrap.py: bootstrap.py is CI-only and is never vendored
     into a child repo, so `from .bootstrap import ...` breaks with `ModuleNotFoundError` the
     moment sync.py actually runs from its only real deployment target — a child repo that has only
-    the vendored LOCAL_TOOLING_MODULES subset, not bootstrap.py (regression test: this exact
+    the vendored local-tooling subset, not bootstrap.py (regression test: this exact
     failure was hit running `python3 -m panopticon.sync` in a bootstrapped child repo). sync.py
     duplicates the primitives it needs instead (module docstring); these tests guard against that
     duplication drifting from bootstrap.py's copies."""
@@ -218,7 +224,7 @@ class TestCheckUpdates(unittest.TestCase):
         def urlopen(request, timeout=30):
             return BytesIO(json.dumps(_file_response(b"this is not valid Python")).encode())
 
-        with self.assertRaisesRegex(RuntimeError, "could not execute instance local-tooling manifest"):
+        with self.assertRaisesRegex(RuntimeError, "invalid instance local-tooling manifest JSON"):
             sync_module._remote_local_tooling_modules("acme", "instance", "main", urlopen=urlopen)
 
     def test_missing_file_reported_as_would_be_created(self):
@@ -288,17 +294,17 @@ class TestMainCheckUpdates(unittest.TestCase):
     def test_check_updates_writes_nothing(self):
         content = b"# skill"
         sha = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
-        manifest = b'LOCAL_TOOLING_MODULES = ("local_tooling.py",)\n'
+        manifest = _manifest(("docs.py",))
         manifest_sha = git_blob_sha(manifest)
         with tempfile.TemporaryDirectory() as tmp:
             _init_repo_config(tmp)
             tree_body = {"tree": [
                 _tree_entry(SKILLS_PREFIX + "panopticon-foo/SKILL.md", sha),
-                _tree_entry("panopticon/local_tooling.py", manifest_sha),
+                _tree_entry("panopticon/docs.py", manifest_sha),
             ]}
             urlopen = _make_urlopen({
                 "git/trees": tree_body,
-                "contents/panopticon/local_tooling.py": _file_response(manifest),
+                f"contents/{LOCAL_TOOLING_MANIFEST_PATH}": _file_response(manifest),
             })
             out = StringIO()
             with contextlib.redirect_stdout(out):
@@ -309,17 +315,19 @@ class TestMainCheckUpdates(unittest.TestCase):
         self.assertIn("would be created", out.getvalue())
 
     def test_check_updates_nothing_to_sync_reports_current(self):
-        manifest = b'LOCAL_TOOLING_MODULES = ("local_tooling.py",)\n'
+        manifest = _manifest(("docs.py",))
+        docs = b"# current docs\n"
         with tempfile.TemporaryDirectory() as tmp:
             _init_repo_config(tmp)
             _write_current_callers(tmp)
-            local_manifest = Path(tmp) / "panopticon" / "local_tooling.py"
+            local_manifest = Path(tmp) / "panopticon" / "local-tooling.json"
             local_manifest.write_bytes(manifest)
+            (Path(tmp) / "panopticon" / "docs.py").write_bytes(docs)
             urlopen = _make_urlopen({
                 "git/trees": {"tree": [
-                    _tree_entry("panopticon/local_tooling.py", git_blob_sha(manifest)),
+                    _tree_entry("panopticon/docs.py", git_blob_sha(docs)),
                 ]},
-                "contents/panopticon/local_tooling.py": _file_response(manifest),
+                f"contents/{LOCAL_TOOLING_MANIFEST_PATH}": _file_response(manifest),
             })
             out = StringIO()
             with contextlib.redirect_stdout(out):
@@ -336,7 +344,7 @@ class TestMainCheckUpdates(unittest.TestCase):
         self.assertIn("not Panopticon-initialized", out.getvalue())
 
     def test_check_updates_uses_the_remote_manifest_not_the_child_copy(self):
-        manifest = b'LOCAL_TOOLING_MODULES = ("docs.py",)\n'
+        manifest = _manifest(("docs.py",))
         docs = b"# current instance docs\n"
         llm = b"# ci only\n"
         tree = [
@@ -345,11 +353,11 @@ class TestMainCheckUpdates(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             _init_repo_config(tmp)
-            local_manifest = Path(tmp) / "panopticon" / "local_tooling.py"
-            local_manifest.write_text('LOCAL_TOOLING_MODULES = ("llm.py",)\n', encoding="utf-8")
+            local_manifest = Path(tmp) / "panopticon" / "local-tooling.json"
+            local_manifest.write_bytes(_manifest(("llm.py",)))
             urlopen = _make_urlopen({
                 "git/trees": {"tree": tree},
-                "contents/panopticon/local_tooling.py": _file_response(manifest),
+                f"contents/{LOCAL_TOOLING_MANIFEST_PATH}": _file_response(manifest),
             })
             out = StringIO()
             with contextlib.redirect_stdout(out):
@@ -359,7 +367,7 @@ class TestMainCheckUpdates(unittest.TestCase):
         self.assertNotIn("panopticon/llm.py", out.getvalue())
 
     def test_check_updates_warns_about_unmanaged_modules_without_writing_them(self):
-        manifest = b'LOCAL_TOOLING_MODULES = ("docs.py",)\n'
+        manifest = _manifest(("docs.py",))
         docs = b"# current instance docs\n"
         llm = b"# ci only\n"
         tree = [
@@ -374,7 +382,7 @@ class TestMainCheckUpdates(unittest.TestCase):
             excluded.write_text("keep ci module", encoding="utf-8")
             urlopen = _make_urlopen({
                 "git/trees": {"tree": tree},
-                "contents/panopticon/local_tooling.py": _file_response(manifest),
+                f"contents/{LOCAL_TOOLING_MANIFEST_PATH}": _file_response(manifest),
             })
             out = StringIO()
             with contextlib.redirect_stdout(out):
@@ -408,8 +416,6 @@ class TestMainDefaultOverwrite(unittest.TestCase):
             content = (
                 Path("panopticon/callers.py").read_bytes()
                 if name == "callers.py"
-                else Path("panopticon/local_tooling.py").read_bytes()
-                if name == "local_tooling.py"
                 else f"{tooling_content_prefix}{name}".encode()
             )
             source_files[name] = content
@@ -423,6 +429,8 @@ class TestMainDefaultOverwrite(unittest.TestCase):
                 return BytesIO(json.dumps({"tree": tree}).encode())
             if "contents/panopticon.config.json" in url:
                 return BytesIO(json.dumps(_file_response(json.dumps(org_config).encode())).encode())
+            if f"contents/{LOCAL_TOOLING_MANIFEST_PATH}" in url:
+                return BytesIO(json.dumps(_file_response(LOCAL_TOOLING_MANIFEST)).encode())
             if f"contents/{skill_path}" in url:
                 return BytesIO(json.dumps(_file_response(skill_content)).encode())
             for name in LOCAL_TOOLING_MODULES:
@@ -466,11 +474,7 @@ class TestMainDefaultOverwrite(unittest.TestCase):
             local.write_bytes(skill_content)
             for name in LOCAL_TOOLING_MODULES:
                 (Path(tmp) / "panopticon").mkdir(exist_ok=True)
-                content = (
-                    Path("panopticon/local_tooling.py").read_text(encoding="utf-8")
-                    if name == "local_tooling.py"
-                    else f"# {name}"
-                )
+                content = f"# {name}"
                 (Path(tmp) / "panopticon" / name).write_text(content, encoding="utf-8")
 
             def urlopen(request, timeout=30):
@@ -481,21 +485,15 @@ class TestMainDefaultOverwrite(unittest.TestCase):
                     ).hexdigest()
                     tree = [_tree_entry(SKILLS_PREFIX + "panopticon-foo/SKILL.md", skill_sha)]
                     for name in LOCAL_TOOLING_MODULES:
-                        content = (
-                            Path("panopticon/local_tooling.py").read_bytes()
-                            if name == "local_tooling.py"
-                            else f"# {name}".encode()
-                        )
+                        content = f"# {name}".encode()
                         tree.append(_tree_entry(f"panopticon/{name}", hashlib.sha1(
                             f"blob {len(content)}\0".encode() + content
                         ).hexdigest()))
                     return BytesIO(json.dumps({"tree": tree}).encode())
                 if "contents/panopticon.config.json" in url:
                     return BytesIO(json.dumps(_file_response(json.dumps(ORG_CONFIG).encode())).encode())
-                if "contents/panopticon/local_tooling.py" in url:
-                    return BytesIO(json.dumps(_file_response(
-                        Path("panopticon/local_tooling.py").read_bytes()
-                    )).encode())
+                if f"contents/{LOCAL_TOOLING_MANIFEST_PATH}" in url:
+                    return BytesIO(json.dumps(_file_response(LOCAL_TOOLING_MANIFEST)).encode())
                 raise AssertionError(f"unexpected url (no download expected): {url}")
 
             out = StringIO()

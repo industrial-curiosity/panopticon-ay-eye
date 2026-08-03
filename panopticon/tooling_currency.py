@@ -19,11 +19,14 @@ script") doesn't fit that report's must-fix-before-merge action vocabulary.
 """
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 DEFAULT_INSTANCE_ROOT = ".panopticon-instance"
+LOCAL_TOOLING_MANIFEST_PATH = "panopticon/local-tooling.json"
+LOCAL_TOOLING_MANIFEST_SCHEMA_VERSION = 1
 
 
 def check_workflow_ref(child_root=".", instance_root=DEFAULT_INSTANCE_ROOT, runner=subprocess.run):
@@ -88,6 +91,40 @@ def _tooling_module_files(root, modules):
     return files
 
 
+def _instance_local_tooling_modules(instance_root):
+    """Return the validated instance manifest, or an advisory finding."""
+    path = Path(instance_root) / LOCAL_TOOLING_MANIFEST_PATH
+    try:
+        manifest = json.loads(path.read_bytes())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return (), f"invalid instance local-tooling manifest: {exc}"
+    if not isinstance(manifest, dict) or set(manifest) != {"schema_version", "modules"}:
+        return (), "invalid instance local-tooling manifest: must contain exactly schema_version and modules"
+    if (
+        type(manifest["schema_version"]) is not int
+        or manifest["schema_version"] != LOCAL_TOOLING_MANIFEST_SCHEMA_VERSION
+    ):
+        return (), (
+            "invalid instance local-tooling manifest: unsupported schema_version "
+            f"{manifest['schema_version']!r}"
+        )
+    modules = manifest["modules"]
+    if not isinstance(modules, list) or not modules:
+        return (), "invalid instance local-tooling manifest: modules must be a non-empty array"
+    if len(set(modules)) != len(modules):
+        return (), "invalid instance local-tooling manifest: modules must not contain duplicates"
+    if not all(
+        isinstance(name, str)
+        and name.endswith(".py")
+        and "/" not in name
+        and "\\" not in name
+        and name not in {".", ".."}
+        for name in modules
+    ):
+        return (), "invalid instance local-tooling manifest: modules must contain only flat .py filenames"
+    return tuple(modules), None
+
+
 def _unmanaged_tooling_findings(child_root, instance_root, modules):
     """Classify child Python modules outside the instance-owned tooling manifest."""
     managed_paths = {Path("panopticon") / name for name in modules}
@@ -133,20 +170,20 @@ def check_skills_and_tooling_drift(child_root=".", instance_root=DEFAULT_INSTANC
     checkout's ``panopticon-*`` skills and vendored local-tooling modules and the child repo's own
     copies. No new persisted config field: the child's skills location is re-derived the same way
     ``bootstrap.py``'s idempotent re-run already does."""
-    from .bootstrap import DEFAULT_SKILLS_LOCATION, LOCAL_TOOLING_MODULES, SKILLS_PREFIX, _detect_existing_location
+    from .bootstrap import DEFAULT_SKILLS_LOCATION, SKILLS_PREFIX, _detect_existing_location
 
     child_location = _detect_existing_location(child_root) or DEFAULT_SKILLS_LOCATION
+    modules, manifest_error = _instance_local_tooling_modules(instance_root)
 
     instance_skills = _panopticon_skill_files(Path(instance_root) / SKILLS_PREFIX)
     child_skills = _panopticon_skill_files(Path(child_root) / child_location)
-
-    instance_tooling = _tooling_module_files(instance_root, LOCAL_TOOLING_MODULES)
-    child_tooling = _tooling_module_files(child_root, LOCAL_TOOLING_MODULES)
-
-    return (
-        _diff_files(instance_skills, child_skills)
-        + _diff_files(instance_tooling, child_tooling)
-        + _unmanaged_tooling_findings(child_root, instance_root, LOCAL_TOOLING_MODULES)
+    findings = _diff_files(instance_skills, child_skills)
+    if manifest_error:
+        return findings + [manifest_error]
+    instance_tooling = _tooling_module_files(instance_root, modules)
+    child_tooling = _tooling_module_files(child_root, modules)
+    return findings + _diff_files(instance_tooling, child_tooling) + _unmanaged_tooling_findings(
+        child_root, instance_root, modules
     )
 
 

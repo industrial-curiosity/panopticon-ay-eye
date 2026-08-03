@@ -2,6 +2,7 @@
 skills/tooling drift-diff logic, and warning-format output. All subprocess/filesystem stubbed."""
 
 import contextlib
+import json
 import subprocess
 import tempfile
 import unittest
@@ -17,6 +18,14 @@ from panopticon.tooling_currency import (
     check_workflow_ref,
     main,
 )
+
+
+def _write_manifest(instance_root, modules=("docs.py",)):
+    path = Path(instance_root) / "panopticon" / "local-tooling.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"schema_version": 1, "modules": list(modules)}), encoding="utf-8"
+    )
 
 
 def _fake_runner(responses):
@@ -193,6 +202,7 @@ class TestCheckSkillsAndToolingDrift(unittest.TestCase):
             for name in ("__init__.py", "config.py", "docs.py", "index.py", "init_repo.py", "sync.py"):
                 (Path(instance_root) / "panopticon" / name).write_text(name)
                 (Path(child_root) / "panopticon" / name).write_text(name)
+            _write_manifest(instance_root, ("__init__.py", "config.py", "docs.py", "index.py", "init_repo.py", "sync.py"))
 
             findings = check_skills_and_tooling_drift(child_root, instance_root)
         self.assertEqual(findings, [])
@@ -203,6 +213,7 @@ class TestCheckSkillsAndToolingDrift(unittest.TestCase):
             (Path(child_root) / "panopticon").mkdir()
             (Path(instance_root) / "panopticon" / "docs.py").write_text("new")
             (Path(child_root) / "panopticon" / "docs.py").write_text("old")
+            _write_manifest(instance_root)
 
             findings = check_skills_and_tooling_drift(child_root, instance_root)
         self.assertTrue(any("panopticon/docs.py" in f for f in findings))
@@ -211,6 +222,7 @@ class TestCheckSkillsAndToolingDrift(unittest.TestCase):
         with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
             (Path(instance_root) / ".agents" / "skills" / "panopticon-new").mkdir(parents=True)
             (Path(instance_root) / ".agents" / "skills" / "panopticon-new" / "SKILL.md").write_text("x")
+            _write_manifest(instance_root)
 
             findings = check_skills_and_tooling_drift(child_root, instance_root)
         self.assertTrue(any("panopticon-new" in f for f in findings))
@@ -243,6 +255,7 @@ class TestMain(unittest.TestCase):
         with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
             self._init_git_repo(instance_root)
             self._write_caller_workflow(child_root, "main")
+            _write_manifest(instance_root)
             out = StringIO()
             with contextlib.redirect_stdout(out):
                 code = main(["--child-root", child_root, "--instance-root", instance_root])
@@ -255,6 +268,7 @@ class TestMain(unittest.TestCase):
             self._write_caller_workflow(child_root, "main")
             (Path(instance_root) / ".agents" / "skills" / "panopticon-new").mkdir(parents=True)
             (Path(instance_root) / ".agents" / "skills" / "panopticon-new" / "SKILL.md").write_text("x")
+            _write_manifest(instance_root)
             out = StringIO()
             with contextlib.redirect_stdout(out):
                 code = main(["--child-root", child_root, "--instance-root", instance_root])
@@ -272,12 +286,26 @@ class TestMain(unittest.TestCase):
             child_tooling.mkdir()
             (instance_tooling / "llm.py").write_text("ci only", encoding="utf-8")
             (child_tooling / "llm.py").write_text("ci only", encoding="utf-8")
+            _write_manifest(instance_root)
             out = StringIO()
             with contextlib.redirect_stdout(out):
                 code = main(["--child-root", child_root, "--instance-root", instance_root])
             self.assertEqual(code, 0)
             self.assertIn("::warning::", out.getvalue())
             self.assertIn("llm.py is instance-excluded", out.getvalue())
+
+    def test_invalid_instance_manifest_is_an_advisory_warning(self):
+        with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
+            self._init_git_repo(instance_root)
+            self._write_caller_workflow(child_root, "main")
+            path = Path(instance_root) / "panopticon" / "local-tooling.json"
+            path.parent.mkdir()
+            path.write_text("not json", encoding="utf-8")
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(["--child-root", child_root, "--instance-root", instance_root])
+        self.assertEqual(code, 0)
+        self.assertIn("invalid instance local-tooling manifest", out.getvalue())
 
 
 if __name__ == "__main__":

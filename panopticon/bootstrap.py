@@ -36,7 +36,6 @@ from pathlib import Path
 
 from . import SCHEMA_VERSION
 from .callers import CALLER_WORKFLOWS, caller_workflow_text as shared_caller_workflow_text
-from .local_tooling import LOCAL_TOOLING_MODULES
 from .providers import ProviderConfigError, resolve_provider_contract
 from .recovery import child_bootstrap_command, configuration_recovery
 
@@ -44,6 +43,8 @@ from .recovery import child_bootstrap_command, configuration_recovery
 
 DEFAULT_BRANCH = "main"
 SKILLS_PREFIX = ".agents/skills/"
+LOCAL_TOOLING_MANIFEST_PATH = "panopticon/local-tooling.json"
+LOCAL_TOOLING_MANIFEST_SCHEMA_VERSION = 1
 # ── Workflow generation ───────────────────────────────────────────────────────
 
 caller_workflow_text = shared_caller_workflow_text
@@ -319,19 +320,52 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
 # out the instance repo directly, and has no role in local Phase 2/3 work — it SHALL NOT be
 # vendored into child repos. `recovery.py` is the exception because current workflows use it before
 # checking out the instance repository. The explicit subset is declared in
-# local_tooling.py so bootstrap and child sync share the instance-owned manifest.
+def _local_tooling_modules(source):
+    """Validate and return the instance-owned local-tooling module names."""
+    try:
+        manifest = json.loads(source)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"invalid JSON: {exc}") from exc
+    if not isinstance(manifest, dict) or set(manifest) != {"schema_version", "modules"}:
+        raise RuntimeError("must contain exactly schema_version and modules")
+    if (
+        type(manifest["schema_version"]) is not int
+        or manifest["schema_version"] != LOCAL_TOOLING_MANIFEST_SCHEMA_VERSION
+    ):
+        raise RuntimeError(
+            f"unsupported schema_version {manifest['schema_version']!r}; expected "
+            f"{LOCAL_TOOLING_MANIFEST_SCHEMA_VERSION}"
+        )
+    modules = manifest["modules"]
+    if not isinstance(modules, list) or not modules:
+        raise RuntimeError("modules must be a non-empty array")
+    if len(set(modules)) != len(modules):
+        raise RuntimeError("modules must not contain duplicates")
+    if not all(
+        isinstance(name, str)
+        and name.endswith(".py")
+        and "/" not in name
+        and "\\" not in name
+        and name not in {".", ".."}
+        for name in modules
+    ):
+        raise RuntimeError("modules must contain only flat .py filenames")
+    return tuple(modules)
 
 
 def download_local_tooling(owner, repo, ref, token=None, child_root=".",
                            urlopen=urllib.request.urlopen):
-    """Vendor LOCAL_TOOLING_MODULES into the child repo's panopticon/ directory, so
-    `python3 -m panopticon.docs` / `python3 -m panopticon.init_repo` work immediately after
-    bootstrap with no instance-repo clone or PYTHONPATH setup. Idempotent: overwrites in place."""
+    """Stage selected instance tooling before writing it into the child repository."""
+    manifest = _fetch_file_bytes(owner, repo, LOCAL_TOOLING_MANIFEST_PATH, ref, token, urlopen)
+    modules = _local_tooling_modules(manifest)
+    staged = [
+        (name, _fetch_file_bytes(owner, repo, f"panopticon/{name}", ref, token, urlopen))
+        for name in modules
+    ]
     dest_dir = Path(child_root) / "panopticon"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    total = len(LOCAL_TOOLING_MODULES)
-    for i, name in enumerate(LOCAL_TOOLING_MODULES, start=1):
-        content = _fetch_file_bytes(owner, repo, f"panopticon/{name}", ref, token, urlopen)
+    total = len(staged)
+    for i, (name, content) in enumerate(staged, start=1):
         (dest_dir / name).write_bytes(content)
         print(f"  [{i}/{total}] {name}")
     return total
@@ -762,7 +796,7 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
     # panopticon.init_repo need this to work with no instance-repo clone or PYTHONPATH setup).
     print("\nVendoring local Python tooling...")
     try:
-        n_modules = download_local_tooling(owner, repo, default_branch, token, child_root, urlopen)
+        n_modules = download_local_tooling(owner, repo, ref, token, child_root, urlopen)
         print(f"  {n_modules} module(s) installed → panopticon/")
     except RuntimeError as exc:
         print(f"  error: {exc}")

@@ -95,12 +95,13 @@ To see what would change without writing anything:
 python3 -m panopticon.sync --check-updates
 ```
 
-Sync can also warn about Python modules under `panopticon/` that are not in the
-instance-owned local-tooling manifest. **Instance-excluded** modules exist in
-the instance but are not child-safe; **child-only and unknown** modules are not
-in the instance. Both warnings are advisory and leave files untouched. Review
-the module's owner and imports first. Remove an unwanted legacy module only in
-a separate reviewed change, then run this repo's tests before committing it.
+Sync reads the versioned, data-only local-tooling manifest from the instance's
+current branch. It can also warn about Python modules under `panopticon/` that
+are not in that manifest. **Instance-excluded** modules exist in the instance
+but are not child-safe; **child-only and unknown** modules are not in the
+instance. Both warnings are advisory and leave files untouched. Review the
+module's owner and imports first. Remove an unwanted legacy module only in a
+separate reviewed change, then run this repo's tests before committing it.
 
 Every pull request also runs an advisory (never blocking) check that warns when
 this repo's wired

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "modules": [
+    "__init__.py",
+    "callers.py",
+    "config.py",
+    "providers.py",
+    "dependencies.py",
+    "docs.py",
+    "index.py",
+    "init_repo.py",
+    "sync.py",
+    "org_diagram_link.py",
+    "recovery.py"
+  ]
+}

@@ -1,6 +1,6 @@
 """Local sync script: refreshes managed skills, tooling, and caller workflows in a child repo.
 
-Vendored by the instance-owned ``local_tooling.py`` manifest so ``python3 -m panopticon.sync``
+Vendored by the instance-owned ``local-tooling.json`` manifest so ``python3 -m panopticon.sync``
 works immediately after Phase 1 bootstrap with no instance-repo clone and no ``PYTHONPATH`` setup
 — the same "no local instance clone required" constraint every other local-tooling module already
 satisfies (design D2). Sync downloads that manifest from the selected instance ref on every run;
@@ -46,7 +46,8 @@ from .providers import ProviderConfigError, resolve_provider_contract
 DEFAULT_BRANCH = "main"
 SKILLS_PREFIX = ".agents/skills/"
 DEFAULT_SKILLS_LOCATION = ".agents/skills"
-LOCAL_TOOLING_MANIFEST_PATH = "panopticon/local_tooling.py"
+LOCAL_TOOLING_MANIFEST_PATH = "panopticon/local-tooling.json"
+LOCAL_TOOLING_MANIFEST_SCHEMA_VERSION = 1
 
 # Mirrors bootstrap.py's TOOL_LOCATIONS exactly (test_sync.py asserts this; source of truth:
 # docs/agentskills-support.md) — needed here only for _detect_existing_location's search order,
@@ -239,16 +240,25 @@ def _skill_tree_entries(tree):
 
 
 def _remote_local_tooling_modules(owner, repo, ref, token=None, urlopen=urllib.request.urlopen):
-    """Load the instance-owned child-safe tooling manifest in an isolated namespace."""
+    """Load the instance-owned child-safe tooling manifest without executing it."""
     source = _fetch_file_bytes(owner, repo, LOCAL_TOOLING_MANIFEST_PATH, ref, token, urlopen)
-    namespace = {"__name__": "panopticon.local_tooling_manifest"}
     try:
-        exec(compile(source, LOCAL_TOOLING_MANIFEST_PATH, "exec"), namespace)
-    except Exception as exc:
-        raise RuntimeError(f"could not execute instance local-tooling manifest: {exc}") from exc
-    modules = namespace.get("LOCAL_TOOLING_MODULES")
-    if not isinstance(modules, tuple) or not modules:
-        raise RuntimeError("instance local-tooling manifest must define a non-empty tuple")
+        manifest = json.loads(source)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"invalid instance local-tooling manifest JSON: {exc}") from exc
+    if not isinstance(manifest, dict) or set(manifest) != {"schema_version", "modules"}:
+        raise RuntimeError("instance local-tooling manifest must contain exactly schema_version and modules")
+    if (
+        type(manifest["schema_version"]) is not int
+        or manifest["schema_version"] != LOCAL_TOOLING_MANIFEST_SCHEMA_VERSION
+    ):
+        raise RuntimeError(
+            "instance local-tooling manifest has unsupported schema_version "
+            f"{manifest['schema_version']!r}"
+        )
+    modules = manifest["modules"]
+    if not isinstance(modules, list) or not modules:
+        raise RuntimeError("instance local-tooling manifest modules must be a non-empty array")
     if len(set(modules)) != len(modules):
         raise RuntimeError("instance local-tooling manifest must not contain duplicate modules")
     if not all(

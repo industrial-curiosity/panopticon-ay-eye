@@ -404,7 +404,8 @@ prompt for non-interactive or CI runs.
 Once a location is chosen, the script will:
 
 - Install the Panopticon skills there
-- Vendor the local-tooling subset of the `panopticon` Python package into
+- Download the selected instance's versioned, data-only local-tooling manifest
+  and vendor its listed subset of the `panopticon` Python package into
   `panopticon/`, so the
   `python3 -m panopticon...` commands the skills use in Phase 2 work immediately
   — no need to clone the
@@ -532,10 +533,11 @@ and never gated — acting on it is entirely at your discretion.
 
 The check and local sync also identify unmanaged Python modules under
 `panopticon/`. An **instance-excluded** warning means the selected instance
-contains the module but its local-tooling manifest excludes it (for example, a
-CI-only runtime module). A **child-only and unknown** warning means the module
-is absent from the selected instance. Neither warning deletes or changes the
-file.
+contains the module but its versioned data-only local-tooling manifest excludes
+it (for example, a CI-only runtime module). A **child-only and unknown** warning
+means the module is absent from the selected instance. Neither warning deletes
+or changes the file. A malformed manifest is an actionable bootstrap or sync
+error, but only a non-blocking tooling-currency warning.
 
 To pull the instance's current skills and tooling into an already-bootstrapped
 child repo:

@@ -78,6 +78,27 @@ def declared_values(text):
     return declared
 
 
+def is_reusable_workflow(text):
+    """Return whether ``text`` declares a root-level ``on.workflow_call`` contract."""
+    lines = text.splitlines()
+    root = next(
+        ((index, mapping[0]) for index, line in enumerate(lines)
+         if (mapping := _mapping_key(line)) and mapping[1] == "on" and mapping[0] == 0),
+        None,
+    )
+    return root is not None and _child_mapping(lines, root[0], root[1], "workflow_call") is not None
+
+
+def reusable_workflows(workflows_dir):
+    """Return shipped reusable workflow paths in deterministic order."""
+    workflows_dir = Path(workflows_dir)
+    paths = sorted({*workflows_dir.glob("*.yml"), *workflows_dir.glob("*.yaml")})
+    return tuple(
+        path for path in paths
+        if is_reusable_workflow(path.read_text(encoding="utf-8"))
+    )
+
+
 def referenced_values(text):
     """Return dot-form caller values referenced by GitHub expressions in ``text``."""
     references = set()
@@ -109,11 +130,20 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Validate reusable-workflow caller input and secret references."
     )
-    parser.add_argument("workflows", nargs="+", type=Path)
+    parser.add_argument("workflows", nargs="*", type=Path)
+    parser.add_argument(
+        "--workflows-dir", type=Path,
+        help="discover and validate reusable workflows in this directory",
+    )
     args = parser.parse_args(argv)
+    workflows = list(args.workflows)
+    if args.workflows_dir is not None:
+        workflows.extend(reusable_workflows(args.workflows_dir))
+    if not workflows:
+        parser.error("provide workflow paths or --workflows-dir")
 
     errors = []
-    for path in args.workflows:
+    for path in sorted(set(workflows)):
         for reference in validate_workflow(path):
             errors.append(f"{path}: undeclared workflow_call {reference}")
     if errors:

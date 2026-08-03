@@ -1,0 +1,22 @@
+name: Template validation
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Validate reusable workflow contracts
+        run: python3 -m panopticon.workflow_contracts --workflows-dir .github/workflows
+
+      - name: Run Python tests
+        run: python3 -m unittest discover -t . -s tests

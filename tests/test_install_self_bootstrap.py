@@ -332,9 +332,20 @@ class TestInstanceRetrieval(unittest.TestCase):
 
 class TestDefaultInstancePayload(unittest.TestCase):
     FAKE_INIT = "SCHEMA_VERSION = 1\n"
-    FAKE_RECOVERY = "def configuration_recovery(instance, branch):\n    return 'recovery'\n"
-    FAKE_PROVIDERS = "PROVIDERS = {'test': {}}\n"
-    FAKE_CALLERS = "CALLER_WORKFLOWS = ('panopticon-pr.yml',)\n"
+    FAKE_RECOVERY = (
+        "def child_bootstrap_command(instance):\n    return instance\n"
+        "def configuration_recovery(instance, branch):\n    return 'recovery'\n"
+    )
+    FAKE_PROVIDERS = (
+        "class ProviderConfigError(Exception):\n    pass\n"
+        "PROVIDERS = {'test': {}}\n"
+        "def resolve_provider_contract(config):\n    return config\n"
+    )
+    FAKE_CALLERS = (
+        "CALLER_WORKFLOWS = ('panopticon-pr.yml',)\n"
+        "def caller_workflow_text(*_args, **_kwargs):\n"
+        "    return ''\n"
+    )
     FAKE_BOOTSTRAP = (
         "from . import SCHEMA_VERSION\n"
         "from .callers import CALLER_WORKFLOWS\n"
@@ -383,6 +394,27 @@ class TestDefaultInstancePayload(unittest.TestCase):
             next(i for i, url in enumerate(requests) if "providers.py" in url),
             next(i for i, url in enumerate(requests) if "bootstrap.py" in url),
         )
+
+    def test_current_bootstrap_loads_without_a_python_tooling_manifest(self):
+        source_by_path = {
+            "panopticon/__init__.py": self.FAKE_INIT,
+            "panopticon/recovery.py": self.FAKE_RECOVERY,
+            "panopticon/providers.py": self.FAKE_PROVIDERS,
+            "panopticon/callers.py": self.FAKE_CALLERS,
+            "panopticon/bootstrap.py": (REPO_ROOT / "panopticon" / "bootstrap.py").read_text(),
+        }
+
+        def api_json(url, _token):
+            path = url.split("/contents/", maxsplit=1)[1].split("?", maxsplit=1)[0]
+            return {
+                "encoding": "base64",
+                "content": base64.b64encode(source_by_path[path].encode()).decode(),
+            }
+
+        with mock.patch.object(INSTALLER, "_api_json", side_effect=api_json):
+            with mock.patch.dict(sys.modules, {}, clear=False):
+                bootstrap_main = INSTALLER._load_default_payload_from_github("acme/instance", "trunk")
+        self.assertTrue(callable(bootstrap_main))
 
     def test_invalid_provider_payload_stops_before_bootstrap_execution(self):
         requests = []
