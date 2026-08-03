@@ -50,7 +50,9 @@ components and their relationships. This section is part of the
 architecture-overview documentation layer
 (doc-generation capability) and SHALL be agent-drawn and grounded in the actual
 code, following the same
-rules as the rest of that layer.
+rules as the rest of that layer. Directly below the diagram, it SHALL include
+proper markdown links to the repository's organization-diagram anchor and to
+`operations.md#panopticon-analysis-scope`.
 
 #### Scenario: Diagram section present after doc generation
 
@@ -67,6 +69,12 @@ rules as the rest of that layer.
   this repo, built exactly as specified in "Diagram navigation uses plain links,
   not in-diagram
   click-through"
+
+#### Scenario: Diagram links to analysis scope
+
+- **WHEN** doc generation produces the `## Architecture diagram` section
+- **THEN** directly below the diagram it includes a proper relative markdown
+  link to `operations.md#panopticon-analysis-scope`
 
 ### Requirement: Org diagram document shape
 

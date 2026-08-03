@@ -1,5 +1,10 @@
 # Dependency Indexing Spec
 
+## Purpose
+
+Define the deterministic local, shard, and compiled dependency-index lifecycle,
+including internal dependency detection, naming, extraction, merging, and conflicts.
+
 ## Requirements
 
 ### Requirement: Dependency index schema
@@ -112,8 +117,8 @@ identity once.
 
 ### Requirement: Cross-reference the instance repo
 
-For dependency candidates not resolved by structural or registry-host detection,
-extraction SHALL check
+The tooling SHALL cross-reference the instance repo for dependency candidates not resolved by
+structural or registry-host detection. Extraction SHALL check
 whether the candidate's canonical name is already self-registered as a producer
 in the instance repo's
 compiled dependency index. In CI, this SHALL be a plain filesystem read of the
@@ -167,7 +172,9 @@ A CI evaluation that cannot
 resolve a candidate from any layer SHALL fail the check with an instruction to
 add a `panopticon-dependency`
 hint, matching the interface-indexing capability's "CI cannot resolve a name"
-behavior.
+behavior. Before deterministic parsing or LLM fallback, dependency extraction
+SHALL apply the shared analysis-scope policy, including explicit ignore
+annotations.
 
 #### Scenario: Hint pins a candidate the other layers miss
 
@@ -192,6 +199,14 @@ behavior.
   internal or external
 - **THEN** the check fails, instructing the developer to add a
   `panopticon-dependency` hint
+
+#### Scenario: Internal dependency in illustrative material is excluded
+
+- **GIVEN** an internal dependency declaration or import is under `samples/` or
+  `fixtures/`
+- **WHEN** dependency extraction runs
+- **THEN** it neither indexes nor sends that dependency to the LLM, and its
+  summary reports the illustrative-directory exclusion
 
 ### Requirement: Dependency extraction honors analysis scope
 
@@ -317,8 +332,8 @@ mirroring the interface-indexing capability's equivalent requirement.
 
 ### Requirement: Annotation reference documentation
 
-Every dependency annotation form (`panopticon-dependency`,
-`panopticon-dependency-of`) SHALL be documented in
+The tooling SHALL document every dependency annotation form (`panopticon-dependency`,
+`panopticon-dependency-of`) in
 a single written reference covering its syntax, placement, and effect, rather
 than only existing as scattered
 code comments — extending the same documentation gap already identified for

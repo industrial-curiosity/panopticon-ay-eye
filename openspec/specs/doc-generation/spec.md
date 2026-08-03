@@ -15,7 +15,7 @@ dependencies, and an architecture diagram section per the architecture-diagrams
 capability), per-component
 docs following a fixed template, interface docs, and operational docs (how to
 run/deploy/test, required
-configuration). Generated docs SHALL live in the repo's configured documentation
+configuration, and a managed `## Panopticon analysis scope` section). Generated docs SHALL live in the repo's configured documentation
 location (adopted or chosen
 at initialization and recorded in `panopticon/config.json`) so the sync workflow
 can copy them to
@@ -23,7 +23,10 @@ can copy them to
 defined as harness-portable agent
 skills, so that local runs execute in the user's preferred AI agent harness with
 no Panopticon LLM
-configuration.
+configuration. The managed analysis-scope section SHALL list each actual
+repository directory excluded by the illustrative-path policy, its reason, the
+complete default directory set, and the explicit file and declaration hint
+forms.
 
 #### Scenario: Local doc update through the user's harness
 
@@ -37,7 +40,27 @@ configuration.
 - **WHEN** doc generation runs on a repo during initialization
 - **THEN** all four layers exist in the repo's docs location, each following its
   template, and the
-  architecture overview includes the `## Architecture diagram` section
+architecture overview includes the `## Architecture diagram` section
+
+#### Scenario: Repository has illustrative directories
+
+- **WHEN** a repository contains `examples/` and `fixtures/`
+- **THEN** its managed analysis-scope section lists both repository-relative
+  directories and their illustrative-path exclusion reasons
+
+### Requirement: Scope-aware documentation generation and drift input
+
+Component discovery and documentation input preparation SHALL use the shared
+analysis-scope policy. The doc-drift check SHALL remove excluded paths and
+ignored declaration text before constructing its behavior-bearing evidence set
+or LLM prompt. If no behavior-bearing material remains after scope filtering,
+it SHALL return a clean verdict without invoking an LLM.
+
+#### Scenario: Ignored change produces no drift finding
+
+- **WHEN** a pull request changes only an interface-shaped file under `demos/`
+- **THEN** doc drift returns a clean verdict without invoking an LLM or naming
+  that file as stale evidence
 
 ### Requirement: Interface docs rendered from the index
 
