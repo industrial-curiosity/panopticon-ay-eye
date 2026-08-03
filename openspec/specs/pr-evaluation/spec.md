@@ -45,6 +45,54 @@ Actions before the job starts.
 - **THEN** the selected provider workflow uses that number as its evaluate job
   timeout in minutes
 
+### Requirement: Provider workflows resolve effective configuration before preflight
+
+Each provider-specific reusable PR workflow SHALL resolve optional non-secret
+provider inputs through the validated contract before provider preflight and
+LLM work. It SHALL invoke only the fixed checked-out instance
+`.github/actions/panopticon-provider-defaults/action.yml` when an action output
+is needed, and SHALL not allow instance configuration or a child caller to
+choose another action path. The workflow SHALL preserve raw caller inputs until
+resolution so a template workflow default cannot mask a higher-precedence
+source. It SHALL expose only source labels in its summary and environment
+diagnostics, never a resolved value or credential.
+
+The workflow SHALL receive `job_timeout_minutes` already resolved by the
+generated caller. It SHALL NOT attempt to obtain that job-level value from the
+fixed instance action because GitHub evaluates job timeout before job steps run.
+
+#### Scenario: Workflow uses a template default only after higher sources are absent
+
+- **GIVEN** an optional input is absent from organization Actions, the fixed
+  instance action, and instance configuration but has a declared workflow
+  default
+- **WHEN** the reusable workflow resolves effective configuration
+- **THEN** it uses the workflow default and records `workflow default` as the
+  source before provider preflight
+
+#### Scenario: Required input cannot be supplied by a default
+
+- **GIVEN** a required provider input is absent from the child caller
+- **WHEN** the reusable workflow starts
+- **THEN** it fails before invoking the default-resolver action or provider
+  preflight and identifies the required logical name and configuration path
+
+#### Scenario: Job timeout is resolved before the workflow starts
+
+- **GIVEN** an instance configuration supplies a valid non-secret job-timeout
+  default and the organization Actions variable is absent
+- **WHEN** the generated caller invokes the reusable workflow
+- **THEN** the workflow uses the caller-supplied timeout and does not invoke the
+  fixed instance action to resolve it
+
+#### Scenario: Fixed default action output is invalid
+
+- **GIVEN** an optional value requires the fixed instance action and the action
+  is missing, returns an undeclared output, or returns an empty value
+- **WHEN** the reusable workflow resolves effective configuration
+- **THEN** it fails before provider preflight and its step summary names the
+  fixed path, logical value, and recovery action without printing a value
+
 ### Requirement: Pre-merge index simulation
 
 The PR workflow SHALL verify that the PR branch's committed local index is
@@ -399,6 +447,27 @@ and SHALL use OpenAI labels in its workflow name, summaries, and errors.
   credential mode, installs
   its isolated dependency, preflights Converse, and then runs the same complete
   PR evaluation contract
+
+### Requirement: Provider workflow caller contracts are checked before release
+
+The template SHALL test the declared `workflow_call` input and secret contract
+of each provider-specific reusable PR-evaluation workflow against its GitHub
+expression references before release. A workflow that references an undeclared
+caller input or secret SHALL fail deterministic repository validation rather
+than relying on GitHub Actions to reject a caller with zero jobs.
+
+#### Scenario: Provider workflow contract validation succeeds
+
+- **WHEN** the repository validation suite examines every shipped
+  provider-specific reusable PR-evaluation workflow
+- **THEN** each workflow has declarations for every referenced caller input and
+  secret, and the validation succeeds
+
+#### Scenario: Provider workflow contract validation detects a startup defect
+
+- **WHEN** a provider-specific reusable PR-evaluation workflow introduces a
+  reference to an undeclared caller input or secret
+- **THEN** repository validation fails and identifies the undeclared reference
 
 ### Requirement: Bedrock credential modes preserve the evaluation contract
 

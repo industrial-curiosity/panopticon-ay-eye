@@ -7,7 +7,7 @@ skills.py, bootstrap.py, tooling_currency.py, parsers/) are invoked checkout-and
 (``python3 -m panopticon.<module>``) from an instance-repo checkout; there is no build step and no
 third-party dependency. The local-tooling subset used by Phase 2/3 of child-repo initialization
 and by on-demand syncing (__init__.py, config.py, dependencies.py, docs.py, index.py, init_repo.py,
-sync.py, org_diagram_link.py — see panopticon.bootstrap.LOCAL_TOOLING_MODULES) is instead vendored
+sync.py, org_diagram_link.py — see panopticon/local-tooling.json) is instead vendored
 directly into each child repo by the bootstrap script, so `python3 -m panopticon.docs` /
 `python3 -m panopticon.init_repo` / `python3 -m panopticon.sync` /
 `python3 -m panopticon.org_diagram_link` work there with no instance-repo checkout needed —

@@ -36,6 +36,22 @@ on:
         description: Organization variable name for the PR-evaluation job timeout
         required: false
         default: PANOPTICON_LLM_JOB_TIMEOUT_MINUTES
+      timeout_seconds_default:
+        description: Optional non-secret timeout value used when the organization variable is absent (example 90)
+        required: false
+        default: ""
+      max_attempts_default:
+        description: Optional non-secret transport-attempt value used when the organization variable is absent (example 2)
+        required: false
+        default: ""
+      max_correction_attempts_default:
+        description: Optional non-secret correction-attempt value used when the organization variable is absent (example 2)
+        required: false
+        default: ""
+      job_timeout_minutes_default:
+        description: Optional non-secret job-timeout value used when the organization variable is absent (example 20)
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -63,4 +79,8 @@ jobs:
           max-attempts-variable-name: ${{ inputs.max_attempts_variable_name }}
           max-correction-attempts-variable-name: ${{ inputs.max_correction_attempts_variable_name }}
           job-timeout-minutes-variable-name: ${{ inputs.job_timeout_minutes_variable_name }}
+          timeout-seconds-default: ${{ inputs.timeout_seconds_default }}
+          max-attempts-default: ${{ inputs.max_attempts_default }}
+          max-correction-attempts-default: ${{ inputs.max_correction_attempts_default }}
+          job-timeout-minutes-default: ${{ inputs.job_timeout_minutes_default }}
           target-branch: ${{ github.ref_name }}

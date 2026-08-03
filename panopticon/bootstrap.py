@@ -43,6 +43,8 @@ from .recovery import child_bootstrap_command, configuration_recovery
 
 DEFAULT_BRANCH = "main"
 SKILLS_PREFIX = ".agents/skills/"
+LOCAL_TOOLING_MANIFEST_PATH = "panopticon/local-tooling.json"
+LOCAL_TOOLING_MANIFEST_SCHEMA_VERSION = 1
 # ── Workflow generation ───────────────────────────────────────────────────────
 
 caller_workflow_text = shared_caller_workflow_text
@@ -317,23 +319,53 @@ def download_skills(owner, repo, ref, tree, token=None, child_root=".", dest_loc
 # tooling_currency.py, parsers/) is used only by the reusable GitHub Actions workflows that check
 # out the instance repo directly, and has no role in local Phase 2/3 work — it SHALL NOT be
 # vendored into child repos. `recovery.py` is the exception because current workflows use it before
-# checking out the instance repository.
-LOCAL_TOOLING_MODULES = (
-    "__init__.py", "callers.py", "config.py", "providers.py", "dependencies.py", "docs.py", "index.py",
-    "init_repo.py", "sync.py", "org_diagram_link.py", "recovery.py",
-)
+# checking out the instance repository. The explicit subset is declared in
+def _local_tooling_modules(source):
+    """Validate and return the instance-owned local-tooling module names."""
+    try:
+        manifest = json.loads(source)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"invalid JSON: {exc}") from exc
+    if not isinstance(manifest, dict) or set(manifest) != {"schema_version", "modules"}:
+        raise RuntimeError("must contain exactly schema_version and modules")
+    if (
+        type(manifest["schema_version"]) is not int
+        or manifest["schema_version"] != LOCAL_TOOLING_MANIFEST_SCHEMA_VERSION
+    ):
+        raise RuntimeError(
+            f"unsupported schema_version {manifest['schema_version']!r}; expected "
+            f"{LOCAL_TOOLING_MANIFEST_SCHEMA_VERSION}"
+        )
+    modules = manifest["modules"]
+    if not isinstance(modules, list) or not modules:
+        raise RuntimeError("modules must be a non-empty array")
+    if len(set(modules)) != len(modules):
+        raise RuntimeError("modules must not contain duplicates")
+    if not all(
+        isinstance(name, str)
+        and name.endswith(".py")
+        and "/" not in name
+        and "\\" not in name
+        and name not in {".", ".."}
+        for name in modules
+    ):
+        raise RuntimeError("modules must contain only flat .py filenames")
+    return tuple(modules)
 
 
 def download_local_tooling(owner, repo, ref, token=None, child_root=".",
                            urlopen=urllib.request.urlopen):
-    """Vendor LOCAL_TOOLING_MODULES into the child repo's panopticon/ directory, so
-    `python3 -m panopticon.docs` / `python3 -m panopticon.init_repo` work immediately after
-    bootstrap with no instance-repo clone or PYTHONPATH setup. Idempotent: overwrites in place."""
+    """Stage selected instance tooling before writing it into the child repository."""
+    manifest = _fetch_file_bytes(owner, repo, LOCAL_TOOLING_MANIFEST_PATH, ref, token, urlopen)
+    modules = _local_tooling_modules(manifest)
+    staged = [
+        (name, _fetch_file_bytes(owner, repo, f"panopticon/{name}", ref, token, urlopen))
+        for name in modules
+    ]
     dest_dir = Path(child_root) / "panopticon"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    total = len(LOCAL_TOOLING_MODULES)
-    for i, name in enumerate(LOCAL_TOOLING_MODULES, start=1):
-        content = _fetch_file_bytes(owner, repo, f"panopticon/{name}", ref, token, urlopen)
+    total = len(staged)
+    for i, (name, content) in enumerate(staged, start=1):
         (dest_dir / name).write_bytes(content)
         print(f"  [{i}/{total}] {name}")
     return total
@@ -367,7 +399,27 @@ def download_getting_started_guide(owner, repo, ref, token=None, child_root=".",
 # ── Prerequisite check ────────────────────────────────────────────────────────
 
 def _required_actions_names(contract):
-    return tuple(contract["secrets"].values()), tuple(contract["variables"].values())
+    required_variables = (
+        configured_name
+        for logical, configured_name in contract["variables"].items()
+        if logical not in contract["optional_variables"]
+    )
+    return tuple(contract["secrets"].values()), tuple(required_variables)
+
+
+def _optional_value_status(contract):
+    """Return source-safe status lines for optional provider values."""
+    status = []
+    for logical in contract["optional_variables"]:
+        configured_name = contract["variables"][logical]
+        if logical in contract["defaults"]:
+            source = "instance config"
+        elif logical == "job_timeout_minutes":
+            source = "workflow default in generated caller"
+        else:
+            source = "workflow default (the fixed instance action can override it in CI)"
+        status.append(f"    optional {configured_name} ({logical}): {source}")
+    return status
 
 
 def manual_verification_steps(org, contract):
@@ -383,6 +435,7 @@ def manual_verification_steps(org, contract):
         "variables can't be checked automatically. Verify manually that these are configured:",
         f"    secrets:   {', '.join(secrets)}",
         f"    variables: {', '.join(variables)}",
+        *_optional_value_status(contract),
         "",
         "  Web UI:",
         f"    {settings_url}",
@@ -422,7 +475,16 @@ def check_prerequisites(org, contract, token=None, urlopen=urllib.request.urlope
 
     _check("secrets", "secrets", secrets, "secret")
     _check("variables", "variables", variables, "variable")
+    report.extend(_optional_value_status(contract))
     return report
+
+
+def _has_required_prerequisite_problem(report):
+    """Whether a prerequisite report contains a missing or unverifiable required value."""
+    return any(
+        line.lstrip().startswith(("missing org-level", "could not verify org"))
+        for line in report
+    )
 
 # ── Skills location selection ───────────────────────────────────────────────────
 # The bootstrap script prompts for the skills location itself — even when piped via
@@ -734,7 +796,7 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
     # panopticon.init_repo need this to work with no instance-repo clone or PYTHONPATH setup).
     print("\nVendoring local Python tooling...")
     try:
-        n_modules = download_local_tooling(owner, repo, default_branch, token, child_root, urlopen)
+        n_modules = download_local_tooling(owner, repo, ref, token, child_root, urlopen)
         print(f"  {n_modules} module(s) installed → panopticon/")
     except RuntimeError as exc:
         print(f"  error: {exc}")
@@ -771,10 +833,13 @@ def main(env=None, child_root=".", prompt_fn=None, urlopen=urllib.request.urlope
     elif issues:
         for issue in issues:
             print(issue)
-        print(
-            "\n  See the setup guide in the instance repo for configuration instructions.\n"
-            "  Missing items will not block initialization — fix before the first PR."
-        )
+        if _has_required_prerequisite_problem(issues):
+            print(
+                "\n  See the setup guide in the instance repo for configuration instructions.\n"
+                "  Missing items will not block initialization — fix before the first PR."
+            )
+        else:
+            print("  All required org-level secrets and variables are configured.")
     else:
         print("  All org-level secrets and variables are configured.")
 

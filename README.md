@@ -24,6 +24,8 @@ initialize child repositories. The [org-owner setup guide](docs/setup-guide.md)
 walks through that process,
 including credentials, provider choices, template sync, customization
 protection, and local recovery from failed syncs.
+For required values, optional request budgets, defaults, and the exact
+organization integration path, use the [provider-configuration guide](docs/provider-configuration.md).
 
 To initialize a child repository, run the public launcher from that repository:
 
@@ -79,6 +81,11 @@ new pull request.
 Run `python3 -m panopticon.sync` in an initialized child repository to refresh
 managed skills, local tooling, and Panopticon workflow callers. Use
 `python3 -m panopticon.sync --check-updates` to preview the resulting changes.
+Each run downloads the versioned, data-only child-safe tooling manifest from
+the selected instance branch, so a child repository's vendored manifest cannot
+expand the set of files sync manages. It warns, without deleting them, about
+Python modules outside the manifest so maintainers can review legacy or
+child-owned files.
 
 Child-local documentation links stay relative to the document that contains
 them. Generated links from a child README or architecture overview to the
@@ -88,6 +95,7 @@ work from both the child and instance repositories.
 ## Documentation
 
 - [Set up an organization instance](docs/setup-guide.md)
+- [Configure provider defaults](docs/provider-configuration.md)
 - [Contribution guidelines](CONTRIBUTING.md)
 - [Contribute a parser](docs/parser-contribution.md)
 - [Use interface and dependency hints](docs/hint-reference.md)

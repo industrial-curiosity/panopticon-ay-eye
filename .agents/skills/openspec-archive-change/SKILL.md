@@ -17,7 +17,9 @@ Archive a completed change in the experimental workflow.
 
 1. **If no change name is provided, resolve the active change**
 
-   Run `openspec list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
+   Run `openspec list --json` to get available changes. Select the sole active
+   change immediately; use the **AskUserQuestion tool** only when two or more
+   active changes require a user choice.
 
    Show only active changes (not already archived).
    Include the schema used for each change if available.
@@ -115,6 +117,7 @@ All artifacts complete. All tasks complete.
 ## Guardrails
 
 - Automatically select the sole active change; prompt only when multiple active changes require a choice
+- Never ask the user to confirm a sole active change before continuing.
 - Use artifact graph (openspec status --json) for completion checking
 - Don't block archive on warnings - just inform and confirm
 - Preserve .openspec.yaml when moving to archive (it moves with the directory)

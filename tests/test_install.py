@@ -17,7 +17,7 @@ from panopticon.bootstrap import (
     CALLER_WORKFLOWS,
     DEFAULT_SKILLS_LOCATION,
     GETTING_STARTED_GUIDE,
-    LOCAL_TOOLING_MODULES,
+    LOCAL_TOOLING_MANIFEST_PATH,
     TOOL_LOCATIONS,
     _api_get,
     _rate_limit_delay,
@@ -52,6 +52,8 @@ from panopticon.providers import resolve_provider_contract
 LITELLM_CONTRACT = resolve_provider_contract({"provider": "litellm"})
 ORG_SECRETS = tuple(LITELLM_CONTRACT["secrets"].values())
 ORG_VARS = tuple(LITELLM_CONTRACT["variables"].values())
+LOCAL_TOOLING_MANIFEST = (Path(__file__).resolve().parent.parent / LOCAL_TOOLING_MANIFEST_PATH).read_bytes()
+LOCAL_TOOLING_MODULES = tuple(json.loads(LOCAL_TOOLING_MANIFEST)["modules"])
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -88,6 +90,22 @@ class TestCallerWorkflowText(unittest.TestCase):
         self.assertIn("api_key: ${{ secrets.PANOPTICON_LLM_API_KEY }}", text)
         self.assertIn(f"configuration_revision: {LITELLM_CONTRACT['revision']}", text)
         self.assertIn('configuration_names: \'{"api_key":"PANOPTICON_LLM_API_KEY"', text)
+        self.assertIn('configuration_defaults: "{}"', text)
+        self.assertIn("job_timeout_minutes: ${{ vars.PANOPTICON_LLM_JOB_TIMEOUT_MINUTES || '20' }}", text)
+        self.assertIn(
+            "job_timeout_source: ${{ vars.PANOPTICON_LLM_JOB_TIMEOUT_MINUTES && "
+            "'organization variable' || 'workflow default' }}",
+            text,
+        )
+
+    def test_pr_caller_embeds_a_validated_instance_job_timeout_default(self):
+        contract = resolve_provider_contract(
+            {"provider": "openai", "defaults": {"job_timeout_minutes": "25"}}
+        )
+        text = caller_workflow_text("panopticon-pr.yml", "acme/instance", "v1", contract)
+        self.assertIn('configuration_defaults: "{\\"job_timeout_minutes\\": \\"25\\"}"', text)
+        self.assertIn("job_timeout_minutes: ${{ vars.PANOPTICON_LLM_JOB_TIMEOUT_MINUTES || '25' }}", text)
+        self.assertIn("'organization variable' || 'instance config'", text)
 
     def test_openai_pr_workflow_does_not_map_an_endpoint_variable(self):
         contract = resolve_provider_contract({"provider": "openai"})
@@ -281,9 +299,11 @@ class TestDownloadSkills(unittest.TestCase):
 # ── Local tooling vendoring ──────────────────────────────────────────────────────
 
 class TestDownloadLocalTooling(unittest.TestCase):
-    def _make_urlopen(self):
+    def _make_urlopen(self, manifest=LOCAL_TOOLING_MANIFEST):
         def urlopen(request, timeout=30):
             url = request.full_url
+            if f"/contents/{LOCAL_TOOLING_MANIFEST_PATH}" in url:
+                return BytesIO(json.dumps(_file_response(manifest)).encode())
             for name in LOCAL_TOOLING_MODULES:
                 if f"/contents/panopticon/{name}" in url:
                     return BytesIO(json.dumps(_file_response(f"# {name}".encode())).encode())
@@ -326,6 +346,40 @@ class TestDownloadLocalTooling(unittest.TestCase):
                                    urlopen=self._make_urlopen())
             content = (Path(tmp) / "panopticon" / "docs.py").read_text()
         self.assertEqual(content, "# docs.py")
+
+    def test_selected_instance_manifest_controls_the_modules(self):
+        manifest = json.dumps({"schema_version": 1, "modules": ["docs.py"]}).encode()
+        with tempfile.TemporaryDirectory() as tmp:
+            count = download_local_tooling("acme", "instance", "selected-ref", child_root=tmp,
+                                           urlopen=self._make_urlopen(manifest))
+            written = {path.name for path in (Path(tmp) / "panopticon").iterdir()}
+        self.assertEqual(count, 1)
+        self.assertEqual(written, {"docs.py"})
+
+    def test_malformed_manifest_is_rejected_before_downloading_modules(self):
+        malformed = b'{"schema_version": 1, "modules": "docs.py"}'
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RuntimeError, "modules must be a non-empty array"):
+                download_local_tooling(
+                    "acme", "instance", "main", child_root=tmp,
+                    urlopen=self._make_urlopen(malformed),
+                )
+            self.assertFalse((Path(tmp) / "panopticon").exists())
+
+    def test_manifest_and_modules_are_staged_before_any_write(self):
+        manifest = json.dumps({"schema_version": 1, "modules": ["docs.py", "index.py"]}).encode()
+
+        def urlopen(request, timeout=30):
+            if f"/contents/{LOCAL_TOOLING_MANIFEST_PATH}" in request.full_url:
+                return BytesIO(json.dumps(_file_response(manifest)).encode())
+            if "/contents/panopticon/docs.py" in request.full_url:
+                return BytesIO(json.dumps(_file_response(b"# docs")).encode())
+            raise RuntimeError("index unavailable")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RuntimeError, "index unavailable"):
+                download_local_tooling("acme", "instance", "main", child_root=tmp, urlopen=urlopen)
+            self.assertFalse((Path(tmp) / "panopticon").exists())
 
     def test_prints_per_file_progress(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -499,10 +553,21 @@ class TestCheckPrerequisites(unittest.TestCase):
             return BytesIO(json.dumps(body).encode())
         return urlopen
 
-    def test_all_present_returns_empty_report(self):
+    def test_all_required_values_present_reports_optional_default_sources(self):
         urlopen = self._make_urlopen_for_prereqs(ORG_SECRETS, ORG_VARS)
         report = check_prerequisites("acme", LITELLM_CONTRACT, token="tok", urlopen=urlopen)
-        self.assertEqual(report, [])
+        text = "\n".join(report)
+        self.assertNotIn("missing org-level", text)
+        self.assertIn("optional PANOPTICON_LLM_TIMEOUT_SECONDS", text)
+        self.assertIn("workflow default", text)
+
+    def test_missing_optional_budget_is_not_a_missing_prerequisite(self):
+        required_variables = ("PANOPTICON_LLM_MODEL", "PANOPTICON_LLM_ENDPOINT")
+        urlopen = self._make_urlopen_for_prereqs(ORG_SECRETS, required_variables)
+        report = check_prerequisites("acme", LITELLM_CONTRACT, token="tok", urlopen=urlopen)
+        text = "\n".join(report)
+        self.assertNotIn("missing org-level variable", text)
+        self.assertIn("optional PANOPTICON_LLM_MAX_ATTEMPTS", text)
 
     def test_missing_secret_reported(self):
         urlopen = self._make_urlopen_for_prereqs(["PANOPTICON_LLM_API_KEY"], list(ORG_VARS))
@@ -660,9 +725,11 @@ class TestApiGetRetry(unittest.TestCase):
 class TestMainWorkflowRefDefault(unittest.TestCase):
     def _router(self, org_config_content=None, secrets=ORG_SECRETS, variables=ORG_VARS):
         from urllib.error import HTTPError
+        requests = []
 
         def urlopen(request, timeout=30):
             url = request.full_url
+            requests.append(url)
             if "contents/panopticon.config.json" in url:
                 if org_config_content is None:
                     raise HTTPError(url, 404, "Not Found", {}, BytesIO(b"{}"))
@@ -673,6 +740,8 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
                         {"tree": [_tree_entry(".github/workflows/panopticon-pr-litellm.yml")]}
                     ).encode()
                 )
+            if f"contents/{LOCAL_TOOLING_MANIFEST_PATH}" in url:
+                return BytesIO(json.dumps(_file_response(LOCAL_TOOLING_MANIFEST)).encode())
             for name in LOCAL_TOOLING_MODULES:
                 if f"/contents/panopticon/{name}" in url:
                     return BytesIO(json.dumps(_file_response(f"# {name}".encode())).encode())
@@ -684,6 +753,7 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
                 return BytesIO(json.dumps({"variables": [{"name": n} for n in variables]}).encode())
             raise AssertionError(f"unexpected url: {url}")
 
+        urlopen.requests = requests
         return urlopen
 
     def test_no_org_config_fails_before_writing_with_complete_remediation(self):
@@ -716,6 +786,11 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
         self.assertNotIn("export PANOPTICON_INSTANCE", out.getvalue())
 
     def test_org_config_workflow_ref_is_respected(self):
+        router = self._router(
+            org_config_content=json.dumps(
+                {"workflow_ref": "v2", "llm": {"provider": "litellm"}}
+            ).encode()
+        )
         with tempfile.TemporaryDirectory() as tmp:
             code = bootstrap_main(
                 env={
@@ -724,15 +799,17 @@ class TestMainWorkflowRefDefault(unittest.TestCase):
                     "PANOPTICON_SKILLS_LOCATION": ".agents/skills",
                 },
                 child_root=tmp,
-                urlopen=self._router(
-                    org_config_content=json.dumps(
-                        {"workflow_ref": "v2", "llm": {"provider": "litellm"}}
-                    ).encode()
-                ),
+                urlopen=router,
             )
             text = (Path(tmp) / ".github" / "workflows" / "panopticon-pr.yml").read_text()
         self.assertEqual(code, 0)
         self.assertIn("uses: acme/instance/.github/workflows/panopticon-pr-litellm.yml@v2", text)
+        self.assertTrue(
+            any(
+                f"contents/{LOCAL_TOOLING_MANIFEST_PATH}?ref=v2" in request
+                for request in router.requests
+            )
+        )
 
 
 class TestProviderBootstrapErrors(unittest.TestCase):
@@ -1074,6 +1151,8 @@ class TestMainSkillsLocationFlow(unittest.TestCase):
                 )
             if "contents/" + skill_path in url:
                 return BytesIO(json.dumps(_file_response(b"# panopticon-foo")).encode())
+            if f"contents/{LOCAL_TOOLING_MANIFEST_PATH}" in url:
+                return BytesIO(json.dumps(_file_response(LOCAL_TOOLING_MANIFEST)).encode())
             for name in LOCAL_TOOLING_MODULES:
                 if f"/contents/panopticon/{name}" in url:
                     return BytesIO(json.dumps(_file_response(f"# {name}".encode())).encode())

@@ -12,6 +12,7 @@ from panopticon.index import save_index
 from panopticon.init_repo import (
     INITIALIZATION_REPORT,
     configured_actions_names,
+    configured_optional_value_status,
     detect_docs_location,
     discover_workflow_ref,
     initialize,
@@ -19,6 +20,8 @@ from panopticon.init_repo import (
     _fallback_workflow_ref,
     _resolve_instance_default_branch,
 )
+from panopticon.callers import caller_workflow_text
+from panopticon.providers import resolve_provider_contract
 
 from .helpers import load_fixture
 from .test_docs import make_docs_tree
@@ -339,6 +342,20 @@ class TestSecretVerification(unittest.TestCase):
             secrets, variables = configured_actions_names(tmp)
         self.assertEqual(secrets, ("ACME_LLM_KEY", "ACME_INSTANCE_TOKEN"))
         self.assertEqual(variables, ("ACME_LLM_ENDPOINT", "ACME_LLM_MODEL"))
+
+    def test_generated_caller_excludes_optional_variables_from_missing_checks(self):
+        contract = resolve_provider_contract({"provider": "litellm"})
+        with tempfile.TemporaryDirectory() as tmp:
+            workflow = Path(tmp) / ".github" / "workflows"
+            workflow.mkdir(parents=True)
+            (workflow / "panopticon-pr.yml").write_text(
+                caller_workflow_text("panopticon-pr.yml", "acme/instance", "main", contract)
+            )
+            secrets, variables = configured_actions_names(tmp)
+            status = configured_optional_value_status(tmp)
+        self.assertIn("PANOPTICON_LLM_API_KEY", secrets)
+        self.assertEqual(variables, ("PANOPTICON_LLM_MODEL", "PANOPTICON_LLM_ENDPOINT"))
+        self.assertIn("optional PANOPTICON_LLM_TIMEOUT_SECONDS", "\n".join(status))
 
     def test_missing_secrets_never_block_finalization(self):
         from unittest import mock

@@ -748,20 +748,26 @@ re-prompting, unless
 ### Requirement: Local tooling package vendored into child repo
 
 The bootstrap script SHALL download the local-tooling subset of the
-`panopticon` Python package — the modules that Phase 2 skills and the Phase 3
-finalization command invoke directly (`__init__.py`, `config.py`,
-`providers.py`, `dependencies.py`, `docs.py`, `index.py`, and `init_repo.py`),
-plus the local sync script, org-diagram link script, and recovery helper — from
-the instance repo and write them to the child repo's `panopticon/` directory.
-It SHALL create that directory if absent, so `python3 -m panopticon.docs`,
+`panopticon` Python package from the versioned, data-only local-tooling
+manifest at `panopticon/local-tooling.json` in the selected instance ref. The
+manifest SHALL contain a supported positive `schema_version` and a non-empty
+`modules` array of unique flat `.py` filenames. Bootstrap SHALL reject malformed
+JSON, unsupported schema versions, duplicate names, paths containing separators
+or traversal, and modules absent from that selected instance tree before it
+writes a tooling file.
+
+Bootstrap SHALL fetch the manifest and every listed module before writing any
+listed module to the child repo's `panopticon/` directory. It SHALL create that
+directory if absent, so `python3 -m panopticon.docs`,
 `python3 -m panopticon.init_repo`, `python3 -m panopticon.sync`, and
 `python3 -m panopticon.org_diagram_link` all run immediately after Phase 1
 without cloning the instance repo or configuring `PYTHONPATH`.
 
 Modules used only by reusable GitHub Actions workflows that check out the
-instance repo directly SHALL NOT be written to the child repository. Where a
-vendored module imports another local `panopticon` module at runtime, that
-dependency SHALL be included in the vendored subset.
+instance repo directly SHALL NOT be listed or written to the child repository.
+Where a vendored module imports another local `panopticon` module at runtime,
+that dependency SHALL be included in the manifest. The bootstrap module SHALL
+not require an imported or executable manifest module in order to start.
 
 Because the vendored subset and the instance repo's full package share the
 same package name, a CI workflow that checks out both SHALL guarantee that
@@ -777,18 +783,25 @@ CI-only modules resolve from the instance repo rather than relying on
   `panopticon.providers`, resolve from the child repository's vendored
   `panopticon/` directory
 
-#### Scenario: Sync repairs a child repository missing the provider module
+#### Scenario: Bootstrap uses the selected instance manifest
 
-- **GIVEN** a previously bootstrapped child repository whose vendored tooling
-  predates `providers.py`
-- **WHEN** the user runs `python3 -m panopticon.sync`
-- **THEN** the sync writes `panopticon/providers.py` from the instance and
-  reports it as a created or updated tooling file
+- **GIVEN** the selected instance ref contains a manifest that differs from
+  the template checkout's local files
+- **WHEN** bootstrap vendors local tooling
+- **THEN** it fetches and validates that selected-ref manifest and writes only
+  its listed modules
+
+#### Scenario: Bootstrap stages tooling before writing
+
+- **GIVEN** a selected instance manifest lists multiple local-tooling modules
+- **WHEN** retrieval of a later listed module fails
+- **THEN** bootstrap writes none of the listed modules
 
 #### Scenario: CI-only modules remain excluded
 
 - **WHEN** bootstrap or sync vendors the local-tooling subset
-- **THEN** it includes only local commands and their runtime dependencies, and
+- **THEN** it includes only manifest-listed local commands and their runtime
+  dependencies, and
   does not vendor CI-only modules such as `llm.py`, `drift.py`, `currency.py`,
   `merge.py`, `extraction.py`, `bootstrap.py`, or `parsers/`
 
@@ -1188,30 +1201,28 @@ include secret values, tokens, or environment-variable values.
 
 ### Requirement: Org-level CI prerequisites
 
-The init tooling SHALL derive required org-level Actions secrets and variables
-from the validated instance
-provider contract, including the configured instance-token name, provider
-credentials, model and endpoint
-or selected credential-mode settings, and bounded request/job budget names.
-These values are consumed only
-by shared CI workflows. Child repos MUST NOT require per-repo secret or variable
-configuration; generated
-callers SHALL map org-level names explicitly to canonical provider workflow
-inputs and secrets. Missing
+The init tooling SHALL derive required organization-level Actions secrets and
+variables from the validated instance provider contract, including the
+configured instance-token name, provider credentials, required model and
+endpoint values, selected credential-mode settings, and bounded request/job
+budget names that lack an effective trusted default. Optional values with an
+effective workflow, instance-configured, or fixed-action source SHALL be
+reported as supplied rather than missing. Child repos MUST NOT require per-repo
+secret or variable configuration; generated callers SHALL map organization-level
+names explicitly to canonical provider workflow inputs and secrets. Missing
 values SHALL NOT block documentation or index initialization, but provider
-configuration itself MUST be
-valid before bootstrap writes any child artifact.
+configuration itself MUST be valid before bootstrap writes any child artifact.
 
 Verifying org-level secrets and variables requires a GitHub auth token with
-permission to read org-level
-Actions secrets and variables. With a resolved `GH_TOKEN`, `GITHUB_TOKEN`, or
-`gh auth token`, tooling SHALL
-query the org APIs and report every missing provider-resolved name and its kind.
-Without such a token,
-tooling SHALL report no auth error and SHALL print the visible org Actions
-settings URL plus equivalent
-`gh secret list --org` and `gh variable list --org` commands, listing every
-provider-resolved name to check.
+permission to read org-level Actions secrets and variables. With a resolved
+`GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`, tooling SHALL query the org APIs
+and report every missing required provider-resolved name and its kind. Without
+such a token, tooling SHALL report no auth error and SHALL print the visible org
+Actions settings URL plus equivalent `gh secret list --org` and `gh variable
+list --org` commands, listing each required name and each optional value's
+effective source. Every report SHALL distinguish `required`, `supplied by
+default`, and `unresolved`, state the value's logical purpose, and give one
+concise next action without printing its value.
 
 #### Scenario: Configured instance token is missing
 
@@ -1220,12 +1231,20 @@ provider-resolved name to check.
   recorded by the instance
 - **THEN** it reports that exact org-level secret name and how to configure it
 
-#### Scenario: Configured provider variable is missing
+#### Scenario: Configured required provider variable is missing
 
 - **GIVEN** a GitHub auth token is available
 - **WHEN** initialization checks an org missing a variable required by the
-  selected provider contract
-- **THEN** it reports that exact variable name and its provider purpose
+  selected provider contract with no effective default
+- **THEN** it reports that exact variable name, its provider purpose, and the
+  organization configuration action
+
+#### Scenario: Optional provider variable has a trusted default
+
+- **WHEN** initialization checks an optional provider variable supplied by the
+  fixed action, instance configuration, or template workflow
+- **THEN** it reports the value as supplied with its source label and does not
+  report an absent organization variable as a missing prerequisite
 
 #### Scenario: Instance-managed credentials need no AWS variables
 
@@ -1239,16 +1258,16 @@ provider-resolved name to check.
 - **GIVEN** a GitHub auth token is resolved from `GH_TOKEN`, `GITHUB_TOKEN`, or
   `gh auth token`
 - **WHEN** the org-level prerequisite check runs
-- **THEN** it queries the org APIs and reports exactly which provider-resolved
-  names are absent
+- **THEN** it queries the org APIs and reports required missing names and
+  effective optional sources separately
 
 #### Scenario: No auth token available
 
 - **GIVEN** no GitHub auth token can be resolved
 - **WHEN** the org-level prerequisite check runs
-- **THEN** it prints the visible web UI URL, equivalent listing commands, and
-  every provider-resolved secret
-  and variable name without treating the missing auth token as an initialization
+- **THEN** it prints the visible web UI URL, equivalent listing commands, every
+  required provider-resolved secret and variable name, and the source status of
+  optional values without treating the missing auth token as an initialization
   failure
 
 ### Requirement: Documentation location adoption
@@ -1835,3 +1854,52 @@ and create or update a child pull request.
 - **WHEN** bootstrap refreshes its managed workflow files
 - **THEN** it updates the resource-sync caller in place without duplicating it
   or rerunning initialization
+
+### Requirement: Child sync uses the explicit local-tooling manifest
+
+Child bootstrap and child resource sync SHALL manage the same explicit,
+versioned, data-only instance-owned local-tooling manifest at
+`panopticon/local-tooling.json`. Bootstrap and resource sync SHALL download the
+manifest from the selected instance ref on every run and SHALL NOT use a child
+copy to select modules. They SHALL validate the manifest, fetch every listed
+module before writing any listed module, and fetch, preview, and overwrite only
+manifest-listed modules. They SHALL NOT delete existing child files outside the
+manifest.
+
+For Python source paths under `panopticon/` outside the manifest, sync SHALL
+ignore child configuration, indexes, `.gitignore`, and bytecode. It SHALL report
+an advisory instance-excluded warning for paths also present in the selected
+instance tree and an advisory child-only-and-unknown warning for all other
+candidates. These warnings SHALL preserve every candidate and SHALL not alter
+sync's exit status.
+
+#### Scenario: Sync encounters CI-only module
+
+- **WHEN** the instance tree contains a CI-only `panopticon/` module outside
+  the local-tooling manifest
+- **THEN** child sync reports it as instance-excluded and leaves it unchanged
+
+#### Scenario: Sync refreshes child-safe tooling
+
+- **WHEN** a manifest-listed module changes in the instance
+- **THEN** preview reports it and apply refreshes it in the child repository
+
+#### Scenario: Child has a stale manifest copy
+
+- **WHEN** a child repository contains an older local-tooling manifest
+- **THEN** bootstrap and resource sync use the manifest downloaded from the
+  selected instance ref to select modules
+
+#### Scenario: Child has an unmanaged module
+
+- **WHEN** a child repository contains a `panopticon/` file outside the
+  local-tooling manifest
+- **THEN** child sync reports it as child-only and unknown, then leaves it
+  unchanged
+
+#### Scenario: Child state is not a tooling candidate
+
+- **GIVEN** a child contains `panopticon/config.json`, `panopticon/index.json`,
+  `.gitignore`, or bytecode
+- **WHEN** child resource sync runs
+- **THEN** sync emits no unmanaged-tooling warning for that state file

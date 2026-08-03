@@ -60,6 +60,17 @@ The OpenAI workflow fixes its base URL to `https://api.openai.com/v1`; it does
 not expose, persist, or forward an endpoint variable. LiteLLM remains the
 provider for a configurable OpenAI-compatible endpoint.
 
+Provider contracts distinguish required values from optional request-budget
+values. Required credentials, model identity, repository access, LiteLLM
+endpoint, and applicable Bedrock identity settings come from organization
+Actions configuration. Runtime budgets resolve in order from an organization
+variable, the fixed instance default Action, a non-secret instance-configured
+default, then the template workflow default. Job timeout is resolved in the
+generated caller from an organization variable, instance-configured default, or
+template default because GitHub determines it before an Action can run. The
+workflow summary and initialization report expose only each value's source
+label, never its value.
+
 Provider configuration selects trusted reusable PR workflow paths and canonical
 input mappings; it cannot
 inject an arbitrary repository, workflow, action, or command. Splitting the
@@ -83,7 +94,12 @@ that read, and opens or updates an open child-repository pull request for review
 when resources changed. Once a resource-sync pull request is merged or closed,
 the next changed sync creates a new pull request. Local sync derives caller
 workflows from the instance's current provider configuration so older children
-can acquire newly managed callers without re-running bootstrap.
+can acquire newly managed callers without re-running bootstrap. It also
+downloads the instance-owned versioned, data-only child-safe local-tooling
+manifest on every run, then refreshes only the listed modules. CI-only runtime
+modules and child-owned files outside that manifest are not managed by local
+sync. It reports those unmanaged Python modules as instance-excluded or
+child-only advisory candidates for reviewed removal, without changing them.
 
 The documentation-drift check first classifies the PR diff. Documentation,
 agent guidance and templates, OpenSpec artifacts, changelogs, and test-only

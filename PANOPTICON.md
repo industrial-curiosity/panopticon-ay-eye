@@ -95,8 +95,24 @@ To see what would change without writing anything:
 python3 -m panopticon.sync --check-updates
 ```
 
+Sync reads the versioned, data-only local-tooling manifest from the instance's
+current branch. It can also warn about Python modules under `panopticon/` that
+are not in that manifest. **Instance-excluded** modules exist in the instance
+but are not child-safe; **child-only and unknown** modules are not in the
+instance. Both warnings are advisory and leave files untouched. Review the
+module's owner and imports first. Remove an unwanted legacy module only in a
+separate reviewed change, then run this repo's tests before committing it.
+
 Every pull request also runs an advisory (never blocking) check that warns when
 this repo's wired
 workflow ref, skills, or vendored tooling have drifted from the instance's
 current default branch —
 acting on that warning is at your discretion.
+
+## Provider configuration defaults
+
+Provider credentials, model identity, and repository access are required
+organization settings. Request budgets are optional and have a documented
+precedence order; see the instance's `docs/provider-configuration.md` for the
+required/optional table, configuration steps, fixed Action contract, and
+recovery commands. Never put credentials or tokens in a default.

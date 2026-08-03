@@ -2,6 +2,75 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [harden-bootstrap-manifest-and-workflow-ci] - 2026-08-03
+
+### Added
+
+- Credential-free template CI now validates every reusable workflow contract
+  and runs the full Python test suite for pull requests, pushes, and manual
+  dispatches.
+
+### Changed
+
+- Child bootstrap, sync, and tooling-currency now use a validated versioned
+  JSON local-tooling manifest from the authoritative instance source.
+
+### Fixed
+
+- Uncustomized instance bootstrap no longer depends on an executable manifest
+  module that the default payload loader does not load.
+
+## [model-effective-provider-requirements] - 2026-08-02
+
+### Added
+
+- Trusted optional-provider value resolution with fixed instance-action and
+  instance-configuration defaults, plus a source-safe integrator guide.
+
+### Changed
+
+- Child callers and reusable provider workflows now report the effective source
+  of each request budget; job timeout is resolved before job creation.
+- Bootstrap and finalization now distinguish required organization settings from
+  optional values supplied by a trusted default.
+
+## [complete-rollout-status-and-legacy-tooling-guidance] - 2026-08-02
+
+### Added
+
+- Advisory detection for instance-excluded and child-only Python tooling in
+  child synchronization and tooling-currency checks.
+
+### Changed
+
+- Rollout documentation now records implementation status, current verification
+  evidence, and a reviewed migration process for legacy child tooling.
+
+## [restrict-child-sync-tooling-manifest] - 2026-08-02
+
+### Changed
+
+- Child tooling sync now retrieves the instance-owned manifest on every run
+  and updates only its listed modules, excluding CI-only and child-owned files.
+
+## [fix-bedrock-converse-request-shape] - 2026-08-01
+
+### Fixed
+
+- Bedrock Converse requests now omit unsupported optional inference parameters.
+
+## [harden-bedrock-workflow-contract] - 2026-08-01
+
+### Added
+
+- Deterministic validation for declared caller inputs and secrets in reusable
+  provider PR workflows.
+
+### Fixed
+
+- Bedrock PR evaluation no longer requires LiteLLM endpoint or API-key caller
+  configuration.
+
 ## [fix-resource-sync-merged-pr] - 2026-07-26
 
 ### Fixed

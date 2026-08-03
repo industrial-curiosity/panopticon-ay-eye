@@ -2,6 +2,7 @@
 skills/tooling drift-diff logic, and warning-format output. All subprocess/filesystem stubbed."""
 
 import contextlib
+import json
 import subprocess
 import tempfile
 import unittest
@@ -10,12 +11,21 @@ from pathlib import Path
 
 from panopticon.tooling_currency import (
     _diff_files,
+    _unmanaged_tooling_findings,
     _panopticon_skill_files,
     _tooling_module_files,
     check_skills_and_tooling_drift,
     check_workflow_ref,
     main,
 )
+
+
+def _write_manifest(instance_root, modules=("docs.py",)):
+    path = Path(instance_root) / "panopticon" / "local-tooling.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"schema_version": 1, "modules": list(modules)}), encoding="utf-8"
+    )
 
 
 def _fake_runner(responses):
@@ -106,6 +116,39 @@ class TestToolingModuleFiles(unittest.TestCase):
         self.assertEqual(set(files), {Path("panopticon/docs.py")})
 
 
+class TestUnmanagedToolingFindings(unittest.TestCase):
+    def test_classifies_instance_excluded_and_child_only_modules(self):
+        with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
+            instance_tooling = Path(instance_root) / "panopticon"
+            child_tooling = Path(child_root) / "panopticon"
+            instance_tooling.mkdir()
+            child_tooling.mkdir()
+            (instance_tooling / "llm.py").write_text("ci only", encoding="utf-8")
+            (child_tooling / "llm.py").write_text("ci only", encoding="utf-8")
+            (child_tooling / "legacy_child_module.py").write_text("child owned", encoding="utf-8")
+            findings = _unmanaged_tooling_findings(child_root, instance_root, ("docs.py",))
+        self.assertEqual(
+            findings,
+            [
+                "panopticon/legacy_child_module.py is child-only and unknown to the instance",
+                "panopticon/llm.py is instance-excluded by the local-tooling manifest",
+            ],
+        )
+
+    def test_ignores_child_state_and_bytecode(self):
+        with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
+            tooling = Path(child_root) / "panopticon"
+            tooling.mkdir()
+            (tooling / "config.json").write_text("{}", encoding="utf-8")
+            (tooling / "index.json").write_text("{}", encoding="utf-8")
+            (tooling / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+            cache = tooling / "__pycache__"
+            cache.mkdir()
+            (cache / "ignored.py").write_text("cache", encoding="utf-8")
+            findings = _unmanaged_tooling_findings(child_root, instance_root, ())
+        self.assertEqual(findings, [])
+
+
 class TestDiffFiles(unittest.TestCase):
     def test_identical_content_yields_no_findings(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -159,6 +202,7 @@ class TestCheckSkillsAndToolingDrift(unittest.TestCase):
             for name in ("__init__.py", "config.py", "docs.py", "index.py", "init_repo.py", "sync.py"):
                 (Path(instance_root) / "panopticon" / name).write_text(name)
                 (Path(child_root) / "panopticon" / name).write_text(name)
+            _write_manifest(instance_root, ("__init__.py", "config.py", "docs.py", "index.py", "init_repo.py", "sync.py"))
 
             findings = check_skills_and_tooling_drift(child_root, instance_root)
         self.assertEqual(findings, [])
@@ -169,6 +213,7 @@ class TestCheckSkillsAndToolingDrift(unittest.TestCase):
             (Path(child_root) / "panopticon").mkdir()
             (Path(instance_root) / "panopticon" / "docs.py").write_text("new")
             (Path(child_root) / "panopticon" / "docs.py").write_text("old")
+            _write_manifest(instance_root)
 
             findings = check_skills_and_tooling_drift(child_root, instance_root)
         self.assertTrue(any("panopticon/docs.py" in f for f in findings))
@@ -177,6 +222,7 @@ class TestCheckSkillsAndToolingDrift(unittest.TestCase):
         with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
             (Path(instance_root) / ".agents" / "skills" / "panopticon-new").mkdir(parents=True)
             (Path(instance_root) / ".agents" / "skills" / "panopticon-new" / "SKILL.md").write_text("x")
+            _write_manifest(instance_root)
 
             findings = check_skills_and_tooling_drift(child_root, instance_root)
         self.assertTrue(any("panopticon-new" in f for f in findings))
@@ -209,6 +255,7 @@ class TestMain(unittest.TestCase):
         with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
             self._init_git_repo(instance_root)
             self._write_caller_workflow(child_root, "main")
+            _write_manifest(instance_root)
             out = StringIO()
             with contextlib.redirect_stdout(out):
                 code = main(["--child-root", child_root, "--instance-root", instance_root])
@@ -221,12 +268,44 @@ class TestMain(unittest.TestCase):
             self._write_caller_workflow(child_root, "main")
             (Path(instance_root) / ".agents" / "skills" / "panopticon-new").mkdir(parents=True)
             (Path(instance_root) / ".agents" / "skills" / "panopticon-new" / "SKILL.md").write_text("x")
+            _write_manifest(instance_root)
             out = StringIO()
             with contextlib.redirect_stdout(out):
                 code = main(["--child-root", child_root, "--instance-root", instance_root])
             self.assertEqual(code, 0)
             self.assertIn("::warning::", out.getvalue())
             self.assertIn("panopticon-new", out.getvalue())
+
+    def test_unmanaged_tooling_is_a_non_blocking_warning(self):
+        with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
+            self._init_git_repo(instance_root)
+            self._write_caller_workflow(child_root, "main")
+            instance_tooling = Path(instance_root) / "panopticon"
+            child_tooling = Path(child_root) / "panopticon"
+            instance_tooling.mkdir()
+            child_tooling.mkdir()
+            (instance_tooling / "llm.py").write_text("ci only", encoding="utf-8")
+            (child_tooling / "llm.py").write_text("ci only", encoding="utf-8")
+            _write_manifest(instance_root)
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(["--child-root", child_root, "--instance-root", instance_root])
+            self.assertEqual(code, 0)
+            self.assertIn("::warning::", out.getvalue())
+            self.assertIn("llm.py is instance-excluded", out.getvalue())
+
+    def test_invalid_instance_manifest_is_an_advisory_warning(self):
+        with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
+            self._init_git_repo(instance_root)
+            self._write_caller_workflow(child_root, "main")
+            path = Path(instance_root) / "panopticon" / "local-tooling.json"
+            path.parent.mkdir()
+            path.write_text("not json", encoding="utf-8")
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(["--child-root", child_root, "--instance-root", instance_root])
+        self.assertEqual(code, 0)
+        self.assertIn("invalid instance local-tooling manifest", out.getvalue())
 
 
 if __name__ == "__main__":

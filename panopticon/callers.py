@@ -52,6 +52,16 @@ def caller_workflow_text(name, instance, ref, contract, default_branch=DEFAULT_B
         f"    uses: {instance}/.github/workflows/{remote_name}@{ref}\n",
     ]
     if name == "panopticon-pr.yml":
+        lines.extend(
+            [
+                "# Optional provider variables: "
+                + json.dumps(contract["optional_variables"], separators=(",", ":"))
+                + "\n",
+                "# Instance provider defaults: "
+                + json.dumps(contract["defaults"], sort_keys=True, separators=(",", ":"))
+                + "\n",
+            ]
+        )
         lines.append("    permissions:\n")
         for permission, access in contract["permissions"].items():
             lines.append(f"      {permission}: {access}\n")
@@ -68,12 +78,30 @@ def caller_workflow_text(name, instance, ref, contract, default_branch=DEFAULT_B
                     separators=(",", ":"),
                 )
                 + "'\n",
+                "      configuration_defaults: "
+                + json.dumps(json.dumps(contract["defaults"], sort_keys=True))
+                + "\n",
             ]
         )
         if contract.get("credential_mode"):
             lines.append(f"      credential_mode: {contract['credential_mode']}\n")
         for logical, configured_name in contract["variables"].items():
-            lines.append(f"      {logical}: {_actions_expression('vars', configured_name)}\n")
+            if logical == "job_timeout_minutes":
+                default = contract["defaults"].get(
+                    logical, contract["template_defaults"][logical]
+                )
+                fallback_source = (
+                    "instance config" if logical in contract["defaults"] else "workflow default"
+                )
+                lines.append(
+                    f"      {logical}: ${{{{ vars.{configured_name} || '{default}' }}}}\n"
+                )
+                lines.append(
+                    "      job_timeout_source: ${{ "
+                    f"vars.{configured_name} && 'organization variable' || '{fallback_source}' }}}}\n"
+                )
+            else:
+                lines.append(f"      {logical}: {_actions_expression('vars', configured_name)}\n")
         lines.append("    secrets:\n")
         for logical, configured_name in contract["secrets"].items():
             lines.append(f"      {logical}: {_actions_expression('secrets', configured_name)}\n")

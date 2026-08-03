@@ -8,7 +8,7 @@ from .config import ORG_CONFIG_BASENAME
 from .providers import PROVIDERS, ProviderConfigError, provider_config
 
 
-def configure(instance_root, provider, names, credential_mode=None):
+def configure(instance_root, provider, names, credential_mode=None, defaults=None):
     """Update only the LLM block in the instance configuration and return the effective block."""
     if provider not in PROVIDERS:
         raise ProviderConfigError(
@@ -46,6 +46,7 @@ def configure(instance_root, provider, names, credential_mode=None):
         secrets,
         variables,
         credential_mode if provider == "bedrock" else None,
+        defaults,
     )
 
     path = Path(instance_root) / ORG_CONFIG_BASENAME
@@ -62,6 +63,8 @@ def build_parser():
     parser.add_argument("--instance-root", default=".")
     parser.add_argument("--provider", required=True, choices=tuple(PROVIDERS))
     parser.add_argument("--credential-mode")
+    for logical in ("timeout_seconds", "max_attempts", "max_correction_attempts", "job_timeout_minutes"):
+        parser.add_argument(f"--{logical.replace('_', '-')}-default")
     logical_names = {
         logical: default
         for definition in PROVIDERS.values()
@@ -80,8 +83,13 @@ def main(argv=None):
         for key, value in vars(args).items()
         if key.endswith("_name")
     }
+    defaults = {
+        key.removesuffix("_default"): value
+        for key, value in vars(args).items()
+        if key.endswith("_default") and value is not None
+    }
     try:
-        llm = configure(args.instance_root, args.provider, names, args.credential_mode)
+        llm = configure(args.instance_root, args.provider, names, args.credential_mode, defaults)
     except (ProviderConfigError, json.JSONDecodeError) as exc:
         raise SystemExit(f"error: {exc}") from exc
     print(json.dumps(llm, sort_keys=True))

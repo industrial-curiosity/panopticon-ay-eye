@@ -61,6 +61,7 @@ created from a
    access to the instance repo.
    If it is missing, the workflow stops before pushing and shows these
    instructions in its step summary.
+
 4. No tagging is required to get started — child caller workflows default to the
    instance repo's
    default branch until you opt into pinning a ref (see step 3's
@@ -106,6 +107,7 @@ repo:
 
    Replace `YOUR-ORG/YOUR-INSTANCE-REPO` with your instance, for example
    `acme/panopticon-instance`.
+
 2. Select **Run workflow** and choose the instance's default branch. The
    workflow fixes the provider
    identity and displays only that provider's configuration fields.
@@ -258,6 +260,11 @@ workflow inputs.
 | `PANOPTICON_AWS_ROLE_ARN` *(Bedrock github-oidc only)* | IAM role ARN that child PR workflows assume through GitHub OIDC, for example `arn:aws:iam::123456789012:role/panopticon-bedrock` |
 | `PANOPTICON_LLM_MODEL` | LiteLLM or OpenAI model name (for example, `gpt-4o-mini`) or Bedrock Converse-compatible model identifier |
 
+Request timeout and retry-budget variables are optional. See [provider
+configuration defaults](provider-configuration.md) for their source precedence,
+the configuration-workflow default fields, the fixed instance Action path, and
+the exact child-bootstrap recovery path.
+
 These are consumed only by the shared CI workflows. Local flows —
 initialization, doc generation,
 index updates — run in each developer's own AI agent harness and need none of
@@ -397,7 +404,8 @@ prompt for non-interactive or CI runs.
 Once a location is chosen, the script will:
 
 - Install the Panopticon skills there
-- Vendor the local-tooling subset of the `panopticon` Python package into
+- Download the selected instance's versioned, data-only local-tooling manifest
+  and vendor its listed subset of the `panopticon` Python package into
   `panopticon/`, so the
   `python3 -m panopticon...` commands the skills use in Phase 2 work immediately
   — no need to clone the
@@ -523,6 +531,14 @@ commit, or a skill/tooling file's content differs, is missing, or is extra. It's
 always advisory
 and never gated — acting on it is entirely at your discretion.
 
+The check and local sync also identify unmanaged Python modules under
+`panopticon/`. An **instance-excluded** warning means the selected instance
+contains the module but its versioned data-only local-tooling manifest excludes
+it (for example, a CI-only runtime module). A **child-only and unknown** warning
+means the module is absent from the selected instance. Neither warning deletes
+or changes the file. A malformed manifest is an actionable bootstrap or sync
+error, but only a non-blocking tooling-currency warning.
+
 To pull the instance's current skills and tooling into an already-bootstrapped
 child repo:
 
@@ -547,6 +563,11 @@ anything:
 ```bash
 python3 -m panopticon.sync --check-updates
 ```
+
+For each warning, review the module's owner and imports before acting. Keep
+child-owned modules that are still needed. For an unwanted legacy or CI-only
+module, remove it only in a separate, reviewed change, run the child test suite,
+and commit that removal separately from the tooling refresh.
 
 If you've customized a skill or tooling module at the **instance** level and
 want that
