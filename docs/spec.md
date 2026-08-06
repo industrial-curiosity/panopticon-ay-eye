@@ -120,7 +120,13 @@ replaces that repository's
 index shard, and rebuilds compiled indexes in the instance. Pull requests
 simulate the same merge behavior
 and publish in-flight branch state without changing the instance's default
-branch. Instance template syncs preserve declared instance-owned paths and
+branch. The PR workflow also compares bounded likely matches from the child
+index with the instance compiled index, and publishes those advisory findings
+with the validated child Mermaid architecture diagram in its maintained report
+comment. Interface-conflict gating defaults to the instance configuration but
+may be overridden by the child repository's committed
+`panopticon/config.json`; both advisory and blocking modes warn prominently,
+while only blocking fails the check. Instance template syncs preserve declared instance-owned paths and
 report the failing stage and recovery action when they cannot complete.
 
 ## Architecture diagram links

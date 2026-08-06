@@ -51,8 +51,22 @@ components that no longer exist.
    python3 -m panopticon.docs render --repo-name <repo> --component api --component worker ...
    ```
 
-6. **Keep the index current first.** Interface changes go into `panopticon/index.json` (see the
-   panopticon-index-schema skill and the panopticon-interface-naming skill for canonical names),
+6. **Load organization context and keep the index current first.** Before inferring or refreshing
+   interface names, load the configured instance's compiled interface index. Prefer the instance
+   checkout already available to the workflow; for a local run without a checkout, use the
+   configured instance identity and authenticated access:
+
+   ```bash
+   python3 -m panopticon.interface_lookup --instance <instance> \
+     --instance-root <instance-checkout> --output /tmp/panopticon-instance-interfaces.json
+   ```
+
+   Omit `--instance-root` when no checkout is available. A missing index in a fresh instance is an
+   empty context; an existing invalid or unreachable index stops the naming preflight with its
+   recovery instruction. Use that context with the `panopticon-interface-naming` skill, write any
+   reviewed naming judgments as source/configuration hints, and regenerate `panopticon/index.json`.
+   Only then render/update the four documentation layers. Interface changes go into
+   `panopticon/index.json` (see the panopticon-index-schema and panopticon-interface-naming skills),
    then docs are rendered/updated. Validate before finishing:
 
    ```bash

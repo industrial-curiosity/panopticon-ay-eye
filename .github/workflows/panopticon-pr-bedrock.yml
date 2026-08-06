@@ -304,7 +304,8 @@ jobs:
           export PYTHONPATH="$GITHUB_WORKSPACE/$PANOPTICON_INSTANCE_DIR"
           {
             echo "GATE_DOC_DRIFT=$(python3 -c "from panopticon.config import load_org_config;print(load_org_config('$PANOPTICON_INSTANCE_DIR')['gating']['doc-drift'])")"
-            echo "GATE_CONFLICT=$(python3 -c "from panopticon.config import load_org_config;print(load_org_config('$PANOPTICON_INSTANCE_DIR')['gating']['interface-conflict'])")"
+            echo "GATE_CONFLICT=$(python3 -c "from panopticon.config import effective_gating_mode;print(effective_gating_mode('$PANOPTICON_INSTANCE_DIR', '.', 'interface-conflict')[0])")"
+            echo "GATE_CONFLICT_SOURCE=$(python3 -c "from panopticon.config import effective_gating_mode;print(effective_gating_mode('$PANOPTICON_INSTANCE_DIR', '.', 'interface-conflict')[1])")"
             echo "GATE_DIAGRAM=$(python3 -c "from panopticon.config import load_org_config;print(load_org_config('$PANOPTICON_INSTANCE_DIR')['gating']['diagram-missing'])")"
           } >> "$GITHUB_ENV"
           git diff "origin/${{ github.base_ref }}...HEAD" -- ':!.panopticon-instance' > /tmp/panopticon-pr.diff
@@ -455,6 +456,34 @@ jobs:
             echo "conflicts=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Interface candidate analysis (advisory)
+        id: matching
+        if: steps.init.outputs.initialized == 'true'
+        shell: bash
+        env:
+          PANOPTICON_LLM_MODEL: ${{ inputs.model }}
+          PANOPTICON_LLM_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds || '90' }}
+          PANOPTICON_LLM_MAX_ATTEMPTS: ${{ inputs.max_attempts || '2' }}
+          PANOPTICON_LLM_MAX_CORRECTION_ATTEMPTS: ${{ inputs.max_correction_attempts || '2' }}
+        run: |
+          set -euo pipefail
+          set +e
+          python3 -m panopticon.candidate_matching \
+            --local panopticon/index.json \
+            --repo "$PANOPTICON_REPO" \
+            --compiled "$PANOPTICON_INSTANCE_DIR/interfaces/index.json" \
+            --skill-root "$PANOPTICON_INSTANCE_DIR" \
+            --report-file /tmp/panopticon-reports/matching.md \
+            --actions-file /tmp/panopticon-reports/matching-actions.json
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::Panopticon interface candidate analysis could not run; see the PR report"
+            echo "error=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "error=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Builds the one combined report (TL;DR, then each check's detail, then the same TL;DR
       # repeated — pr-evaluation spec's "Combined report leads with a de-duplicated action list";
       # see design.md D10 for why no earlier step writes to $GITHUB_STEP_SUMMARY directly) and
@@ -469,18 +498,23 @@ jobs:
           CURRENCY_ERROR: ${{ steps.currency.outputs.error }}
           DIAGRAM_ERROR: ${{ steps.diagram.outputs.error }}
           SIMULATE_ERROR: ${{ steps.simulate.outputs.error }}
+          MATCH_ERROR: ${{ steps.matching.outputs.error }}
+          GATE_CONFLICT: ${{ env.GATE_CONFLICT }}
+          GATE_CONFLICT_SOURCE: ${{ env.GATE_CONFLICT_SOURCE }}
         run: |
           import os
           import subprocess
           import sys
 
           sys.path.insert(0, os.path.join(os.environ["GITHUB_WORKSPACE"], os.environ["PANOPTICON_INSTANCE_DIR"]))
+          from panopticon.config import load_diagram_config
+          from panopticon.docs import extract_diagram_block
           from panopticon.report import build_combined_report, load_actions
 
           reports_dir = "/tmp/panopticon-reports"
           sections = []
           actions = []
-          for check in ("drift", "currency", "diagram", "simulation"):
+          for check in ("drift", "currency", "diagram", "simulation", "matching"):
               report_path = os.path.join(reports_dir, f"{check}.md")
               if os.path.exists(report_path):
                   with open(report_path, encoding="utf-8") as handle:
@@ -490,8 +524,21 @@ jobs:
           has_operational_failure = "true" in (
               os.environ.get("DRIFT_ERROR"), os.environ.get("CURRENCY_ERROR"),
               os.environ.get("DIAGRAM_ERROR"), os.environ.get("SIMULATE_ERROR"),
+              os.environ.get("MATCH_ERROR"),
           )
-          body = build_combined_report(sections, actions, has_operational_failure=has_operational_failure)
+          diagram = extract_diagram_block(
+              os.environ["PANOPTICON_DOCS"],
+              load_diagram_config(os.environ["PANOPTICON_INSTANCE_DIR"])["format"],
+          )
+          if diagram is None:
+              diagram = "⚠️ Child architecture diagram unavailable or malformed; see the diagram-existence check."
+          body = build_combined_report(
+              sections,
+              actions,
+              has_operational_failure=has_operational_failure,
+              architecture_diagram=diagram,
+              effective_policy=(os.environ["GATE_CONFLICT"], os.environ["GATE_CONFLICT_SOURCE"]),
+          )
 
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write(body)
@@ -587,7 +634,7 @@ jobs:
           if [ "${{ steps.simulate.outputs.error }}" = "true" ]; then
             fail "Panopticon pre-merge simulation could not run (see PR comment for the error)"
           elif [ "${{ steps.simulate.outputs.conflicts }}" = "true" ]; then
-            message="Panopticon pre-merge simulation predicts interface conflicts (see PR comment)"
+            message="Panopticon pre-merge simulation predicts interface conflicts (effective policy: $GATE_CONFLICT from $GATE_CONFLICT_SOURCE; see PR comment)"
             [ "$GATE_CONFLICT" = "blocking" ] && fail "$message" || warn "$message (advisory by org configuration)"
           fi
           if [ -n "$failed" ]; then

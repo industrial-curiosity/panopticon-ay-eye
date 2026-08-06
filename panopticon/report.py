@@ -66,12 +66,25 @@ def render_tldr(actions, has_operational_failure=False):
     return "\n".join(lines)
 
 
-def build_combined_report(sections, actions, has_operational_failure=False):
+def build_combined_report(sections, actions, has_operational_failure=False,
+                          architecture_diagram=None, effective_policy=None):
     """``sections``: ordered list of each check's markdown report. ``actions``: combined list of
     action dicts from every check. ``has_operational_failure``: True if any check could not run.
     Returns the full body: TL;DR, per-check detail, TL;DR repeated."""
     tldr = render_tldr(actions, has_operational_failure=has_operational_failure)
-    detail = "\n\n---\n\n".join(section for section in sections if section)
+    context = []
+    if effective_policy:
+        mode, source = effective_policy
+        context.extend([
+            "## Interface-conflict policy",
+            "",
+            f"Effective policy: **{mode}** (from {source}). Both advisory and blocking modes "
+            "publish the prominent conflict warning; only blocking fails the check.",
+        ])
+    if architecture_diagram:
+        context.extend(["## Prospective child architecture", "", architecture_diagram])
+    detail_sections = [*context, *(section for section in sections if section)]
+    detail = "\n\n---\n\n".join(detail_sections)
     return f"{tldr}\n\n---\n\n{detail}\n\n---\n\n{tldr}\n"
 
 

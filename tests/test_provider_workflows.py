@@ -130,6 +130,19 @@ class TestProviderWorkflows(unittest.TestCase):
                 self.assertIn('echo "stale=false" >> "$GITHUB_OUTPUT"', text)
                 self.assertIn('echo "stale=$([ "$status" -eq 2 ] && echo true || echo false)"', text)
 
+    def test_candidate_analysis_and_child_gating_are_wired_for_every_provider(self):
+        for provider in ("litellm", "openai", "bedrock"):
+            text = self.workflow(f"panopticon-pr-{provider}.yml")
+            with self.subTest(provider=provider):
+                self.assertIn("- name: Interface candidate analysis (advisory)", text)
+                self.assertIn("id: matching", text)
+                self.assertIn("python3 -m panopticon.candidate_matching", text)
+                self.assertIn("effective_gating_mode", text)
+                self.assertIn("GATE_CONFLICT_SOURCE", text)
+                self.assertIn("extract_diagram_block", text)
+                self.assertIn("MATCH_ERROR", text)
+                self.assertIn("effective policy: $GATE_CONFLICT", text)
+
     def test_legacy_guard_prints_configuration_and_exact_bootstrap_commands(self):
         text = self.workflow("panopticon-pr.yml")
         self.assertNotIn("panopticon.drift", text)

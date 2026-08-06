@@ -69,6 +69,14 @@ normalization alone wouldn't produce the name you want, or when two repos need
 to agree on one
 name across lexically different raw values.
 
+During local documentation generation, the instance's compiled interface index
+is consulted before a new name is minted. Shared infrastructure names use
+technology plus function (for example, `kafka-order-events`); repo-local
+surfaces use a durable repository owner plus surface (for example,
+`orders-api`); and distinct contracts on one backend receive distinct names.
+Generic names are corrected during the naming judgment rather than reported
+through a fixed warning list. An explicit hint remains the user's override.
+
 ## `panopticon-dependency &lt;name&gt;`
 
 **Capability:** dependency-indexing.

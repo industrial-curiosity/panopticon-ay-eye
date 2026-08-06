@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 from panopticon.diagram_check import collect_actions, format_report, main
+from panopticon.docs import extract_diagram_block
 
 
 class TestFormatReport(unittest.TestCase):
@@ -92,6 +93,22 @@ class TestMainExitCodes(unittest.TestCase):
             self._run(tmp_path, "# x\n\nno diagram\n", actions_file=actions_file)
             actions = json.loads(actions_file.read_text())
         self.assertEqual(actions, [{"kind": "run_doc_generation"}, {"kind": "commit_and_push"}])
+
+    def test_extracts_validated_mermaid_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = Path(tmp) / "docs"
+            docs.mkdir()
+            (docs / "architecture.md").write_text(
+                "# x\n\n## Architecture diagram\n\n```mermaid\ngraph TD\nA-->B\n```\n"
+            )
+            self.assertEqual(extract_diagram_block(docs), "```mermaid\ngraph TD\nA-->B\n```")
+
+    def test_extract_returns_none_for_malformed_diagram(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = Path(tmp) / "docs"
+            docs.mkdir()
+            (docs / "architecture.md").write_text("# x\n")
+            self.assertIsNone(extract_diagram_block(docs))
 
 
 if __name__ == "__main__":

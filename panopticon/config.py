@@ -25,14 +25,16 @@ paths call ``provider_contract`` and fail loudly until the matching provider-spe
 Panopticon workflow persists a valid contract.
 
 **Repo config** — ``panopticon/config.json`` in a child repo: doubles as the initialization flag
-and records repo-level settings:
+and records repo-level settings. The optional ``gating.interface-conflict`` value is a child-owned
+override of the instance default:
 
     {
       "schema_version": 1,
       "repo": "svc-a",
       "instance": "acme/panopticon-instance",
       "workflow_ref": "v1",
-      "docs_location": "docs"
+      "docs_location": "docs",
+      "gating": {"interface-conflict": "blocking"}
     }
 
 **Diagram config** — ``panopticon.diagram.config.json`` at the instance repo root (design D6): a
@@ -174,6 +176,18 @@ def load_repo_config(repo_root="."):
     missing = [field for field in ("repo", "instance", "docs_location") if not doc.get(field)]
     if missing:
         raise ConfigError(f"repo config at {path} is missing required fields: {missing}")
+    gating = doc.get("gating", {})
+    if not isinstance(gating, dict):
+        raise ConfigError(f"repo config at {path}: 'gating' must be an object")
+    unknown = set(gating) - {"interface-conflict"}
+    if unknown:
+        raise ConfigError(f"repo config at {path}: unknown gating checks {sorted(unknown)}")
+    mode = gating.get("interface-conflict")
+    if mode is not None and mode not in GATING_MODES:
+        raise ConfigError(
+            f"repo config at {path}: gating for 'interface-conflict' must be one of "
+            f"{list(GATING_MODES)}, got {mode!r}"
+        )
     return doc
 
 
@@ -183,6 +197,23 @@ def save_repo_config(config, repo_root="."):
     payload = {"schema_version": SCHEMA_VERSION, **config}
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
+
+
+def effective_gating_mode(instance_root=".", child_root=".", check="interface-conflict"):
+    """Return ``(mode, source)`` using the child override before instance config.
+
+    Child configuration is intentionally read from the child repository rather than an instance
+    repository per-repo map: the child owns its explicit override, while the instance owns the
+    default for children that do not set one.
+    """
+    if check not in CHECK_TYPES:
+        raise ConfigError(f"unknown check type '{check}'")
+    instance_mode = gating_mode(load_org_config(instance_root), check)
+    child = load_repo_config(child_root)
+    child_mode = (child or {}).get("gating", {}).get(check)
+    if child_mode is not None:
+        return child_mode, "child repository config"
+    return instance_mode, "instance config" if Path(instance_root, ORG_CONFIG_BASENAME).is_file() else "built-in default"
 
 
 def load_diagram_config(instance_root="."):

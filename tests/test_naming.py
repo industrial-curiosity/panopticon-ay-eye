@@ -15,6 +15,7 @@ from panopticon.naming import (
     resolve_dependency_name,
     resolve_name,
 )
+from panopticon.candidate_matching import check_candidates, format_report, select_candidates
 
 
 class TestNormalization(unittest.TestCase):
@@ -33,6 +34,14 @@ class TestNormalization(unittest.TestCase):
 
     def test_hint_wins_over_normalization(self):
         self.assertEqual(resolve_name("Some Raw Title", hint="order-events"), "order-events")
+
+    def test_reviewed_organization_name_overrides_generic_raw_name(self):
+        self.assertEqual(resolve_name("events", hint="kafka-order-events"), "kafka-order-events")
+
+    def test_persisted_hint_is_reproducible_without_context(self):
+        hint = "orders-api"
+        self.assertEqual(resolve_name("implementation_identifier", hint=hint), hint)
+        self.assertEqual(resolve_name("different_raw_title", hint=hint), hint)
 
     def test_unresolvable_name_fails_with_hint_instruction(self):
         with self.assertRaises(UnresolvableNameError) as ctx:
@@ -127,6 +136,71 @@ class TestResolveDependencyName(unittest.TestCase):
         self.assertIn("panopticon-dependency", message)
         self.assertNotIn("panopticon-dependency-of", message)
         self.assertIn("go.mod", message)
+
+
+class TestCandidateMatching(unittest.TestCase):
+    class FakeClient:
+        def __init__(self, verdict):
+            self.verdict = verdict
+            self.user_content = None
+
+        def complete_json(self, _skill, user_content, validator, response_label=None):
+            self.user_content = user_content
+            validator(self.verdict)
+            return self.verdict
+
+    def test_selection_is_bounded_and_same_type(self):
+        local = {
+            "interfaces": {
+                "orders-api": [{"type": "rest"}],
+                "payments-api": [{"type": "grpc"}],
+            }
+        }
+        compiled = {
+            "interfaces": {
+                "orders-api": [{"type": "rest", "owner": None}],
+                "orders-service": [{"type": "rest", "owner": None}],
+                "payments-api": [{"type": "rest", "owner": None}],
+            }
+        }
+        candidates = select_candidates(local, compiled, max_candidates=1)
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["instance_name"], "orders-api")
+        self.assertEqual(candidates[0]["type"], "rest")
+
+    def test_report_prominently_surfaces_possible_match(self):
+        report = format_report({
+            "summary": "Review the shared contract.",
+            "matches": [{
+                "child_name": "events",
+                "instance_name": "kafka-order-events",
+                "type": "kafka",
+                "classification": "likely-same",
+                "evidence": "same topic configuration",
+            }],
+        })
+        self.assertIn("review potential organization matches", report)
+        self.assertIn("kafka-order-events", report)
+        self.assertIn("advisory context", report)
+
+    def test_llm_comparison_is_structured_and_does_not_mutate_indexes(self):
+        local = {"interfaces": {"events": [{"type": "kafka"}]}}
+        compiled = {"interfaces": {"kafka-order-events": [{"type": "kafka"}]}}
+        verdict = {
+            "summary": "same topic evidence",
+            "matches": [{
+                "child_name": "events",
+                "instance_name": "kafka-order-events",
+                "type": "kafka",
+                "classification": "likely-same",
+                "evidence": "same topic",
+            }],
+        }
+        client = self.FakeClient(verdict)
+        self.assertEqual(check_candidates(local, compiled, client), verdict)
+        self.assertIn("kafka-order-events", client.user_content)
+        self.assertEqual(local, {"interfaces": {"events": [{"type": "kafka"}]}})
+        self.assertEqual(compiled, {"interfaces": {"kafka-order-events": [{"type": "kafka"}]}})
 
 
 if __name__ == "__main__":

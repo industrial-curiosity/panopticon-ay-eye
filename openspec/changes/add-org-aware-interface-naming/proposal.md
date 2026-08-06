@@ -1,3 +1,5 @@
+# Organization-aware interface naming proposal
+
 ## Why
 
 Locally meaningful interface names can be generic across an organization and silently fuse
