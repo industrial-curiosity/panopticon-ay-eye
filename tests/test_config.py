@@ -11,6 +11,7 @@ from panopticon.config import (
     DEFAULT_GATING,
     DIAGRAM_CONFIG_BASENAME,
     PROTECTED_CONFIG_FILES,
+    effective_gating_mode,
     gating_mode,
     load_diagram_config,
     load_org_config,
@@ -321,6 +322,60 @@ class TestRepoConfig(unittest.TestCase):
         self.assertEqual(config["repo"], "svc-a")
         self.assertEqual(config["schema_version"], 1)
 
+    def test_child_gating_override_round_trips(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            save_repo_config(
+                {
+                    "repo": "svc-a",
+                    "instance": "acme/panopticon-instance",
+                    "docs_location": "docs",
+                    "gating": {"interface-conflict": "blocking"},
+                },
+                repo_root=tmp,
+            )
+            config = load_repo_config(tmp)
+        self.assertEqual(config["gating"], {"interface-conflict": "blocking"})
+
+    def test_invalid_child_gating_override_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "panopticon"
+            path.mkdir()
+            (path / "config.json").write_text(json.dumps({
+                "repo": "svc-a", "instance": "acme/i", "docs_location": "docs",
+                "gating": {"interface-conflict": "maybe"},
+            }))
+            with self.assertRaisesRegex(ConfigError, "blocking.*advisory"):
+                load_repo_config(tmp)
+
+    def test_child_gating_override_precedes_instance(self):
+        with tempfile.TemporaryDirectory() as instance, tempfile.TemporaryDirectory() as child:
+            (Path(instance) / "panopticon.config.json").write_text(
+                json.dumps({"gating": {"interface-conflict": "blocking"}})
+            )
+            save_repo_config(
+                {
+                    "repo": "svc-a", "instance": "acme/i", "docs_location": "docs",
+                    "gating": {"interface-conflict": "advisory"},
+                },
+                repo_root=child,
+            )
+            self.assertEqual(
+                effective_gating_mode(instance, child),
+                ("advisory", "child repository config"),
+            )
+
+    def test_effective_gating_uses_instance_then_builtin_default(self):
+        with tempfile.TemporaryDirectory() as instance, tempfile.TemporaryDirectory() as child:
+            save_repo_config(
+                {"repo": "svc-a", "instance": "acme/i", "docs_location": "docs"},
+                repo_root=child,
+            )
+            self.assertEqual(effective_gating_mode(instance, child), ("advisory", "built-in default"))
+            (Path(instance) / "panopticon.config.json").write_text(
+                json.dumps({"gating": {"interface-conflict": "blocking"}})
+            )
+            self.assertEqual(effective_gating_mode(instance, child), ("blocking", "instance config"))
+
     def test_incomplete_config_is_a_loud_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "panopticon"
@@ -375,3 +430,4 @@ class TestDiagramConfig(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+    effective_gating_mode,

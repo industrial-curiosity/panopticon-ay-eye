@@ -28,13 +28,33 @@ canonical names and `type` agree. Judgment layers strictly in this order:
 
 ## Judging a name
 
-- Prefer a **meaningful name based on use or function** (`order-events`), never an
-  implementation identifier (`prod_topic_v2_final`), environment marker, or team prefix.
-- Before minting a new name, check the instance repo's compiled index (`interfaces/index.json`)
-  for an existing interface this one should match — same system, same data, same endpoint means
-  the **existing canonical name wins**, even if lexically distant.
+- During local documentation generation, read the instance repo's compiled index
+  (`interfaces/index.json`) before minting a new name. Use the existing canonical name when source
+  and configuration evidence show the same system, data, endpoint, topic, or contract — the
+  **existing canonical name wins**, even when the raw names are lexically distant.
+- Prefer organization-scale names based on durable technology and function, never an implementation
+  identifier (`prod_topic_v2_final`), environment marker, team prefix, or bare generic such as
+  `api`, `events`, or `config`:
+  - shared infrastructure uses `<technology>-<function>` (`kafka-order-events`);
+  - repo-local service surfaces use `<durable-repo-owner>-<surface>` (`orders-api`);
+  - distinct contracts on one backend get distinct contract names.
+- Do not maintain a generic-name warning list or blacklist. If the inferred raw name is generic,
+  choose a meaningful organization-scale name during this judgment and persist it as a hint.
 - Names are environment-free: `orders-api`, never `orders-api-staging` (see the
   panopticon-index-schema skill — code state, not deployment state).
+
+The instance index is context for local judgment, not a replacement for code evidence. If the
+index contains a possible match but the source and configuration cannot establish whether the
+contracts are the same, stop and ask the user. Never choose a cross-repository name merely for
+lexical symmetry or aesthetic consistency.
+
+## CI candidate comparison
+
+The PR workflow may provide a bounded set of child/instance candidates for advisory explanation.
+For each candidate, classify it as `likely-same`, `likely-distinct`, or
+`insufficient-evidence`, and cite the concrete source/configuration evidence present in the
+provided entries. Return the requested structured result only. This comparison never edits a hint,
+index, merge result, or gating outcome; deterministic merge simulation remains authoritative.
 
 ## Persisting the judgment
 

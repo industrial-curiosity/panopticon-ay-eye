@@ -328,6 +328,39 @@ them.
   is used — no tagging required to get started. Set it once you want to pin
   caller workflows to a
   specific tag or branch instead.
+
+### Child-level conflict override
+
+The instance configuration supplies the default interface-conflict policy. A
+child repository can explicitly override that default in its committed
+`panopticon/config.json`:
+
+```json
+{
+  "gating": {
+    "interface-conflict": "blocking"
+  }
+}
+```
+
+Only `advisory` and `blocking` are accepted. The child override takes
+precedence over the instance value; when it is absent, the instance value (or
+the built-in advisory default) applies. Both modes produce a prominent warning
+in the PR report, while only `blocking` fails the interface-conflict check.
+
+### Naming migration and PR review
+
+When an existing child repository has generic local names, run the
+`panopticon-doc-generation` skill locally. It loads the instance's compiled
+interface index, compares the code and configuration evidence, writes reviewed
+`panopticon-interface` hints where needed, regenerates the local index, and
+re-renders the interface documentation. Review and commit those hints and
+shard changes in controlled child pull requests. Each PR's maintained Panopticon
+report shows bounded possible matches, the deterministic prospective merge, the
+effective conflict policy, and the child Mermaid architecture diagram. Candidate
+matches are advisory; exact simulation conflicts use the configured advisory or
+blocking outcome.
+
 - **`protected_paths`** *(optional, default `[]`)* — literal paths (skills,
   vendored tooling modules,
   or other instance-repo content) your org has customized at the instance level,
@@ -478,8 +511,9 @@ whether to keep, edit, or discard it before you commit.
   diagram-existence check (the section exists and parses — no LLM call,
   independent of doc-drift's
   accuracy judgment), pre-merge conflict simulation against the compiled index
-  (results as a PR
-  comment), a push of the PR's docs/index state to the `{repo}/{branch}` branch
+  (results as a PR comment), bounded AI comparison of likely child/instance
+  interface matches, and a maintained PR comment containing the prospective
+  Mermaid architecture diagram, a push of the PR's docs/index state to the `{repo}/{branch}` branch
   of the
   instance repo, and a **tooling-currency check** (see below) — always advisory,
   never affects the

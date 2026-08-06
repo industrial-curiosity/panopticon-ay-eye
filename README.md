@@ -59,10 +59,13 @@ Panopticon has three repository roles:
 The workflow is intentionally simple:
 
 1. Initialize a child repository to generate its architecture documentation and
-   local indexes.
+   local indexes. During documentation generation, the child compares proposed
+   interface names with the instance's existing compiled index and persists
+   reviewed naming decisions as source/configuration hints.
 2. On pull requests, Panopticon checks behavior-bearing changes against
-   documentation and predicts interface conflicts; documentation-only changes
-   pass without an LLM review.
+   documentation, compares likely interface matches with the instance index,
+   and predicts interface conflicts; documentation-only changes pass without
+   an LLM review.
 3. On merge, the instance collects documentation and indexes to build an
    organization-wide view.
 4. When planning a change, developers and agents use that shared view to
@@ -77,6 +80,12 @@ named production paths such as `src/sample-service`. A child repository's genera
 The organization architecture is a complete interface inventory: it includes
 interfaces even when only one repository participates, and highlights detected
 ownership/type conflicts and potential same-name collisions.
+
+Interface-conflict checks are advisory by default. The instance sets the default
+in `panopticon.config.json`, and a child repository may override that check in
+its committed `panopticon/config.json` with
+`gating.interface-conflict: "advisory"` or `"blocking"`. Both modes publish a
+prominent warning; only `blocking` fails the PR check.
 
 Child repositories can also run the manual **Panopticon resource sync** workflow
 to refresh their managed skills and local tooling. It opens or updates a

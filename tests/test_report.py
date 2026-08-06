@@ -115,6 +115,15 @@ class TestBuildCombinedReport(unittest.TestCase):
         self.assertIn("index is current", report)
         self.assertNotIn("all Panopticon checks passed", report)
 
+    def test_report_includes_policy_and_mermaid_context(self):
+        report = build_combined_report(
+            ["## simulation"], [], architecture_diagram="```mermaid\ngraph TD\nA-->B\n```",
+            effective_policy=("advisory", "child repository config"),
+        )
+        self.assertIn("## Prospective child architecture", report)
+        self.assertIn("```mermaid", report)
+        self.assertIn("child repository config", report)
+
 
 class TestFormatOperationalFailure(unittest.TestCase):
     def test_names_the_check_and_includes_the_message(self):

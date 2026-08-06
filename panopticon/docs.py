@@ -187,6 +187,17 @@ def diagram_section_problems(docs_root, diagram_format=None):
     return []
 
 
+def extract_diagram_block(docs_root, diagram_format=None):
+    """Return the validated architecture diagram fence, or ``None`` when it is unavailable."""
+    fmt = diagram_format or DEFAULT_DIAGRAM_FORMAT
+    if diagram_section_problems(docs_root, fmt):
+        return None
+    text = (Path(docs_root) / ARCHITECTURE_DOC).read_text(encoding="utf-8")
+    heading_match = _DIAGRAM_HEADING_RE.search(text)
+    fence_match = _DIAGRAM_FENCE_RE.match(text, heading_match.end())
+    return f"```{fence_match.group(1)}\n{fence_match.group(2)}```"
+
+
 def architecture_scope_link_problems(docs_root):
     """Check that architecture.md links readers to the visible analysis-scope section."""
     text = (Path(docs_root) / ARCHITECTURE_DOC).read_text(encoding="utf-8")

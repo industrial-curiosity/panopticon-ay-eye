@@ -24,6 +24,35 @@ steps are explicitly grouped below. Do not add this work to
 off, and its scope is organization-diagram conflict visibility rather than
 rollout hardening.
 
+## Execution status
+
+Status values are deliberately distinct: `unstarted`, `implemented`, `locally
+verified`, and `operationally proven`. Update the affected row when a rollout
+change is implemented or validated.
+
+| Step | Status | Evidence |
+| --- | --- | --- |
+| 0. Baseline and existing work | implemented | `surface-org-interface-conflicts` archived; the missing pre-change baseline is recorded below. |
+| 1. Workflow contract validation | locally verified | [harden-bedrock-workflow-contract](../openspec/changes/archive/2026-08-01-harden-bedrock-workflow-contract/) and [template CI hardening](../openspec/changes/harden-bootstrap-manifest-and-workflow-ci/): 640 tests, strict OpenSpec validation, and reusable-workflow discovery passed on 2026-08-03. |
+| 2. Bedrock request shape | locally verified | [fix-bedrock-converse-request-shape](../openspec/changes/archive/2026-08-01-fix-bedrock-converse-request-shape/) |
+| 3. Local-tooling manifest | locally verified | [restrict-child-sync-tooling-manifest](../openspec/changes/archive/2026-08-02-restrict-child-sync-tooling-manifest/), [legacy-tooling guidance](../openspec/changes/archive/2026-08-02-complete-rollout-status-and-legacy-tooling-guidance/), and [JSON-manifest hardening](../openspec/changes/harden-bootstrap-manifest-and-workflow-ci/): 640 tests and strict OpenSpec validation passed on 2026-08-03. |
+| 4. Effective provider requirements | locally verified | [model-effective-provider-requirements](../openspec/changes/archive/2026-08-02-model-effective-provider-requirements/) — focused provider coverage: 218 tests; full suite: 632 tests; strict OpenSpec and reusable-workflow contract validation passed on 2026-08-02. |
+| 5. Negative scope and `panopticon-ignore` | unstarted | No assigned OpenSpec change. |
+| 6. Organization-scale interface names | unstarted | No assigned OpenSpec change. |
+| 7. Supported four-gate operating process | unstarted | No assigned OpenSpec change. |
+| 8. Complex-organization instance template | unstarted | No assigned OpenSpec change. |
+| 9. Sandbox rollout | unstarted | No recorded sandbox run. |
+
+### Baseline record
+
+The pre-change baseline required by step 0 was not captured and cannot be
+reconstructed truthfully. Record the current verification result below after
+each rollout-hardening change; it is not pre-change evidence.
+
+Current baseline: on 2026-08-02, `python3 -m unittest discover -t . -s tests`
+passed all 632 tests after Step 4. This confirms the current working tree only;
+it is not evidence of the state before rollout hardening began.
+
 ## Outcome and success criteria
 
 The work is complete only when all of the following are true:
@@ -90,7 +119,7 @@ order because each gate can hide the next.
 
 ### 0. Record the baseline and separate existing work
 
-**Do**
+#### Step 0 — Do
 
 1. Confirm the active `surface-org-interface-conflicts` change still has every
    task complete and archive it through the normal OpenSpec archive workflow
@@ -109,7 +138,7 @@ order because each gate can hide the next.
    document. Record each item as `unstarted`, `implemented`, `locally verified`,
    or `operationally proven`; never collapse those states.
 
-**Where**
+#### Step 0 — Where
 
 - `openspec/changes/surface-org-interface-conflicts/`
 - `openspec/specs/`
@@ -117,7 +146,7 @@ order because each gate can hide the next.
 - `.github/workflows/`
 - `docs/testing.md`
 
-**Pass**
+#### Step 0 — Pass
 
 - The completed active change is no longer available as an accidental target
   for unrelated edits.
@@ -125,7 +154,7 @@ order because each gate can hide the next.
 - Each remaining lesson has one intended OpenSpec change and no duplicate
   implementation owner.
 
-**Fail**
+#### Step 0 — Fail
 
 - If the active change contains incomplete work, finish or explicitly rescope
   it before archiving.
@@ -139,7 +168,7 @@ This is the most critical fix. The current Bedrock workflow references
 steps even though neither name exists in its `workflow_call` contract. GitHub
 can reject the workflow before creating a job.
 
-**Do**
+#### Step 1 — Do
 
 1. Remove the LiteLLM-only API-key and endpoint mappings from both Bedrock
    check steps.
@@ -159,7 +188,7 @@ can reject the workflow before creating a job.
    distinguish access denial from workflow compilation, and inspect the called
    workflow rather than only the thin child caller.
 
-**Where**
+#### Step 1 — Where
 
 - `.github/workflows/panopticon-pr-bedrock.yml`
 - `.github/workflows/panopticon-pr-litellm.yml`
@@ -171,7 +200,7 @@ can reject the workflow before creating a job.
 - `docs/setup-guide.md`
 - `docs/testing.md`
 
-**Pass**
+#### Step 1 — Pass
 
 - Static validation reports no undeclared `inputs.*` or `secrets.*`
   expressions in any reusable workflow.
@@ -180,7 +209,7 @@ can reject the workflow before creating a job.
   `PANOPTICON_LLM_API_KEY`.
 - A sandbox child can load the Bedrock reusable workflow and create a job.
 
-**Fail**
+#### Step 1 — Fail
 
 - A zero-job failure is not a reason to change IAM or provider code. Read the
   run-page banner, check instance workflow access, then rerun the static
@@ -193,40 +222,38 @@ rollout evidence shows supported Claude models rejecting that field. Every
 current Panopticon check uses the default temperature and does not need the
 control.
 
-**Do**
+#### Step 2 — Do
 
-1. Omit `inferenceConfig` from the Bedrock Converse request when Panopticon uses
-   its default behavior.
-2. Keep the shared client surface stable. If a caller explicitly requests a
-   non-default temperature, reject it locally with a provider-specific,
-   actionable error instead of sending an unsupported field.
+1. Omit `inferenceConfig` from Bedrock Converse requests until a
+   provider-supported control is explicitly designed and covered.
+2. Keep the shared client surface stable. The Bedrock adapter accepts but does
+   not forward the shared temperature argument.
 3. Add request-shape tests that compare the full Converse payload and prove no
    unused optional parameter is emitted.
 4. Preserve response mapping, retry classification, structured JSON correction,
    timeout configuration, and capability preflight tests.
-5. Update the agent-runtime and PR-evaluation specifications to require minimal
-   provider requests and local rejection of unsupported optional behavior.
+5. Update the agent-runtime specification to require minimal provider requests
+   and omission of unsupported optional behavior.
 6. Add a provider-compatibility test case or recorded sandbox check that uses
    the same model class configured for rollout, because credentials-only
    preflight does not validate the real request shape.
 
-**Where**
+#### Step 2 — Where
 
 - `panopticon/llm.py`
 - `tests/test_llm.py`
 - `openspec/specs/agent-runtime/spec.md`
-- `openspec/specs/pr-evaluation/spec.md`
 - `docs/testing.md`
 
-**Pass**
+#### Step 2 — Pass
 
 - Unit tests show a default Bedrock request contains only `modelId`, `messages`,
   and `system` when present.
-- A non-default Bedrock temperature fails before calling the runtime client.
+- A shared Bedrock temperature argument is not forwarded to the runtime client.
 - A sandbox child completes one real structured inference with the configured
   model.
 
-**Fail**
+#### Step 2 — Fail
 
 - If the provider rejects another optional field, remove it unless a current
   product requirement proves it is needed. Do not expand the provider request
@@ -238,13 +265,13 @@ The current sync code manages the complete `panopticon/` directory and its tests
 explicitly accept `llm.py`. That contradicts the repository-initialization
 specification, which excludes CI-only modules from children.
 
-**Do**
+#### Step 3 — Do
 
 1. First reverse the contradictory tests so the suite demonstrates the defect:
    syncing `llm.py`, `drift.py`, `currency.py`, `merge.py`, `extraction.py`,
    `bootstrap.py`, or `parsers/` must fail.
-2. Add a versioned, template-owned local-tooling manifest containing the exact
-   child-safe module paths and their schema revision.
+2. Add a template-owned local-tooling manifest containing the exact child-safe
+   module paths.
 3. Make bootstrap and sync fetch the manifest from the instance's current
    authoritative source. Do not retain an independently hardcoded child
    allowlist.
@@ -260,9 +287,9 @@ specification, which excludes CI-only modules from children.
    modules. It must list candidates and require an explicit reviewed removal
    rather than deleting them during sync.
 
-**Where**
+#### Step 3 — Where
 
-- New versioned local-tooling manifest at a template-owned path
+- New local-tooling manifest at a template-owned path
 - `panopticon/bootstrap.py`
 - `panopticon/sync.py`
 - `panopticon/tooling_currency.py`
@@ -274,9 +301,9 @@ specification, which excludes CI-only modules from children.
 - `docs/setup-guide.md`
 - `PANOPTICON.md`
 
-**Pass**
+#### Step 3 — Pass
 
-- Bootstrap and sync resolve the same manifest revision from the instance.
+- Bootstrap and sync resolve the same manifest from the instance.
 - Tests prove all required local commands import successfully from only the
   manifest-listed files.
 - Tests prove CI-only modules are neither downloaded nor treated as required.
@@ -284,7 +311,7 @@ specification, which excludes CI-only modules from children.
 - A child missing a newly added local dependency receives the manifest and full
   staged resource set in one run.
 
-**Fail**
+#### Step 3 — Fail
 
 - If the refreshed sync entrypoint cannot run from an older child, verify that
   manifest retrieval and staging happen before importing newly required local
@@ -296,7 +323,7 @@ The provider registry currently carries configured names but no
 required/optional semantics. Bootstrap and finalization therefore report
 workflow-defaulted or instance-supplied variables as missing.
 
-**Do**
+#### Step 4 — Do
 
 1. Extend the trusted provider contract with validated logical optionality.
    Optional entries must be a subset of the provider's registered logical
@@ -323,7 +350,7 @@ workflow-defaulted or instance-supplied variables as missing.
 8. Update configuration, initialization, and setup documentation with required,
    optional, and default-source columns.
 
-**Where**
+#### Step 4 — Where
 
 - `panopticon/providers.py`
 - `panopticon/config.py`
@@ -336,7 +363,7 @@ workflow-defaulted or instance-supplied variables as missing.
 - `docs/setup-guide.md`
 - `docs/testing.md`
 
-**Pass**
+#### Step 4 — Pass
 
 - Finalization does not report a value missing when the selected trusted
   workflow or instance supplies it.
@@ -345,7 +372,7 @@ workflow-defaulted or instance-supplied variables as missing.
 - Changing optionality changes the provider contract revision and produces an
   exact child-bootstrap recovery command for stale callers.
 
-**Fail**
+#### Step 4 — Fail
 
 - If an optional value reaches provider preflight empty, treat the default
   declaration as false configuration, correct the contract or default source,
@@ -357,7 +384,7 @@ Current shared file iteration excludes generated and dependency directories but
 does not exclude common example, sample, fixture, testdata, demo, or scaffold
 locations. No author-controlled ignore hint exists.
 
-**Do**
+#### Step 5 — Do
 
 1. Add one deterministic scope policy shared by interface parsers, dependency
    parsers, LLM fallback candidate selection, component discovery, and
@@ -381,7 +408,7 @@ locations. No author-controlled ignore hint exists.
 7. Update the hint reference, extraction and drift skills, parser contribution
    guide, and normative interface/dependency/doc-generation specifications.
 
-**Where**
+#### Step 5 — Where
 
 - Shared deterministic scope module under `panopticon/`
 - `panopticon/parsers/`
@@ -395,7 +422,7 @@ locations. No author-controlled ignore hint exists.
 - interface, dependency, and doc-generation specifications
 - focused parser, extraction, drift, and docs tests
 
-**Pass**
+#### Step 5 — Pass
 
 - All four consuming surfaces return the same decision for the same ignored
   path or declaration.
@@ -403,7 +430,7 @@ locations. No author-controlled ignore hint exists.
   documentation artifact.
 - Real production material in non-illustrative paths remains discoverable.
 
-**Fail**
+#### Step 5 — Fail
 
 - If one subsystem disagrees, fix the shared deterministic policy or its
   adapter. Do not duplicate an ignore list in a skill prompt as the primary
@@ -416,7 +443,7 @@ owner prefixes. That permits generic names such as `message-bus`,
 `config-store`, and `pprof-debug-endpoints` to collide or become ambiguous
 after shard merge.
 
-**Do**
+#### Step 6 — Do
 
 1. Add normative naming rules for the merged organization scope:
    - qualify shared infrastructure with durable technology and function;
@@ -439,7 +466,7 @@ after shard merge.
 7. Add tests that prove distinct local resources do not fuse and that the same
    shared system still converges to one canonical name.
 
-**Where**
+#### Step 6 — Where
 
 - `.agents/skills/panopticon-interface-naming/SKILL.md`
 - `.agents/skills/panopticon-index-schema/SKILL.md`
@@ -450,14 +477,14 @@ after shard merge.
 - `docs/hint-reference.md`
 - `docs/setup-guide.md`
 
-**Pass**
+#### Step 6 — Pass
 
 - New fixtures produce unambiguous organization-scale names.
 - Two repositories referencing the same shared system converge.
 - Two local surfaces with the same generic function remain distinct.
 - The migration rebuild produces no unexplained same-name collision.
 
-**Fail**
+#### Step 6 — Fail
 
 - If a rename is ambiguous, stop and ask which existing name is canonical.
   Never choose a cross-repository identifier from aesthetics or local
@@ -471,7 +498,7 @@ organization-specific per-child identity provisioning as one ordered process.
 The Bedrock workflow also lacks a caller-level recovery step for credential
 action failure.
 
-**Do**
+#### Step 7 — Do
 
 1. Add a four-gate setup and troubleshooting sequence:
    - reusable-workflow access;
@@ -504,7 +531,7 @@ action failure.
    identifiers out of the public guide. The generic process may expose
    placeholders and concrete synthetic examples only.
 
-**Where**
+#### Step 7 — Where
 
 - `docs/setup-guide.md`
 - `PANOPTICON.md`
@@ -514,7 +541,7 @@ action failure.
 - `docs/testing.md`
 - provider, initialization, and PR-evaluation specifications
 
-**Pass**
+#### Step 7 — Pass
 
 - A reader can identify the last proven gate without reading implementation
   source.
@@ -524,7 +551,7 @@ action failure.
   times out.
 - Public docs contain no organization-sensitive values.
 
-**Fail**
+#### Step 7 — Fail
 
 - If a recovery message can disappear with the component it diagnoses, move it
   to the next surviving boundary rather than adding more logging inside the
@@ -537,7 +564,7 @@ without copying Yotpo policy, identifiers, or private links. The overlay extends
 an instance; it does not create a second provider runtime or allow child
 repositories to inject arbitrary workflow steps.
 
-**Do**
+#### Step 8 — Do
 
 1. Define a versioned organization-profile schema with names and non-secret
    setup choices for:
@@ -583,7 +610,7 @@ repositories to inject arbitrary workflow steps.
 8. Document the exact generate, review, and apply commands. Keep reference
    fields after the executable checklist.
 
-**Where**
+#### Step 8 — Where
 
 - New focused template assets under a descriptive `templates/` directory
 - New deterministic generator/validator under `panopticon/`
@@ -593,7 +620,7 @@ repositories to inject arbitrary workflow steps.
 - `docs/setup-guide.md`
 - provider, initialization, and tooling-currency specifications
 
-**Pass**
+#### Step 8 — Pass
 
 - Both synthetic profiles generate valid, secret-free instance overlays.
 - Re-running generation with the same profile is byte-for-byte idempotent.
@@ -604,7 +631,7 @@ repositories to inject arbitrary workflow steps.
 - The generated onboarding guide separates instance-wide access from per-child
   identity provisioning.
 
-**Fail**
+#### Step 8 — Fail
 
 - If a profile requires arbitrary runtime workflow selection, add a reviewed
   built-in provider or credential-mode contract instead. Do not turn the
@@ -612,7 +639,7 @@ repositories to inject arbitrary workflow steps.
 
 ### 9. Roll out through boundary-specific gates
 
-**Do**
+#### Step 9 — Do
 
 1. Apply Steps 1–8 to a fresh sandbox instance generated from the public
    template, not to a hand-repaired historical copy.
@@ -634,7 +661,7 @@ repositories to inject arbitrary workflow steps.
    file is synced and the sandbox child proves the upstream behavior.
 6. Record operational proof separately from local and static verification.
 
-**Where**
+#### Step 9 — Where
 
 - Sandbox instance generated from the new complex-organization template
 - Sandbox child repository
@@ -642,7 +669,7 @@ repositories to inject arbitrary workflow steps.
 - Generated initialization report
 - Instance compiled indexes and organization architecture document
 
-**Pass**
+#### Step 9 — Pass
 
 - The sandbox child completes the entire sequence with one real provider
   inference and one successful instance sync.
@@ -651,7 +678,7 @@ repositories to inject arbitrary workflow steps.
 - No required configuration is falsely reported missing.
 - No local protected workflow remains solely to carry a now-upstream fix.
 
-**Fail**
+#### Step 9 — Fail
 
 - Stop at the failed boundary and retain the last proven status. Do not describe
   the rollout as complete, and do not change a later layer until the current

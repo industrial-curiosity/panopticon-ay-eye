@@ -24,9 +24,10 @@ its own — this skill only sequences them.
    built by step 2 to already exist
 4. `panopticon-dependency-extraction` — depends on step 3's naming judgments, mirroring how step 2
    depends on step 1
-5. `panopticon-doc-generation` — depends on steps 1–4: the interface-docs and dependency-docs
-   layers render from `panopticon/index.json` and the dependency shard, neither of which exist yet
-   before those steps run
+5. `panopticon-doc-generation` — depends on steps 1–4: it loads the instance compiled interface
+   index for organization-aware naming, lets the local agent persist reviewed name hints and rerun
+   interface extraction when needed, then renders the interface-docs and dependency-docs layers
+   from the resulting `panopticon/index.json` and dependency shard
 6. Finalization: `python3 -m panopticon.init_repo --instance <instance>` — the last step, run only
    after 1–5 are complete. Do not ask the user to finalize early: documentation generation derives
    the bootstrap context it needs before `panopticon/config.json` exists.

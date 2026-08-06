@@ -2,6 +2,23 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [add-org-aware-interface-naming] - 2026-08-06
+
+### Added
+
+- Organization-aware interface naming now consults the instance compiled index
+  and persists reviewed naming hints before deterministic index generation.
+- Provider PR reports now include bounded instance-index candidate analysis and
+  the child's Mermaid architecture diagram in the maintained report comment.
+
+### Changed
+
+- Child repositories can override `gating.interface-conflict` as `advisory` or
+  `blocking`; both modes publish prominent warnings, while only blocking fails
+  the conflict check.
+- Deterministic extraction, simulation, and compilation remain independent of
+  the LLM and instance index after a naming hint is saved.
+
 ## [add-negative-scope-and-ignore-hints] - 2026-08-03
 
 ### Added
