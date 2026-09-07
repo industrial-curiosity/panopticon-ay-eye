@@ -32,6 +32,22 @@ import os
 import time
 import urllib.error
 import urllib.request
+from dataclasses import asdict, dataclass
+
+
+@dataclass(frozen=True)
+class LLMRequestDiagnostic:
+    """Safe metadata for one provider request attempt sequence."""
+
+    provider: str
+    model: str
+    input_bytes: int
+    attempts: int
+    elapsed_seconds: float
+    outcome: str
+
+    def as_dict(self):
+        return asdict(self)
 
 ENDPOINT_VAR = "PANOPTICON_LLM_ENDPOINT"
 OPENAI_ENDPOINT = "https://api.openai.com/v1"
@@ -176,6 +192,10 @@ class LiteLLMAdapter:
         payload = json.dumps(
             {"model": self.model, "messages": messages, "temperature": temperature}
         ).encode("utf-8")
+        started = time.monotonic()
+        input_bytes = sum(
+            len(str(message.get("content", "")).encode("utf-8")) for message in messages
+        )
         last_error = None
         for attempt in range(1, self.max_attempts + 1):
             request = urllib.request.Request(
@@ -189,11 +209,27 @@ class LiteLLMAdapter:
             )
             try:
                 with self._urlopen(request, timeout=self.timeout) as response:
-                    return self._parse_response(response.read())
+                    try:
+                        content = self._parse_response(response.read())
+                    except LLMResponseError:
+                        self.request_diagnostic = LLMRequestDiagnostic(
+                            self.provider, self.model, input_bytes, attempt,
+                            time.monotonic() - started, "response-error"
+                        )
+                        raise
+                    self.request_diagnostic = LLMRequestDiagnostic(
+                        self.provider, self.model, input_bytes, attempt,
+                        time.monotonic() - started, "success"
+                    )
+                    return content
             except urllib.error.HTTPError as exc:
                 with exc:
                     last_error = f"HTTP {exc.code}: {exc.read().decode('utf-8', 'replace')[:500]}"
                 if exc.code not in _RETRYABLE_STATUS:
+                    self.request_diagnostic = LLMRequestDiagnostic(
+                        self.provider, self.model, input_bytes, attempt,
+                        time.monotonic() - started, "request-error"
+                    )
                     raise LLMRequestError(self.endpoint, attempt, last_error, provider=self.provider)
             except urllib.error.URLError as exc:
                 last_error = f"connection failed: {exc.reason}"
@@ -201,6 +237,11 @@ class LiteLLMAdapter:
                 last_error = f"timed out after {self.timeout}s"
             if attempt < self.max_attempts:
                 self._sleep(2 ** (attempt - 1))
+        self.request_diagnostic = LLMRequestDiagnostic(
+            self.provider, self.model, input_bytes, self.max_attempts,
+            time.monotonic() - started,
+            "timeout" if last_error and "timed out" in last_error else "request-error",
+        )
         raise LLMRequestError(self.endpoint, self.max_attempts, last_error, provider=self.provider)
 
     @staticmethod
@@ -232,6 +273,12 @@ class LLMClient:
         self.timeout = self._adapter.timeout
         self.max_attempts = self._adapter.max_attempts
         self.max_correction_attempts = max_correction_attempts
+
+    @property
+    def request_diagnostic(self):
+        if hasattr(self, "_request_diagnostic"):
+            return self._request_diagnostic
+        return self._adapter.request_diagnostic
 
     @classmethod
     def from_env(cls, env=os.environ, **kwargs):
@@ -436,6 +483,10 @@ class BedrockLLMClient(LLMClient):
         runtime = self._load_runtime()
         system, conversation = self._messages_for_converse(messages)
         resource = f"bedrock://{self.region}/{self.model}"
+        started = time.monotonic()
+        input_bytes = sum(
+            len(str(message.get("content", "")).encode("utf-8")) for message in messages
+        )
         last_error = None
         for attempt in range(1, self.max_attempts + 1):
             request = {
@@ -452,16 +503,33 @@ class BedrockLLMClient(LLMClient):
                     raise LLMResponseError(
                         f"Bedrock Converse returned no text content: {response!r}"
                     )
+                self._request_diagnostic = LLMRequestDiagnostic(
+                    "bedrock", self.model, input_bytes, attempt,
+                    time.monotonic() - started, "success"
+                )
                 return content
             except LLMResponseError:
+                self._request_diagnostic = LLMRequestDiagnostic(
+                    "bedrock", self.model, input_bytes, attempt,
+                    time.monotonic() - started, "response-error"
+                )
                 raise
             except Exception as exc:
                 code = self._error_code(exc)
                 last_error = f"{code}: {exc}"
                 if code not in self._RETRYABLE_CODES:
+                    self._request_diagnostic = LLMRequestDiagnostic(
+                        "bedrock", self.model, input_bytes, attempt,
+                        time.monotonic() - started, "request-error"
+                    )
                     raise LLMRequestError(resource, attempt, last_error, provider="bedrock")
             if attempt < self.max_attempts:
                 self._sleep(2 ** (attempt - 1))
+        self._request_diagnostic = LLMRequestDiagnostic(
+            "bedrock", self.model, input_bytes, self.max_attempts,
+            time.monotonic() - started,
+            "timeout" if last_error and "timeout" in last_error.lower() else "request-error",
+        )
         raise LLMRequestError(resource, self.max_attempts, last_error, provider="bedrock")
 
 

@@ -11,6 +11,7 @@ from panopticon.report import (
     build_combined_report,
     dedupe_actions,
     format_operational_failure,
+    format_request_diagnostic,
     load_actions,
     render_tldr,
 )
@@ -131,6 +132,15 @@ class TestFormatOperationalFailure(unittest.TestCase):
         self.assertIn("doc-drift", section)
         self.assertIn("could not run", section)
         self.assertIn("endpoint unreachable after 3 attempts", section)
+
+    def test_request_diagnostic_is_safe_and_renders_no_request_case(self):
+        text = format_request_diagnostic({
+            "provider": "litellm", "model": "m", "input_bytes": 12,
+            "attempts": 2, "elapsed_seconds": 1.5, "outcome": "timeout",
+        })
+        self.assertIn("provider=litellm", text)
+        self.assertIn("outcome=timeout", text)
+        self.assertIn("no request was made", format_request_diagnostic(None))
 
 
 class TestLoadActions(unittest.TestCase):

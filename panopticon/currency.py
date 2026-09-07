@@ -27,7 +27,7 @@ from .llm import (
     LLMResponseError,
     MissingRequirementError,
 )
-from .report import format_operational_failure
+from .report import format_operational_failure, format_request_diagnostic
 from .skills import load_skill
 
 CURRENCY_SKILL = "panopticon-index-currency"
@@ -46,15 +46,21 @@ def check_currency(diff_text, index_doc, client, skill_root="."):
         "## PR diff\n```diff\n" + diff_text + "\n```\n\n## Committed local index "
         "(panopticon/index.json)\n```json\n" + dumps_index(index_doc) + "```"
     )
-    return client.complete_json(
+    verdict = client.complete_json(
         load_skill(CURRENCY_SKILL, root=skill_root), user_content, _validate_currency_verdict,
         response_label="index-currency verdict",
     )
+    if hasattr(client, "request_diagnostic"):
+        verdict["request_diagnostic"] = client.request_diagnostic
+    return verdict
 
 
 def format_report(verdict):
     if verdict["current"]:
-        return "✅ **Panopticon index-currency check:** the local index is current for this change."
+        lines = ["✅ **Panopticon index-currency check:** the local index is current for this change."]
+        if verdict.get("request_diagnostic"):
+            lines.extend(["", format_request_diagnostic(verdict["request_diagnostic"])])
+        return "\n".join(lines)
     lines = [
         "❌ **Panopticon index-currency check: `panopticon/index.json` is stale for this change.**",
         "",
@@ -70,6 +76,8 @@ def format_report(verdict):
         "Update the index locally with your agent (panopticon-interface-naming and "
         "panopticon-interface-extraction skills), re-render docs, commit, and push.",
     ]
+    if verdict.get("request_diagnostic"):
+        lines.extend(["", format_request_diagnostic(verdict["request_diagnostic"])])
     return "\n".join(lines)
 
 
@@ -101,12 +109,18 @@ def main(argv=None):
         diff_text = Path(args.diff_file).read_text(encoding="utf-8", errors="replace")
         index_doc = load_index(args.index, kind=KIND_LOCAL, repo=args.repo)
         verdict = check_currency(diff_text, index_doc, client, skill_root=args.skill_root)
-    except (MissingRequirementError, LLMConfigurationError, LLMRequestError, LLMResponseError) as exc:
-        print(f"::error::Panopticon index-currency check could not run: {exc}")
+    except Exception as exc:
+        print(f"Panopticon index-currency check could not run: {exc}")
         # Written to --report-file so the combined report shows this failure (pr-evaluation spec:
         # "Checks run independently...") instead of silently omitting the check that crashed.
         if args.report_file:
-            Path(args.report_file).write_text(format_operational_failure("index-currency", str(exc)) + "\n",
+            diagnostic = getattr(locals().get("client"), "request_diagnostic", None)
+            message = format_request_diagnostic(diagnostic)
+            if diagnostic:
+                message += f"\n\nThe check failed: {type(exc).__name__}."
+            else:
+                message = f"{type(exc).__name__}: {exc}\n\n{message}"
+            Path(args.report_file).write_text(format_operational_failure("index-currency", message) + "\n",
                                                encoding="utf-8")
         return 1
     report = format_report(verdict)

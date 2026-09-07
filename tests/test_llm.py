@@ -120,6 +120,34 @@ class TestRequestShape(unittest.TestCase):
 
 
 class TestRetries(unittest.TestCase):
+    def test_successful_request_exposes_safe_diagnostic(self):
+        with StubLLMServer() as stub:
+            stub.responses = [(200, completion("hello"))]
+            client = client_for(stub)
+            client.chat([{"role": "user", "content": "private prompt"}])
+        diagnostic = client.request_diagnostic.as_dict()
+        self.assertEqual(diagnostic["outcome"], "success")
+        self.assertEqual(diagnostic["attempts"], 1)
+        self.assertEqual(diagnostic["input_bytes"], len("private prompt"))
+        self.assertNotIn("private prompt", str(diagnostic))
+        self.assertNotIn("test-key", str(diagnostic))
+        self.assertNotIn("stub.test", str(diagnostic))
+
+    def test_exhausted_timeout_exposes_timeout_diagnostic(self):
+        def urlopen(*args, **kwargs):
+            raise TimeoutError("timed out")
+
+        client = LLMClient(
+            "http://stub.test/v1", api_key="secret", model="model",
+            max_attempts=2, timeout=30, sleep=lambda seconds: None, urlopen=urlopen,
+        )
+        with self.assertRaises(LLMRequestError):
+            client.chat([{"role": "user", "content": "private prompt"}])
+        diagnostic = client.request_diagnostic.as_dict()
+        self.assertEqual(diagnostic["outcome"], "timeout")
+        self.assertEqual(diagnostic["attempts"], 2)
+        self.assertNotIn("secret", str(diagnostic))
+
     def test_retries_on_5xx_then_succeeds(self):
         with StubLLMServer() as stub:
             stub.responses = [(503, "busy"), (200, completion("recovered"))]

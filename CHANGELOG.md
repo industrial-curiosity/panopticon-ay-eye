@@ -2,6 +2,17 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [improve-pr-evaluation-reliability] - 2026-09-07
+
+### Added
+
+- Safe LLM request diagnostics and relevance-first doc-drift context selection.
+
+### Changed
+
+- Provider PR workflows now aggregate tooling-currency findings and centralize
+  operational-failure annotations in final gating.
+
 ## [require-advisory-feature-remediation] - 2026-08-31
 
 ### Changed

@@ -323,7 +323,7 @@ jobs:
       # git ls-remote the ref-alignment check needs, run against the instance checkout above.
       # Never gated (design D3) — its outcome is not read by "Apply gating" below and its findings
       # never feed panopticon/report.py's combined TL;DR report (design D4); fully independent of
-      # every other check in this job. `::warning::` output is the same annotation mechanism every
+      # every other check in this job. One aggregate `::warning::` retains the compact annotation,
       # other advisory message in this codebase already uses — no new output channel.
       - name: Provider preflight
         if: steps.init.outputs.initialized == 'true'
@@ -337,14 +337,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m panopticon.tooling_currency --instance-root "$PANOPTICON_INSTANCE_DIR"
+          python3 -m panopticon.tooling_currency --instance-root "$PANOPTICON_INSTANCE_DIR" \
+            --summary-file "$GITHUB_STEP_SUMMARY"
 
       # Doc drift and index currency both fail loudly on operational errors (missing skill,
       # unreachable endpoint, malformed verdict) — but never by exiting the step, since an earlier
       # check's operational failure must not prevent later, independent checks from running and
       # reporting their own results (pr-evaluation spec: "Checks run independently regardless of
       # earlier failures; gating decides at the end"). The failure is instead recorded via
-      # `error`, shows up as its own section in the combined report (each check writes a
+      # plain diagnostic, shows up as its own section in the combined report (each check writes a
       # could-not-run section to its own --report-file on this path), and gating fails the
       # workflow on it at the end, same as a stale verdict is recorded and gated at the end.
       - name: Doc-drift check
@@ -369,7 +370,6 @@ jobs:
           status=$?
           set -e
           if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
-            echo "::error::Panopticon doc-drift check could not run (exit $status); see the step log"
             echo "error=true" >> "$GITHUB_OUTPUT"
             echo "stale=false" >> "$GITHUB_OUTPUT"
           else
@@ -400,7 +400,6 @@ jobs:
           status=$?
           set -e
           if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
-            echo "::error::Panopticon index-currency check could not run (exit $status); see the step log"
             echo "error=true" >> "$GITHUB_OUTPUT"
             echo "stale=false" >> "$GITHUB_OUTPUT"
           else
