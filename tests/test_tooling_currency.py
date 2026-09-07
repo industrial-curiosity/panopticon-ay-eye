@@ -17,6 +17,7 @@ from panopticon.tooling_currency import (
     check_skills_and_tooling_drift,
     check_workflow_ref,
     main,
+    format_findings,
 )
 
 
@@ -306,6 +307,33 @@ class TestMain(unittest.TestCase):
                 code = main(["--child-root", child_root, "--instance-root", instance_root])
         self.assertEqual(code, 0)
         self.assertIn("invalid instance local-tooling manifest", out.getvalue())
+
+    def test_findings_are_aggregated_into_one_warning_and_summary_details(self):
+        self.assertIn("panopticon/a.py", format_findings(["panopticon/a.py is out of date"]))
+        with tempfile.TemporaryDirectory() as instance_root, tempfile.TemporaryDirectory() as child_root:
+            self._init_git_repo(instance_root)
+            self._write_caller_workflow(child_root, "main")
+            tooling = Path(instance_root) / "panopticon"
+            tooling.mkdir()
+            _write_manifest(instance_root, ("a.py", "b.py"))
+            (tooling / "a.py").write_text("new", encoding="utf-8")
+            (tooling / "b.py").write_text("new", encoding="utf-8")
+            child_tooling = Path(child_root) / "panopticon"
+            child_tooling.mkdir()
+            (child_tooling / "a.py").write_text("old", encoding="utf-8")
+            (child_tooling / "b.py").write_text("old", encoding="utf-8")
+            summary = Path(child_root) / "summary.md"
+            out = StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main([
+                    "--child-root", str(child_root), "--instance-root", str(instance_root),
+                    "--summary-file", str(summary),
+                ])
+            summary_text = summary.read_text(encoding="utf-8")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.getvalue().count("::warning::"), 1)
+        self.assertIn("panopticon/a.py", summary_text)
+        self.assertIn("panopticon/b.py", summary_text)
 
 
 if __name__ == "__main__":

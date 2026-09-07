@@ -27,7 +27,7 @@ from .llm import (
     LLMResponseError,
     MissingRequirementError,
 )
-from .report import format_operational_failure
+from .report import format_operational_failure, format_request_diagnostic
 from .skills import load_skill
 from .scope import file_reason, path_reason, redact_ignored_declarations
 
@@ -89,6 +89,39 @@ def _validate_drift_verdict(verdict, behavior_paths):
             raise ValueError("a stale reason must describe a required documentation update")
 
 
+def _doc_context(docs, behavior_paths):
+    """Select bounded, deterministic documentation context for behavior changes."""
+    docs = dict(sorted(docs.items()))
+    base = {
+        path: text for path, text in docs.items()
+        if Path(path).name in {"architecture.md", "operations.md"}
+    }
+    components = {
+        path: text for path, text in docs.items()
+        if "components" in Path(path).parts and Path(path).name != INTERFACE_DOC_SUFFIX
+    }
+    matched = {
+        path: text for path, text in components.items()
+        if any(changed in text for changed in behavior_paths)
+    }
+    matched_paths = {
+        changed for path in matched for changed in behavior_paths if changed in docs[path]
+    }
+    fallback = bool(set(behavior_paths) - matched_paths)
+    selected_components = components if fallback else matched
+    selected = {}
+    budget = MAX_DOC_BYTES
+    for path, text in [*base.items(), *selected_components.items()]:
+        size = len(text.encode("utf-8"))
+        if size <= budget:
+            selected[path] = text
+            budget -= size
+    return selected, {
+        "mode": "conservative-fallback" if fallback else "targeted-component",
+        "selected_paths": sorted(selected),
+    }
+
+
 def check_drift(diff_text, docs, client, skill_root=".", repo_root=None):
     """Judge whether the docs require updates for this diff. ``docs`` is ``{path: text}``."""
     behavior_paths = behavior_bearing_paths(diff_text, repo_root=repo_root)
@@ -98,17 +131,25 @@ def check_drift(diff_text, docs, client, skill_root=".", repo_root=None):
             "reasons": [],
             "summary": "This PR changes no behavior-bearing files.",
         }
-    doc_sections = [f"### {path}\n```markdown\n{text}\n```" for path, text in sorted(docs.items())]
+    selected_docs, context_selection = _doc_context(docs, behavior_paths)
+    doc_sections = [
+        f"### {path}\n```markdown\n{text}\n```"
+        for path, text in selected_docs.items()
+    ]
     user_content = (
         "## PR diff\n```diff\n" + redact_ignored_declarations(diff_text)
         + "\n```\n\n## Current documentation\n\n"
         + "\n\n".join(doc_sections)
     )
-    return client.complete_json(
+    verdict = client.complete_json(
         load_skill(DRIFT_SKILL, root=skill_root), user_content,
         lambda verdict: _validate_drift_verdict(verdict, behavior_paths),
         response_label="drift verdict",
     )
+    if hasattr(client, "request_diagnostic"):
+        verdict["context_selection"] = context_selection
+        verdict["request_diagnostic"] = client.request_diagnostic
+    return verdict
 
 
 # interfaces.md is deterministically rendered from the index (see doc-generation spec's "Interface
@@ -119,8 +160,15 @@ INTERFACE_DOC_SUFFIX = "interfaces.md"
 
 def format_report(verdict):
     """Human-readable report for the PR comment / CI summary."""
+    selection = verdict.get("context_selection")
+    diagnostics = verdict.get("request_diagnostic")
     if not verdict["stale"]:
-        return "✅ **Panopticon doc-drift check:** docs are consistent with this change."
+        lines = ["✅ **Panopticon doc-drift check:** docs are consistent with this change."]
+        if selection:
+            lines.extend(["", f"Context selection: **{selection['mode']}**.", "Selected documentation: " + ", ".join(f"`{p}`" for p in selection["selected_paths"]) + "."])
+        if diagnostics:
+            lines.extend(["", format_request_diagnostic(diagnostics)])
+        return "\n".join(lines)
     lines = [
         "❌ **Panopticon doc-drift check: documentation updates required.**",
         "",
@@ -149,6 +197,10 @@ def format_report(verdict):
         "Commit the fix and push it to this same PR's branch — do not open a new PR. This check re-runs "
         "automatically on that push.",
     ]
+    if selection:
+        lines.extend(["", f"Context selection: **{selection['mode']}**.", "Selected documentation: " + ", ".join(f"`{p}`" for p in selection["selected_paths"]) + "."])
+    if diagnostics:
+        lines.extend(["", format_request_diagnostic(diagnostics)])
     return "\n".join(line for line in lines if line is not None)
 
 
@@ -164,12 +216,8 @@ def collect_actions(verdict):
 def collect_docs(docs_root):
     docs_root = Path(docs_root)
     docs = {}
-    budget = MAX_DOC_BYTES
     for path in sorted(docs_root.rglob("*.md")):
         text = path.read_text(encoding="utf-8", errors="replace")
-        budget -= len(text)
-        if budget < 0:
-            break
         docs[path.relative_to(docs_root.parent).as_posix()] = text
     return docs
 
@@ -195,12 +243,18 @@ def main(argv=None):
             diff_text, collect_docs(args.docs_root), client, skill_root=args.skill_root,
             repo_root=args.repo_root,
         )
-    except (MissingRequirementError, LLMConfigurationError, LLMRequestError, LLMResponseError) as exc:
-        print(f"::error::Panopticon doc-drift check could not run: {exc}")
+    except Exception as exc:
+        print(f"Panopticon doc-drift check could not run: {exc}")
         # Written to --report-file so the combined report shows this failure (pr-evaluation spec:
         # "Checks run independently...") instead of silently omitting the check that crashed.
         if args.report_file:
-            Path(args.report_file).write_text(format_operational_failure("doc-drift", str(exc)) + "\n",
+            diagnostic = getattr(locals().get("client"), "request_diagnostic", None)
+            message = format_request_diagnostic(diagnostic)
+            if diagnostic:
+                message += f"\n\nThe check failed: {type(exc).__name__}."
+            else:
+                message = f"{type(exc).__name__}: {exc}\n\n{message}"
+            Path(args.report_file).write_text(format_operational_failure("doc-drift", message) + "\n",
                                                encoding="utf-8")
         return 1
     report = format_report(verdict)

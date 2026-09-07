@@ -221,6 +221,22 @@ class TestProviderWorkflows(unittest.TestCase):
                 self.assertIn('echo "stale=false" >> "$GITHUB_OUTPUT"', text)
                 self.assertIn('echo "stale=$([ "$status" -eq 2 ] && echo true || echo false)"', text)
 
+    def test_llm_wrapper_errors_are_deferred_to_final_gate(self):
+        for provider in ("litellm", "openai", "bedrock"):
+            text = self.workflow(f"panopticon-pr-{provider}.yml")
+            with self.subTest(provider=provider):
+                self.assertNotIn("echo \"::error::Panopticon doc-drift check could not run", text)
+                self.assertNotIn("echo \"::error::Panopticon index-currency check could not run", text)
+                self.assertIn("fail \"Panopticon doc-drift check could not run", text)
+                self.assertIn("fail \"Panopticon index-currency check could not run", text)
+
+    def test_tooling_currency_has_one_aggregate_warning_and_summary_output(self):
+        for provider in ("litellm", "openai", "bedrock"):
+            text = self.workflow(f"panopticon-pr-{provider}.yml")
+            with self.subTest(provider=provider):
+                self.assertIn("--summary-file \"$GITHUB_STEP_SUMMARY\"", text)
+                self.assertIn("one aggregate", text.lower())
+
     def test_candidate_analysis_and_child_gating_are_wired_for_every_provider(self):
         for provider in ("litellm", "openai", "bedrock"):
             text = self.workflow(f"panopticon-pr-{provider}.yml")

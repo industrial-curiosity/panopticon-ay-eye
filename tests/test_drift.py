@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from panopticon.drift import check_drift, collect_actions, collect_docs, format_report, main
+from panopticon.drift import MAX_DOC_BYTES, check_drift, collect_actions, collect_docs, format_report, main
 from panopticon.llm import LLMConfigurationError, LLMResponseError
 
 from .test_extraction import FakeClient
@@ -91,6 +91,54 @@ diff --git a/docs/architecture.md b/docs/architecture.md
             verdict = check_drift(diff, {}, client, skill_root=REPO_ROOT, repo_root=tmp)
         self.assertFalse(verdict["stale"])
         self.assertEqual(client.calls, [])
+
+    def test_targeted_context_includes_required_docs_and_matching_component_only(self):
+        client = FakeClient(json.dumps({"stale": False, "reasons": [], "summary": "ok"}))
+        client.request_diagnostic = {
+            "provider": "litellm", "model": "m", "input_bytes": 1,
+            "attempts": 1, "elapsed_seconds": 0.1, "outcome": "success",
+        }
+        docs = {
+            "docs/architecture.md": "architecture",
+            "docs/operations.md": "operations",
+            "docs/interfaces.md": "rendered interface",
+            "docs/components/api.md": "src/api.py",
+            "docs/components/other.md": "src/other.py",
+        }
+        verdict = check_drift(self.behavior_diff, docs, client, skill_root=REPO_ROOT)
+        content = client.calls[0][1]
+        self.assertIn("docs/architecture.md", content)
+        self.assertIn("docs/operations.md", content)
+        self.assertIn("docs/components/api.md", content)
+        self.assertNotIn("docs/interfaces.md", content)
+        self.assertNotIn("docs/components/other.md", content)
+        self.assertEqual(verdict["context_selection"]["mode"], "targeted-component")
+        self.assertIn("targeted-component", format_report(verdict))
+
+    def test_unmatched_behavior_path_uses_conservative_component_fallback(self):
+        client = FakeClient(json.dumps({"stale": False, "reasons": [], "summary": "ok"}))
+        client.request_diagnostic = None
+        docs = {
+            "docs/architecture.md": "architecture",
+            "docs/components/api.md": "src/other.py",
+            "docs/components/other.md": "src/another.py",
+        }
+        verdict = check_drift(self.behavior_diff, docs, client, skill_root=REPO_ROOT)
+        content = client.calls[0][1]
+        self.assertIn("docs/components/api.md", content)
+        self.assertIn("docs/components/other.md", content)
+        self.assertEqual(verdict["context_selection"]["mode"], "conservative-fallback")
+
+    def test_context_selection_obeys_byte_budget(self):
+        client = FakeClient(json.dumps({"stale": False, "reasons": [], "summary": "ok"}))
+        client.request_diagnostic = None
+        docs = {
+            "docs/architecture.md": "a",
+            "docs/components/first.md": "src/other.py\n" + ("x" * MAX_DOC_BYTES),
+            "docs/components/second.md": "src/another.py\n" + ("y" * MAX_DOC_BYTES),
+        }
+        verdict = check_drift(self.behavior_diff, docs, client, skill_root=REPO_ROOT)
+        self.assertEqual(verdict["context_selection"]["selected_paths"], ["docs/architecture.md"])
 
     def test_deleted_behavior_file_is_evaluated(self):
         diff = "diff --git a/src/api.py b/src/api.py\n--- a/src/api.py\n+++ /dev/null\n- old code"

@@ -200,6 +200,20 @@ stale-doc finding must name the changed behavior file that supports it and a
 specific required documentation update. Invalid, contradictory, or unsupported
 findings are operational failures, not stale-doc verdicts.
 
+For behavior-bearing changes, its LLM context always includes the architecture
+and operations documents, excludes deterministically rendered `interfaces.md`,
+and targets component documents that explicitly name changed paths. If any
+changed behavior path cannot be matched deterministically, all component
+documents that fit the bounded input budget are used. The report records the
+selection mode and paths. Doc-drift and index-currency reports also record safe
+provider, model, input-size, attempt, duration, and outcome metadata when a
+request was made; configuration failures state that no request was made.
+
+Tooling-currency remains advisory. Its individual findings are written to the
+workflow step summary and one warning reports the total count and the managed
+resource sync recovery command. These findings do not enter the combined PR
+TL;DR or gating result.
+
 Analysis consistently excludes exact illustrative directory components (`examples`, `samples`,
 `fixtures`, `testdata`, `demos`, `scaffolding`, `demo`, and `scaffold`, case-insensitively) and
 explicit `panopticon-ignore file` / `panopticon-ignore declaration` annotations. Extraction

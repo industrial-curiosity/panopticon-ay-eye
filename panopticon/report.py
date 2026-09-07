@@ -103,3 +103,17 @@ def format_operational_failure(check_name, message):
     about it. Written to the check's own ``--report-file`` so it flows through the same
     sections-collection path as a normal verdict report — no special-casing needed downstream."""
     return f"⚠️ **Panopticon {check_name} check: could not run.**\n\n{message}"
+
+
+def format_request_diagnostic(diagnostic):
+    """Render only the provider-neutral, non-secret request metadata."""
+    if not diagnostic:
+        return "Request diagnostics unavailable because no request was made."
+    if hasattr(diagnostic, "as_dict"):
+        diagnostic = diagnostic.as_dict()
+    return (
+        "Request diagnostics: "
+        f"provider={diagnostic['provider']}, model={diagnostic['model']}, "
+        f"input_bytes={diagnostic['input_bytes']}, attempts={diagnostic['attempts']}, "
+        f"elapsed_seconds={diagnostic['elapsed_seconds']:.3f}, outcome={diagnostic['outcome']}."
+    )

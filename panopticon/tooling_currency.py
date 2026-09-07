@@ -13,7 +13,8 @@ or child-only candidates. All findings remain advisory and leave child files unt
 This module never gates (tooling-currency capability: "always advisory") — it has no entry in
 ``panopticon.config``'s ``CHECK_TYPES``/``DEFAULT_GATING`` and its ``main()`` always exits ``0``,
 unlike drift.py/currency.py/diagram_check.py's business-verdict exit-code contract (0=clean,
-2=problems, other=operational failure). Findings are plain ``::warning::`` lines, never fed into
+2=problems, other=operational failure). Findings are rendered as step-summary details with one
+aggregate ``::warning::`` line, never fed into
 ``panopticon/report.py``'s combined TL;DR report (design D4) — remediation here ("run the sync
 script") doesn't fit that report's must-fix-before-merge action vocabulary.
 """
@@ -256,12 +257,22 @@ def protected_path_report(instance_root=DEFAULT_INSTANCE_ROOT):
     )
 
 
+def format_findings(findings):
+    """Render file-level advisory findings for a GitHub step summary."""
+    if not findings:
+        return "## Panopticon tooling-currency\n\nNo tooling-currency findings.\n"
+    return "## Panopticon tooling-currency findings\n\n" + "\n".join(
+        f"- {finding}" for finding in findings
+    ) + "\n"
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Advisory-only tooling-currency checks (CI only). Never gates; always exits 0."
     )
     parser.add_argument("--child-root", default=".")
     parser.add_argument("--instance-root", default=DEFAULT_INSTANCE_ROOT)
+    parser.add_argument("--summary-file", help="append file-level findings to this step summary")
     args = parser.parse_args(argv)
 
     findings = []
@@ -273,13 +284,22 @@ def main(argv=None):
     for protected_path in protected_path_report(args.instance_root):
         print(f"::notice::Panopticon tooling-currency: {protected_path}")
 
+    if args.summary_file:
+        with open(args.summary_file, "a", encoding="utf-8") as summary:
+            summary.write(format_findings(findings))
+
     if not findings:
         print(
             "Panopticon tooling-currency check: wired workflow ref, skills, and vendored tooling "
             "all match the instance repo's current default branch."
         )
-    for finding in findings:
-        print(f"::warning::Panopticon tooling-currency: {finding}")
+    if findings:
+        for finding in findings:
+            print(f"Panopticon tooling-currency detail: {finding}")
+        print(
+            "::warning::Panopticon tooling-currency: "
+            f"{len(findings)} finding(s); run python3 -m panopticon.sync to refresh managed resources"
+        )
     return 0
 
 
