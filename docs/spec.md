@@ -210,7 +210,10 @@ doc-drift work and reports the failed stage, selected paths, safe request
 diagnostics, and recovery actions: reduce or split the pull request, or increase
 `PANOPTICON_LLM_TIMEOUT_SECONDS` within its supported range. Index-currency and
 pre-merge simulation still run independently, and final gating applies after
-all checks complete.
+all checks complete. The built-in LiteLLM, OpenAI, and Bedrock PR workflows
+pass the opt-in debug flag, which writes only retained paths, validated batch
+assignments, evaluation progress, and existing safe request diagnostics to the
+step log. Debug output is not copied into the Actions summary or PR report.
 
 Tooling-currency remains advisory. Its individual findings are written to the
 workflow step summary and one warning reports the total count and the managed
@@ -242,7 +245,12 @@ instance contract selects Bedrock `instance-managed`. The derived path is
 written to runtime `merge.ours` attributes and reported separately from
 organization-declared paths. Recovery text links to the reviewed credential
 example and gives the same derivation for local repair. Syncs report the failing
-stage and recovery action when they cannot complete.
+stage and recovery action when they cannot complete. The fixed instance caller
+accepts an optional non-empty `template_ref` dispatch input, defaults it to
+`main`, and passes it to the shared workflow. The shared workflow uses that ref
+for fetch, merge, recovery instructions, and summary output, including a
+post-merge list of changed repository-relative paths or an explicit no-change
+result.
 
 ### Optional feature packages
 

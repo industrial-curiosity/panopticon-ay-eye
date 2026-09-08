@@ -2,6 +2,15 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [add-template-sync-debugging] - 2026-09-08
+
+### Added
+
+- Template sync can now select a named template ref and summarizes the selected
+  ref and paths changed by the merge.
+- Provider doc-drift checks now emit opt-in, secret-safe planning and batch
+  progress diagnostics to step logs while reports remain outcome-focused.
+
 ## [batch-doc-drift-evaluation] - 2026-09-08
 
 ### Added

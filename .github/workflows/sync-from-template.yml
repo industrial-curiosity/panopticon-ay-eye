@@ -1,9 +1,15 @@
-# This fixed caller intentionally has no configurable inputs. The template owns the sync logic,
-# so a repaired shared workflow is used by every instance on its next sync.
+# The template owns the sync logic, so a repaired shared workflow is used by every instance on its
+# next sync while maintainers can select a template branch for testing.
 name: Sync from template
 
 on:
   workflow_dispatch:
+    inputs:
+      template_ref:
+        description: Template branch or ref to sync
+        required: false
+        default: main
+        type: string
   # schedule:
   #   - cron: '0 9 * * 1'  # weekly, Monday 09:00 UTC
 
@@ -12,5 +18,7 @@ jobs:
     permissions:
       contents: write
     uses: industrial-curiosity/panopticon-ay-eye/.github/workflows/shared-template-sync-caller-only.yml@main
+    with:
+      template_ref: ${{ inputs.template_ref }}
     secrets:
       instance_token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}

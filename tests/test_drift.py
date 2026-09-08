@@ -53,6 +53,58 @@ class TestCheckDrift(unittest.TestCase):
         self.assertIn("src/api.py", user_content)
         self.assertIn("docs/architecture.md", client.calls[0][1])
 
+    def test_debug_trace_reports_safe_scope_planning_batches_and_evaluation(self):
+        client = FakeClient([
+            json.dumps({
+                "batches": [{
+                    "paths": ["src/api.py"],
+                    "docs": ["docs/components/api.md"],
+                }]
+            }),
+            json.dumps({"stale": False, "reasons": [], "summary": "ok"}),
+        ])
+        client.request_diagnostic = {
+            "provider": "openai",
+            "model": "gpt-test",
+            "input_bytes": 42,
+            "attempts": 1,
+            "elapsed_seconds": 0.1,
+            "outcome": "success",
+        }
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            check_drift(
+                self.behavior_diff,
+                {"docs/components/api.md": "src/api.py"},
+                client,
+                skill_root=REPO_ROOT,
+                debug=True,
+            )
+        trace = output.getvalue()
+        self.assertIn("retained behavior-bearing paths: src/api.py", trace)
+        self.assertIn("batch planning started", trace)
+        self.assertIn("batch planning validated: 1 batch", trace)
+        self.assertIn("batch 1 changed paths: src/api.py", trace)
+        self.assertIn("batch 1 documentation paths: docs/components/api.md", trace)
+        self.assertIn("batch 1 evaluation started", trace)
+        self.assertIn("batch 1 evaluation completed", trace)
+        self.assertIn("provider=openai, model=gpt-test, input_bytes=42", trace)
+        for forbidden in ("new code", "prompt", "secret", "https://"):
+            self.assertNotIn(forbidden, trace)
+
+    def test_debug_trace_is_opt_in_and_not_part_of_the_verdict(self):
+        client = FakeClient([self.api_plan, json.dumps({"stale": False, "reasons": [], "summary": "ok"})])
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            verdict = check_drift(
+                self.behavior_diff,
+                {"docs/architecture.md": "# arch"},
+                client,
+                skill_root=REPO_ROOT,
+            )
+        self.assertEqual(output.getvalue(), "")
+        self.assertNotIn("debug", verdict)
+
     def test_malformed_verdict_fails_loudly(self):
         client = FakeClient([self.api_plan, "the docs look fine to me"])
         with self.assertRaises(LLMResponseError):

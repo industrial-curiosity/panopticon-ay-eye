@@ -49,6 +49,12 @@ class DocDriftBatchError(RuntimeError):
         self.paths = paths
 
 
+def _debug(enabled, message):
+    """Write opt-in progress without including request or response content."""
+    if enabled:
+        print(f"[panopticon.drift] {message}")
+
+
 def validate_batches(plan, behavior_paths, docs):
     """Validate and return the planner's isolated doc-drift batches."""
     if not isinstance(plan, dict) or set(plan) != {"batches"}:
@@ -77,8 +83,9 @@ def validate_batches(plan, behavior_paths, docs):
     return validated
 
 
-def plan_batches(client, behavior_paths, docs, skill_root):
+def plan_batches(client, behavior_paths, docs, skill_root, debug=False):
     """Ask the planner to group paths before any patch contents are sent to an evaluator."""
+    _debug(debug, "batch planning started")
     user_content = "\n".join(
         [
             "## Changed product paths",
@@ -94,7 +101,9 @@ def plan_batches(client, behavior_paths, docs, skill_root):
         lambda plan: validate_batches(plan, behavior_paths, docs),
         response_label="doc-drift batch plan",
     )
-    return validate_batches(plan, behavior_paths, docs)
+    batches = validate_batches(plan, behavior_paths, docs)
+    _debug(debug, f"batch planning validated: {len(batches)} batch(es)")
+    return batches
 
 
 def _batch_diff(diff_text, paths):
@@ -199,9 +208,13 @@ def _doc_context(docs, behavior_paths):
     }
 
 
-def check_drift(diff_text, docs, client, skill_root=".", repo_root=None):
+def check_drift(diff_text, docs, client, skill_root=".", repo_root=None, debug=False):
     """Judge whether the docs require updates for this diff. ``docs`` is ``{path: text}``."""
     behavior_paths = behavior_bearing_paths(diff_text, repo_root=repo_root)
+    _debug(
+        debug,
+        "retained behavior-bearing paths: " + (", ".join(behavior_paths) if behavior_paths else "none"),
+    )
     if not behavior_paths:
         return {
             "stale": False,
@@ -209,11 +222,17 @@ def check_drift(diff_text, docs, client, skill_root=".", repo_root=None):
             "summary": "This PR changes no behavior-bearing files.",
         }
     try:
-        batches = plan_batches(client, behavior_paths, docs, skill_root)
+        batches = plan_batches(client, behavior_paths, docs, skill_root, debug=debug)
     except LLMRequestError as exc:
         raise DocDriftBatchError("planning", behavior_paths, exc) from exc
     reasons, diagnostics = [], []
-    for batch in batches:
+    for number, batch in enumerate(batches, start=1):
+        _debug(debug, f"batch {number} changed paths: {', '.join(batch['paths'])}")
+        _debug(
+            debug,
+            f"batch {number} documentation paths: {', '.join(batch['docs']) if batch['docs'] else 'none'}",
+        )
+        _debug(debug, f"batch {number} evaluation started")
         doc_sections = [
             f"### {path}\n```markdown\n{docs[path]}\n```" for path in batch["docs"]
         ]
@@ -231,8 +250,14 @@ def check_drift(diff_text, docs, client, skill_root=".", repo_root=None):
         except LLMRequestError as exc:
             raise DocDriftBatchError("evaluation", batch["paths"], exc) from exc
         reasons.extend(verdict["reasons"])
+        diagnostic = getattr(client, "request_diagnostic", None)
         if hasattr(client, "request_diagnostic"):
-            diagnostics.append({"paths": batch["paths"], "diagnostic": client.request_diagnostic})
+            diagnostics.append({"paths": batch["paths"], "diagnostic": diagnostic})
+        _debug(
+            debug,
+            f"batch {number} evaluation completed: stale={bool(verdict['reasons'])}; "
+            f"{format_request_diagnostic(diagnostic)}",
+        )
     return {
         "stale": bool(reasons),
         "reasons": reasons,
@@ -343,6 +368,7 @@ def main(argv=None):
     parser.add_argument("--docs-root", required=True)
     parser.add_argument("--repo-root", default=".")
     parser.add_argument("--skill-root", default=".", help="checkout containing .agents/skills")
+    parser.add_argument("--debug", action="store_true", help="print safe planning and evaluation progress")
     parser.add_argument("--report-file", help="write the markdown report here (for PR comments)")
     parser.add_argument("--actions-file", help="write the structured TL;DR actions JSON here")
     args = parser.parse_args(argv)
@@ -356,7 +382,7 @@ def main(argv=None):
         diff_text = Path(args.diff_file).read_text(encoding="utf-8", errors="replace")
         verdict = check_drift(
             diff_text, collect_docs(args.docs_root), client, skill_root=args.skill_root,
-            repo_root=args.repo_root,
+            repo_root=args.repo_root, debug=args.debug,
         )
     except Exception as exc:
         print(f"Panopticon doc-drift check could not run: {exc}")
