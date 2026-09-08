@@ -193,21 +193,24 @@ child-owned files outside that manifest are not managed by local sync. It
 reports those unmanaged Python modules as instance-excluded or
 child-only advisory candidates for reviewed removal, without changing them.
 
-The documentation-drift check first classifies the PR diff. Documentation,
-agent guidance and templates, OpenSpec artifacts, changelogs, and test-only
-changes are clean without an LLM request. For behavior-bearing changes, every
-stale-doc finding must name the changed behavior file that supports it and a
+The documentation-drift check first classifies the PR diff. Paths under
+`panopticon/`, `.github/`, and `.agents/`, plus documentation, OpenSpec
+artifacts, changelogs, and test-only changes are managed metadata and clean
+without an LLM request. For retained behavior-bearing changes, a dedicated
+planner receives only changed and available documentation paths, then assigns
+each changed path exactly once to the smallest coherent evaluation batch. Each
+evaluator receives only its batch's patch and documentation contents. Every
+stale-doc finding must name a changed behavior file from that batch and a
 specific required documentation update. Invalid, contradictory, or unsupported
 findings are operational failures, not stale-doc verdicts.
 
-For behavior-bearing changes, its LLM context always includes the architecture
-and operations documents, excludes deterministically rendered `interfaces.md`,
-and targets component documents that explicitly name changed paths. If any
-changed behavior path cannot be matched deterministically, all component
-documents that fit the bounded input budget are used. The report records the
-selection mode and paths. Doc-drift and index-currency reports also record safe
-provider, model, input-size, attempt, duration, and outcome metadata when a
-request was made; configuration failures state that no request was made.
+Doc-drift aggregates stale findings from all completed batches into its normal
+clean-or-stale exit-code contract. A planning or evaluation timeout stops later
+doc-drift work and reports the failed stage, selected paths, safe request
+diagnostics, and recovery actions: reduce or split the pull request, or increase
+`PANOPTICON_LLM_TIMEOUT_SECONDS` within its supported range. Index-currency and
+pre-merge simulation still run independently, and final gating applies after
+all checks complete.
 
 Tooling-currency remains advisory. Its individual findings are written to the
 workflow step summary and one warning reports the total count and the managed

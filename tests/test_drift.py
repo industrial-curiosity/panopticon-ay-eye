@@ -8,8 +8,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from panopticon.drift import MAX_DOC_BYTES, check_drift, collect_actions, collect_docs, format_report, main
-from panopticon.llm import LLMConfigurationError, LLMResponseError
+from panopticon.drift import (
+    DocDriftBatchError,
+    MAX_DOC_BYTES,
+    check_drift,
+    collect_actions,
+    collect_docs,
+    format_report,
+    format_batch_failure,
+    main,
+    validate_batches,
+)
+from panopticon.llm import LLMConfigurationError, LLMRequestError, LLMResponseError
 
 from .test_extraction import FakeClient
 
@@ -31,23 +41,25 @@ STALE_VERDICT = {
 
 class TestCheckDrift(unittest.TestCase):
     behavior_diff = "diff --git a/src/api.py b/src/api.py\n+++ b/src/api.py\n+ new code"
+    api_plan = json.dumps({"batches": [{"paths": ["src/api.py"], "docs": []}]})
 
     def test_verdict_round_trip_and_prompt_contents(self):
-        client = FakeClient(json.dumps(STALE_VERDICT))
+        client = FakeClient([self.api_plan, json.dumps(STALE_VERDICT)])
         verdict = check_drift(self.behavior_diff, {"docs/architecture.md": "# arch"}, client, skill_root=REPO_ROOT)
-        self.assertEqual(verdict, STALE_VERDICT)
-        skill_text, user_content = client.calls[0]
+        self.assertTrue(verdict["stale"])
+        self.assertEqual(verdict["reasons"], STALE_VERDICT["reasons"])
+        skill_text, user_content = client.calls[1]
         self.assertIn("doc-drift verdict", skill_text)
         self.assertIn("src/api.py", user_content)
-        self.assertIn("docs/architecture.md", user_content)
+        self.assertIn("docs/architecture.md", client.calls[0][1])
 
     def test_malformed_verdict_fails_loudly(self):
-        client = FakeClient("the docs look fine to me")
+        client = FakeClient([self.api_plan, "the docs look fine to me"])
         with self.assertRaises(LLMResponseError):
             check_drift(self.behavior_diff, {}, client, skill_root=REPO_ROOT)
 
     def test_missing_stale_field_fails_loudly(self):
-        client = FakeClient(json.dumps({"reasons": []}))
+        client = FakeClient([self.api_plan, json.dumps({"reasons": []})])
         with self.assertRaises(LLMResponseError):
             check_drift(self.behavior_diff, {}, client, skill_root=REPO_ROOT)
 
@@ -56,12 +68,13 @@ class TestCheckDrift(unittest.TestCase):
         ("Looking at this PR diff carefully...") instead of responding with JSON on the first
         attempt no longer crashes the check outright."""
         client = FakeClient([
+            self.api_plan,
             "Looking at this PR diff carefully, I need to determine whether...",
             json.dumps(STALE_VERDICT),
         ])
         verdict = check_drift(self.behavior_diff, {"docs/architecture.md": "# arch"}, client, skill_root=REPO_ROOT)
-        self.assertEqual(verdict, STALE_VERDICT)
-        self.assertEqual(len(client.chat_calls), 2)
+        self.assertTrue(verdict["stale"])
+        self.assertEqual(len(client.chat_calls), 3)
 
     def test_docs_skills_and_templates_change_without_llm_call(self):
         diff = """diff --git a/.agents/skills/panopticon-doc-generation/SKILL.md b/.agents/skills/panopticon-doc-generation/SKILL.md
@@ -73,6 +86,22 @@ diff --git a/docs/architecture.md b/docs/architecture.md
 """
         client = FakeClient(json.dumps(STALE_VERDICT))
         verdict = check_drift(diff, {"docs/architecture.md": "# arch"}, client, skill_root=REPO_ROOT)
+        self.assertFalse(verdict["stale"])
+        self.assertEqual(client.calls, [])
+
+    def test_managed_metadata_only_diff_is_clean_without_llm_call(self):
+        diff = """diff --git a/panopticon/drift.py b/panopticon/drift.py
++++ b/panopticon/drift.py
++metadata update
+diff --git a/.github/workflows/panopticon-pr.yml b/.github/workflows/panopticon-pr.yml
++++ b/.github/workflows/panopticon-pr.yml
++workflow update
+diff --git a/.agents/skills/panopticon-doc-drift/SKILL.md b/.agents/skills/panopticon-doc-drift/SKILL.md
++++ b/.agents/skills/panopticon-doc-drift/SKILL.md
++skill update
+"""
+        client = FakeClient(json.dumps(STALE_VERDICT))
+        verdict = check_drift(diff, {}, client, skill_root=REPO_ROOT)
         self.assertFalse(verdict["stale"])
         self.assertEqual(client.calls, [])
 
@@ -93,7 +122,8 @@ diff --git a/docs/architecture.md b/docs/architecture.md
         self.assertEqual(client.calls, [])
 
     def test_targeted_context_includes_required_docs_and_matching_component_only(self):
-        client = FakeClient(json.dumps({"stale": False, "reasons": [], "summary": "ok"}))
+        plan = json.dumps({"batches": [{"paths": ["src/api.py"], "docs": ["docs/components/api.md"]}]})
+        client = FakeClient([plan, json.dumps({"stale": False, "reasons": [], "summary": "ok"})])
         client.request_diagnostic = {
             "provider": "litellm", "model": "m", "input_bytes": 1,
             "attempts": 1, "elapsed_seconds": 0.1, "outcome": "success",
@@ -106,17 +136,17 @@ diff --git a/docs/architecture.md b/docs/architecture.md
             "docs/components/other.md": "src/other.py",
         }
         verdict = check_drift(self.behavior_diff, docs, client, skill_root=REPO_ROOT)
-        content = client.calls[0][1]
-        self.assertIn("docs/architecture.md", content)
-        self.assertIn("docs/operations.md", content)
+        content = client.calls[1][1]
         self.assertIn("docs/components/api.md", content)
+        self.assertNotIn("docs/architecture.md", content)
+        self.assertNotIn("docs/operations.md", content)
         self.assertNotIn("docs/interfaces.md", content)
         self.assertNotIn("docs/components/other.md", content)
-        self.assertEqual(verdict["context_selection"]["mode"], "targeted-component")
-        self.assertIn("targeted-component", format_report(verdict))
+        self.assertEqual(verdict["batches"][0]["docs"], ["docs/components/api.md"])
 
-    def test_unmatched_behavior_path_uses_conservative_component_fallback(self):
-        client = FakeClient(json.dumps({"stale": False, "reasons": [], "summary": "ok"}))
+    def test_planner_can_select_multiple_relevant_documents(self):
+        plan = json.dumps({"batches": [{"paths": ["src/api.py"], "docs": ["docs/components/api.md", "docs/components/other.md"]}]})
+        client = FakeClient([plan, json.dumps({"stale": False, "reasons": [], "summary": "ok"})])
         client.request_diagnostic = None
         docs = {
             "docs/architecture.md": "architecture",
@@ -124,13 +154,13 @@ diff --git a/docs/architecture.md b/docs/architecture.md
             "docs/components/other.md": "src/another.py",
         }
         verdict = check_drift(self.behavior_diff, docs, client, skill_root=REPO_ROOT)
-        content = client.calls[0][1]
+        content = client.calls[1][1]
         self.assertIn("docs/components/api.md", content)
         self.assertIn("docs/components/other.md", content)
-        self.assertEqual(verdict["context_selection"]["mode"], "conservative-fallback")
+        self.assertEqual(len(verdict["batches"]), 1)
 
-    def test_context_selection_obeys_byte_budget(self):
-        client = FakeClient(json.dumps({"stale": False, "reasons": [], "summary": "ok"}))
+    def test_planner_can_assign_no_documentation(self):
+        client = FakeClient([self.api_plan, json.dumps({"stale": False, "reasons": [], "summary": "ok"})])
         client.request_diagnostic = None
         docs = {
             "docs/architecture.md": "a",
@@ -138,12 +168,12 @@ diff --git a/docs/architecture.md b/docs/architecture.md
             "docs/components/second.md": "src/another.py\n" + ("y" * MAX_DOC_BYTES),
         }
         verdict = check_drift(self.behavior_diff, docs, client, skill_root=REPO_ROOT)
-        self.assertEqual(verdict["context_selection"]["selected_paths"], ["docs/architecture.md"])
+        self.assertEqual(verdict["batches"][0]["docs"], [])
 
     def test_deleted_behavior_file_is_evaluated(self):
         diff = "diff --git a/src/api.py b/src/api.py\n--- a/src/api.py\n+++ /dev/null\n- old code"
-        verdict = check_drift(diff, {}, FakeClient(json.dumps(STALE_VERDICT)), skill_root=REPO_ROOT)
-        self.assertEqual(verdict, STALE_VERDICT)
+        verdict = check_drift(diff, {}, FakeClient([self.api_plan, json.dumps(STALE_VERDICT)]), skill_root=REPO_ROOT)
+        self.assertTrue(verdict["stale"])
 
     def test_invalid_or_unsupported_stale_reasons_fail_loudly(self):
         invalid_verdicts = (
@@ -154,7 +184,129 @@ diff --git a/docs/architecture.md b/docs/architecture.md
         for verdict in invalid_verdicts:
             with self.subTest(verdict=verdict):
                 with self.assertRaises(LLMResponseError):
-                    check_drift(self.behavior_diff, {}, FakeClient(json.dumps(verdict)), skill_root=REPO_ROOT)
+                    check_drift(self.behavior_diff, {}, FakeClient([self.api_plan, json.dumps(verdict)]), skill_root=REPO_ROOT)
+
+
+class TestBatchPlanning(unittest.TestCase):
+    def test_valid_batches_assign_each_changed_path_once(self):
+        batches = validate_batches(
+            {
+                "batches": [
+                    {"paths": ["src/api.py"], "docs": ["docs/components/api.md"]},
+                    {"paths": ["src/worker.py"], "docs": []},
+                ]
+            },
+            ["src/api.py", "src/worker.py"],
+            {"docs/components/api.md": "# API"},
+        )
+        self.assertEqual(batches[0]["paths"], ["src/api.py"])
+        self.assertEqual(batches[1]["docs"], [])
+
+    def test_invalid_batches_are_rejected(self):
+        cases = (
+            (
+                {"batches": [{"paths": ["src/api.py", "src/api.py"], "docs": []}]},
+                "exactly once",
+            ),
+            (
+                {"batches": [{"paths": ["src/api.py"], "docs": ["docs/missing.md"]}]},
+                "unknown documentation path",
+            ),
+        )
+        for plan, message in cases:
+            with self.subTest(plan=plan):
+                with self.assertRaisesRegex(ValueError, message):
+                    validate_batches(plan, ["src/api.py"], {})
+
+    def test_batches_are_evaluated_in_isolation_and_aggregated(self):
+        diff = """diff --git a/src/api.py b/src/api.py
++++ b/src/api.py
++api change
+diff --git a/src/worker.py b/src/worker.py
++++ b/src/worker.py
++worker change
+"""
+        plan = {
+            "batches": [
+                {"paths": ["src/api.py"], "docs": ["docs/components/api.md"]},
+                {"paths": ["src/worker.py"], "docs": ["docs/components/worker.md"]},
+            ]
+        }
+        stale = {**STALE_VERDICT, "reasons": [{**STALE_VERDICT["reasons"][0]}]}
+        client = FakeClient([
+            json.dumps(plan),
+            json.dumps(stale),
+            json.dumps({"stale": False, "reasons": [], "summary": "ok"}),
+        ])
+        verdict = check_drift(
+            diff,
+            {
+                "docs/components/api.md": "# API",
+                "docs/components/worker.md": "# Worker",
+            },
+            client,
+            skill_root=REPO_ROOT,
+        )
+        self.assertTrue(verdict["stale"])
+        self.assertEqual(verdict["reasons"], stale["reasons"])
+        self.assertEqual(len(client.calls), 3)
+        planner_content = client.calls[0][1]
+        api_evaluator_content = client.calls[1][1]
+        worker_evaluator_content = client.calls[2][1]
+        self.assertNotIn("api change", planner_content)
+        self.assertIn("api change", api_evaluator_content)
+        self.assertNotIn("worker change", api_evaluator_content)
+        self.assertIn("worker change", worker_evaluator_content)
+        self.assertNotIn("api change", worker_evaluator_content)
+
+    def test_timeout_recovery_output_is_stage_aware_and_secret_safe(self):
+        error = DocDriftBatchError("evaluation", ["src/api.py"], RuntimeError("request timed out"))
+        report = format_batch_failure(
+            error,
+            {
+                "provider": "openai",
+                "model": "gpt-test",
+                "input_bytes": 42,
+                "attempts": 3,
+                "elapsed_seconds": 12.3,
+                "outcome": "timeout",
+                "endpoint": "https://secret.example",
+                "token": "secret-value",
+            },
+        )
+        self.assertIn("evaluation failed", report)
+        self.assertIn("src/api.py", report)
+        self.assertIn("input_bytes=42", report)
+        self.assertIn("Reduce or split", report)
+        self.assertIn("PANOPTICON_LLM_TIMEOUT_SECONDS", report)
+        self.assertNotIn("secret.example", report)
+        self.assertNotIn("secret-value", report)
+
+    def test_evaluation_timeout_stops_before_later_batches(self):
+        class TimeoutClient:
+            def __init__(self):
+                self.calls = 0
+
+            def complete_json(self, *args, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return {
+                        "batches": [
+                            {"paths": ["src/api.py"], "docs": []},
+                            {"paths": ["src/worker.py"], "docs": []},
+                        ]
+                    }
+                raise LLMRequestError("https://provider.example", 2, TimeoutError("timed out"))
+
+        diff = (
+            "diff --git a/src/api.py b/src/api.py\n+++ b/src/api.py\n+api\n"
+            "diff --git a/src/worker.py b/src/worker.py\n+++ b/src/worker.py\n+worker\n"
+        )
+        client = TimeoutClient()
+        with self.assertRaisesRegex(DocDriftBatchError, "timed out") as raised:
+            check_drift(diff, {}, client, skill_root=REPO_ROOT)
+        self.assertEqual(raised.exception.stage, "evaluation")
+        self.assertEqual(client.calls, 2)
 
 
 class TestReport(unittest.TestCase):
@@ -193,6 +345,30 @@ class TestReport(unittest.TestCase):
     def test_clean_report(self):
         report = format_report({"stale": False, "reasons": [], "summary": "ok"})
         self.assertIn("consistent", report)
+
+    def test_report_includes_each_batch_diagnostic(self):
+        report = format_report(
+            {
+                "stale": False,
+                "reasons": [],
+                "summary": "ok",
+                "batch_diagnostics": [
+                    {
+                        "paths": ["src/api.py"],
+                        "diagnostic": {
+                            "provider": "openai",
+                            "model": "gpt-test",
+                            "input_bytes": 12,
+                            "attempts": 1,
+                            "elapsed_seconds": 0.1,
+                            "outcome": "success",
+                        },
+                    }
+                ],
+            }
+        )
+        self.assertIn("src/api.py", report)
+        self.assertIn("input_bytes=12", report)
 
 
 class TestCollectActions(unittest.TestCase):

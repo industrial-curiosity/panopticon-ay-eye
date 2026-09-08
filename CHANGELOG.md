@@ -2,6 +2,15 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [batch-doc-drift-evaluation] - 2026-09-08
+
+### Added
+
+- Doc-drift checks now plan behavior changes into minimal, independently
+  evaluated batches with isolated documentation context and aggregated results.
+- Doc-drift timeout and planner failures now provide safe stage, path, size,
+  and recovery diagnostics while preserving independent PR checks.
+
 ## [improve-pr-evaluation-reliability] - 2026-09-07
 
 ### Added
