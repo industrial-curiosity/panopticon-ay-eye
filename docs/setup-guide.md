@@ -39,6 +39,10 @@ created from a
    directly runnable. If checkout,
    fetch, merge, validation, or push fails, the run summary names the failed
    stage and detected error before providing equivalent local recovery commands.
+   Set the optional `template_ref` input to a named template branch when testing
+   a template change; leave it blank to use `main`. The successful summary
+   records the selected ref and every repository-relative path changed by the
+   merge, or explicitly says that no paths changed.
    You can
    also enable the weekly schedule in the workflow file to receive updates
    automatically.
@@ -92,9 +96,9 @@ git push
 Then run **Actions → Sync from template → Run workflow**. Instances created
 after the updated workflow is
 published inherit it automatically and do not need this one-time step. Keep this
-caller fixed: it deliberately
-does not offer a repository, workflow path, or ref input, so it cannot redirect
-privileged sync credentials.
+caller fixed: it deliberately does not offer a repository or workflow path input,
+so it cannot redirect privileged sync credentials. Its only dispatch input selects
+a ref within the fixed Panopticon template repository.
 
 ## 2. Configure the instance LLM provider
 

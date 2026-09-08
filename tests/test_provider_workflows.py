@@ -54,6 +54,15 @@ class TestProviderWorkflows(unittest.TestCase):
             self.assertIn("Apply gating", text)
             self.assertNotIn("secrets: inherit", text)
 
+    def test_all_provider_doc_drift_steps_enable_debug_without_changing_reports(self):
+        for provider in ("litellm", "openai", "bedrock"):
+            text = self.workflow(f"panopticon-pr-{provider}.yml")
+            with self.subTest(provider=provider):
+                self.assertEqual(text.count("python3 -m panopticon.drift"), 1)
+                self.assertIn("--debug", text)
+                self.assertIn("--report-file /tmp/panopticon-reports/drift.md", text)
+                self.assertIn("--actions-file /tmp/panopticon-reports/drift-actions.json", text)
+
     def test_litellm_workflow_has_no_bedrock_setup(self):
         text = self.workflow("panopticon-pr-litellm.yml")
         self.assertIn("PANOPTICON_LLM_PROVIDER: litellm", text)

@@ -49,15 +49,43 @@ class TestTemplateSyncWorkflowContracts(unittest.TestCase):
     def test_instance_workflow_is_a_fixed_minimal_shared_workflow_caller(self):
         text = INSTANCE_CALLER_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("workflow_dispatch:", text)
+        self.assertIn("template_ref:", text)
+        self.assertIn("default: main", text)
+        self.assertIn("type: string", text)
         self.assertIn(
             "uses: industrial-curiosity/panopticon-ay-eye/.github/workflows/"
             "shared-template-sync-caller-only.yml@main",
             text,
         )
+        self.assertIn("template_ref: ${{ inputs.template_ref }}", text)
         self.assertIn("instance_token: ${{ secrets.PANOPTICON_INSTANCE_TOKEN }}", text)
         self.assertNotIn("runs-on:", text)
         self.assertNotIn("git merge", text)
-        self.assertNotIn("workflow_dispatch:\n    inputs:", text)
+
+    def test_shared_workflow_declares_optional_template_ref_with_main_default(self):
+        text = SHARED_SYNC_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("template_ref:", text)
+        self.assertIn("required: false", text)
+        self.assertIn("type: string", text)
+        self.assertIn("default: main", text)
+        self.assertIn("Validate template ref", text)
+
+    def test_shared_workflow_uses_selected_template_ref_for_fetch_merge_and_recovery(self):
+        text = SHARED_SYNC_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('git fetch template "$PANOPTICON_TEMPLATE_REF"', text)
+        self.assertIn('"template/$PANOPTICON_TEMPLATE_REF"', text)
+        self.assertIn("shlex.quote", text)
+        self.assertIn("Selected template ref", text)
+        self.assertNotIn("git fetch template main", text)
+        self.assertNotIn("git merge template/main", text)
+
+    def test_shared_workflow_summarizes_post_merge_changed_paths(self):
+        text = SHARED_SYNC_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("Summarize template changes", text)
+        self.assertIn('git diff --name-only "$PANOPTICON_SYNC_START_SHA" HEAD', text)
+        self.assertIn("## Panopticon: template sync", text)
+        self.assertIn("No paths changed.", text)
+        self.assertIn("Selected template ref:", text)
 
     def test_shared_workflow_uses_default_token_fallback(self):
         text = SHARED_SYNC_WORKFLOW.read_text(encoding="utf-8")
@@ -87,9 +115,9 @@ class TestTemplateSyncWorkflowContracts(unittest.TestCase):
         self.assertIn(
             "https://github.com/industrial-curiosity/panopticon-ay-eye.git", text
         )
-        self.assertIn("git fetch template main", text)
+        self.assertIn("git fetch template {fetch_ref}", text)
         self.assertIn("git config merge.ours.driver true", text)
-        self.assertIn("git merge template/main", text)
+        self.assertIn("git merge {merge_ref}", text)
         self.assertIn("git add -A", text)
         self.assertIn("git push origin HEAD", text)
 

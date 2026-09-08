@@ -92,8 +92,16 @@ The workflow is intentionally simple:
    advisory with details in the workflow summary.
 3. On merge, the instance collects documentation and indexes to build an
    organization-wide view.
-4. When planning a change, developers and agents use that shared view to
+4. Instance maintainers can dispatch **Sync from template** with the optional
+   `template_ref` input to test a named template branch; omitting it keeps the
+   compatibility default of `main`. The sync summary lists the selected ref
+   and every path changed by the merge.
+5. When planning a change, developers and agents use that shared view to
    understand affected connections.
+
+Doc-drift checks retain only behavior-bearing product paths, plan isolated
+documentation batches, and expose safe progress in provider workflow logs.
+Their PR reports remain focused on the final documentation outcome.
 
 Panopticon deliberately excludes illustrative directories (`examples`, `samples`, `fixtures`,
 `testdata`, `demos`, `scaffolding`, `demo`, and `scaffold`) from analysis while retaining similarly

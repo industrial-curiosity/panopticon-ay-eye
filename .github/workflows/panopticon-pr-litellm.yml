@@ -371,6 +371,7 @@ jobs:
             --diff-file /tmp/panopticon-pr.diff \
             --docs-root "$PANOPTICON_DOCS" \
             --skill-root "$PANOPTICON_INSTANCE_DIR" \
+            --debug \
             --report-file /tmp/panopticon-reports/drift.md \
             --actions-file /tmp/panopticon-reports/drift-actions.json
           status=$?
