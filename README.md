@@ -85,9 +85,11 @@ The workflow is intentionally simple:
    reviewed naming decisions as source/configuration hints.
 2. On pull requests, Panopticon checks behavior-bearing changes against
    documentation, compares likely interface matches with the instance index,
-   and predicts interface conflicts; documentation-only changes pass without
-   an LLM review. LLM-backed reports include safe request diagnostics, while
-   tooling-currency drift remains advisory with details in the workflow summary.
+   and predicts interface conflicts. Managed Panopticon metadata and
+   documentation-only changes pass without an LLM review; product changes are
+   planned and evaluated in isolated documentation batches. LLM-backed reports
+   include safe request diagnostics, while tooling-currency drift remains
+   advisory with details in the workflow summary.
 3. On merge, the instance collects documentation and indexes to build an
    organization-wide view.
 4. When planning a change, developers and agents use that shared view to

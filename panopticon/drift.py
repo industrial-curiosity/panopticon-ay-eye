@@ -32,9 +32,86 @@ from .skills import load_skill
 from .scope import file_reason, path_reason, redact_ignored_declarations
 
 DRIFT_SKILL = "panopticon-doc-drift"
+BATCH_PLANNING_SKILL = "panopticon-doc-drift-batch-planning"
 MAX_DOC_BYTES = 200_000
-NON_BEHAVIOR_PATH_PREFIXES = (".agents/", "docs/", "openspec/", "tests/")
+NON_BEHAVIOR_PATH_PREFIXES = (
+    ".agents/", ".github/", "docs/", "openspec/", "panopticon/", "tests/",
+)
 NON_BEHAVIOR_FILENAMES = {"CHANGELOG.md", "README.md"}
+
+
+class DocDriftBatchError(RuntimeError):
+    """An LLM failure annotated with the planning or evaluation stage that failed."""
+
+    def __init__(self, stage, paths, cause):
+        super().__init__(str(cause))
+        self.stage = stage
+        self.paths = paths
+
+
+def validate_batches(plan, behavior_paths, docs):
+    """Validate and return the planner's isolated doc-drift batches."""
+    if not isinstance(plan, dict) or set(plan) != {"batches"}:
+        raise ValueError("batch plan must contain only 'batches'")
+    batches = plan["batches"]
+    if not isinstance(batches, list) or not batches:
+        raise ValueError("batch plan must contain at least one batch")
+    expected_paths = set(behavior_paths)
+    assigned_paths = []
+    validated = []
+    for batch in batches:
+        if not isinstance(batch, dict) or set(batch) != {"paths", "docs"}:
+            raise ValueError("each batch must contain only 'paths' and 'docs'")
+        paths, doc_paths = batch["paths"], batch["docs"]
+        if not isinstance(paths, list) or not paths or not all(isinstance(path, str) for path in paths):
+            raise ValueError("each batch needs one or more changed paths")
+        if not isinstance(doc_paths, list) or not all(isinstance(path, str) for path in doc_paths):
+            raise ValueError("each batch's documentation paths must be a list of strings")
+        unknown_docs = set(doc_paths) - set(docs)
+        if unknown_docs:
+            raise ValueError(f"unknown documentation path: {sorted(unknown_docs)[0]}")
+        assigned_paths.extend(paths)
+        validated.append({"paths": paths, "docs": doc_paths})
+    if len(assigned_paths) != len(set(assigned_paths)) or set(assigned_paths) != expected_paths:
+        raise ValueError("every changed path must be assigned exactly once")
+    return validated
+
+
+def plan_batches(client, behavior_paths, docs, skill_root):
+    """Ask the planner to group paths before any patch contents are sent to an evaluator."""
+    user_content = "\n".join(
+        [
+            "## Changed product paths",
+            *(f"- {path}" for path in behavior_paths),
+            "",
+            "## Available documentation paths",
+            *(f"- {path}" for path in sorted(docs)),
+        ]
+    )
+    plan = client.complete_json(
+        load_skill(BATCH_PLANNING_SKILL, root=skill_root),
+        user_content,
+        lambda plan: validate_batches(plan, behavior_paths, docs),
+        response_label="doc-drift batch plan",
+    )
+    return validate_batches(plan, behavior_paths, docs)
+
+
+def _batch_diff(diff_text, paths):
+    """Return complete diff sections belonging to one validated evaluation batch."""
+    sections, current = [], []
+    for line in diff_text.splitlines(keepends=True):
+        if line.startswith("diff --git ") and current:
+            sections.append(current)
+            current = []
+        current.append(line)
+    if current:
+        sections.append(current)
+    return "".join(
+        "".join(section)
+        for section in sections
+        if section and any(f" b/{path}" in section[0] for path in paths)
+    )
 
 
 def behavior_bearing_paths(diff_text, repo_root=None):
@@ -131,25 +208,51 @@ def check_drift(diff_text, docs, client, skill_root=".", repo_root=None):
             "reasons": [],
             "summary": "This PR changes no behavior-bearing files.",
         }
-    selected_docs, context_selection = _doc_context(docs, behavior_paths)
-    doc_sections = [
-        f"### {path}\n```markdown\n{text}\n```"
-        for path, text in selected_docs.items()
-    ]
-    user_content = (
-        "## PR diff\n```diff\n" + redact_ignored_declarations(diff_text)
-        + "\n```\n\n## Current documentation\n\n"
-        + "\n\n".join(doc_sections)
+    try:
+        batches = plan_batches(client, behavior_paths, docs, skill_root)
+    except LLMRequestError as exc:
+        raise DocDriftBatchError("planning", behavior_paths, exc) from exc
+    reasons, diagnostics = [], []
+    for batch in batches:
+        doc_sections = [
+            f"### {path}\n```markdown\n{docs[path]}\n```" for path in batch["docs"]
+        ]
+        user_content = (
+            "## PR diff\n```diff\n" + redact_ignored_declarations(_batch_diff(diff_text, batch["paths"]))
+            + "\n```\n\n## Current documentation\n\n" + "\n\n".join(doc_sections)
+        )
+        try:
+            verdict = client.complete_json(
+                load_skill(DRIFT_SKILL, root=skill_root),
+                user_content,
+                lambda verdict: _validate_drift_verdict(verdict, batch["paths"]),
+                response_label="drift verdict",
+            )
+        except LLMRequestError as exc:
+            raise DocDriftBatchError("evaluation", batch["paths"], exc) from exc
+        reasons.extend(verdict["reasons"])
+        if hasattr(client, "request_diagnostic"):
+            diagnostics.append({"paths": batch["paths"], "diagnostic": client.request_diagnostic})
+    return {
+        "stale": bool(reasons),
+        "reasons": reasons,
+        "summary": "Documentation updates are required." if reasons else "Documentation is consistent with this change.",
+        "batches": batches,
+        "batch_diagnostics": diagnostics,
+    }
+
+
+def format_batch_failure(exc, diagnostic):
+    """Render a safe, actionable doc-drift planner or evaluator failure."""
+    paths = ", ".join(f"`{path}`" for path in exc.paths)
+    return "\n".join(
+        [
+            f"Doc-drift {exc.stage} failed for: {paths}.",
+            format_request_diagnostic(diagnostic),
+            "Reduce or split this pull request, then re-run the check.",
+            "If the request is within the supported range, increase PANOPTICON_LLM_TIMEOUT_SECONDS.",
+        ]
     )
-    verdict = client.complete_json(
-        load_skill(DRIFT_SKILL, root=skill_root), user_content,
-        lambda verdict: _validate_drift_verdict(verdict, behavior_paths),
-        response_label="drift verdict",
-    )
-    if hasattr(client, "request_diagnostic"):
-        verdict["context_selection"] = context_selection
-        verdict["request_diagnostic"] = client.request_diagnostic
-    return verdict
 
 
 # interfaces.md is deterministically rendered from the index (see doc-generation spec's "Interface
@@ -162,12 +265,22 @@ def format_report(verdict):
     """Human-readable report for the PR comment / CI summary."""
     selection = verdict.get("context_selection")
     diagnostics = verdict.get("request_diagnostic")
+    batch_diagnostics = verdict.get("batch_diagnostics", [])
+    diagnostic_lines = [
+        "Batch diagnostics: "
+        + ", ".join(f"`{path}`" for path in entry["paths"])
+        + ". "
+        + format_request_diagnostic(entry["diagnostic"])
+        for entry in batch_diagnostics
+    ]
     if not verdict["stale"]:
         lines = ["✅ **Panopticon doc-drift check:** docs are consistent with this change."]
         if selection:
             lines.extend(["", f"Context selection: **{selection['mode']}**.", "Selected documentation: " + ", ".join(f"`{p}`" for p in selection["selected_paths"]) + "."])
         if diagnostics:
             lines.extend(["", format_request_diagnostic(diagnostics)])
+        if diagnostic_lines:
+            lines.extend(["", *diagnostic_lines])
         return "\n".join(lines)
     lines = [
         "❌ **Panopticon doc-drift check: documentation updates required.**",
@@ -201,6 +314,8 @@ def format_report(verdict):
         lines.extend(["", f"Context selection: **{selection['mode']}**.", "Selected documentation: " + ", ".join(f"`{p}`" for p in selection["selected_paths"]) + "."])
     if diagnostics:
         lines.extend(["", format_request_diagnostic(diagnostics)])
+    if diagnostic_lines:
+        lines.extend(["", *diagnostic_lines])
     return "\n".join(line for line in lines if line is not None)
 
 
@@ -249,7 +364,10 @@ def main(argv=None):
         # "Checks run independently...") instead of silently omitting the check that crashed.
         if args.report_file:
             diagnostic = getattr(locals().get("client"), "request_diagnostic", None)
-            message = format_request_diagnostic(diagnostic)
+            if isinstance(exc, DocDriftBatchError):
+                message = format_batch_failure(exc, diagnostic)
+            else:
+                message = format_request_diagnostic(diagnostic)
             if diagnostic:
                 message += f"\n\nThe check failed: {type(exc).__name__}."
             else:
