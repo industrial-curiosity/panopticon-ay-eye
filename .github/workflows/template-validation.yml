@@ -20,10 +20,31 @@ jobs:
           {
             echo "## Job purpose"
             echo
-            echo "This job validates the template's workflow contracts and Python test suite."
+            echo "This job validates workflow syntax and contracts before running the Python test suite."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/checkout@v7.0.1
+
+      - name: Validate workflow YAML syntax
+        shell: ruby {0}
+        run: |
+          require "yaml"
+
+          paths = Dir.glob(".github/workflows/*.{yml,yaml}").sort
+          begin
+            paths.each { |path| YAML.safe_load(File.read(path), aliases: true) }
+          rescue Psych::SyntaxError => error
+            summary = ENV.fetch("GITHUB_STEP_SUMMARY")
+            File.open(summary, "a") do |file|
+              file.puts "## Panopticon: invalid workflow YAML"
+              file.puts
+              file.puts "`#{error.file}` cannot be parsed: #{error.problem} at line #{error.line}."
+              file.puts
+              file.puts "Fix the YAML syntax, then rerun this validation."
+            end
+            puts "::error file=#{error.file},line=#{error.line}::#{error.problem}"
+            exit 1
+          end
 
       - name: Validate reusable workflow contracts
         run: python3 -m panopticon.workflow_contracts --workflows-dir .github/workflows

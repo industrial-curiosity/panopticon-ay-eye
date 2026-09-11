@@ -62,43 +62,43 @@ jobs:
           merge_ref = shlex.quote(f"template/{template_ref}")
           recovery = f"""## Panopticon: recover this template sync locally
 
-The shared template sync failed before it could push. From a local clone of this instance
-repository, run the following commands. They use the same fixed template source, selected
-template ref, and protected-path setup as the shared workflow.
+          The shared template sync failed before it could push. From a local clone of this instance
+          repository, run the following commands. They use the same fixed template source, selected
+          template ref, and protected-path setup as the shared workflow.
 
-Selected template ref: `{template_ref}`
+          Selected template ref: `{template_ref}`
 
-```bash
-git remote add template https://github.com/industrial-curiosity/panopticon-ay-eye.git 2>/dev/null || git remote set-url template https://github.com/industrial-curiosity/panopticon-ay-eye.git
-git fetch template {fetch_ref}
-git config merge.ours.driver true
-python3 - <<'PY'
-from pathlib import Path
-import sys
+          ```bash
+          git remote add template https://github.com/industrial-curiosity/panopticon-ay-eye.git 2>/dev/null || git remote set-url template https://github.com/industrial-curiosity/panopticon-ay-eye.git
+          git fetch template {fetch_ref}
+          git config merge.ours.driver true
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
 
-sys.path.insert(0, ".")
-from panopticon.config import derive_protected_paths, load_org_config
+          sys.path.insert(0, ".")
+          from panopticon.config import derive_protected_paths, load_org_config
 
-paths = derive_protected_paths(load_org_config("."))
-attributes = Path(".git/info/attributes")
-attributes.parent.mkdir(parents=True, exist_ok=True)
-attributes.write_text("".join(f"{{path}} merge=ours" + chr(10) for path in paths), encoding="utf-8")
-PY
-if git merge-base HEAD {merge_ref} >/dev/null 2>&1; then
-  git merge {merge_ref} --no-edit
-else
-  git merge {merge_ref} --no-edit --allow-unrelated-histories -X theirs
-fi
-# If Git reports conflicts, resolve them, then run:
-git add -A
-git commit -m "chore: sync from template"
-git push origin HEAD
-```
+          paths = derive_protected_paths(load_org_config("."))
+          attributes = Path(".git/info/attributes")
+          attributes.parent.mkdir(parents=True, exist_ok=True)
+          attributes.write_text("".join(f"{{path}} merge=ours" + chr(10) for path in paths), encoding="utf-8")
+          PY
+          if git merge-base HEAD {merge_ref} >/dev/null 2>&1; then
+            git merge {merge_ref} --no-edit
+          else
+            git merge {merge_ref} --no-edit --allow-unrelated-histories -X theirs
+          fi
+          # If Git reports conflicts, resolve them, then run:
+          git add -A
+          git commit -m "chore: sync from template"
+          git push origin HEAD
+          ```
 
-Review `git status` and `git diff` before committing. If the failed sync changed a workflow
-file, configure the `PANOPTICON_INSTANCE_TOKEN` Actions secret with a GitHub fine-grained
-PAT that has Contents and Workflows read/write access, then retry.
-"""
+          Review `git status` and `git diff` before committing. If the failed sync changed a workflow
+          file, configure the `PANOPTICON_INSTANCE_TOKEN` Actions secret with a GitHub fine-grained
+          PAT that has Contents and Workflows read/write access, then retry.
+          """
           Path(os.environ["RUNNER_TEMP"], "panopticon-template-sync-recovery.md").write_text(
               recovery, encoding="utf-8"
           )

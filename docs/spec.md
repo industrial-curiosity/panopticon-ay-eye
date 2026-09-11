@@ -18,11 +18,12 @@ template/tooling findings and gives the next action for each; credential values
 are never recorded.
 
 Initialization also reads the managed feature receipt after core documentation
-generation. Each enabled feature's installed skill and deterministic validator
-run before finalization. Advisory findings remain non-blocking for CI and the
-initialization flag, but are retained as child-repository actions with the
-feature skill and revalidation command until resolved; organization-verification
-findings are appended separately.
+generation. Each enabled feature's installed skill repairs deterministic
+findings, and finalization validates the child receipt and installed helper
+without requiring the instance-owned feature registry. Advisory findings remain
+non-blocking for CI and the initialization flag, but are retained as
+child-repository actions with the feature skill and finalization command until
+resolved; organization-verification findings are appended separately.
 
 Initialization is one continuous sequence: before finalization writes the
 configuration file, documentation generation derives its repository, instance,
@@ -162,7 +163,10 @@ steps and inherit the summary responsibility from the invoked reusable job.
 The template-validation workflow's validation job is created only when
 `github.repository` exactly equals `industrial-curiosity/panopticon-ay-eye`.
 Template-derived instance repositories may retain the workflow file, but their
-instances skip checkout, workflow-contract validation, and template tests.
+instances skip checkout and template validation. In the canonical repository,
+the job parses every workflow YAML file before reusable-workflow contract
+validation and Python tests. A syntax failure reports the affected file,
+parser reason, and line number in the job summary.
 
 ## Evaluation and synchronization
 

@@ -147,8 +147,14 @@ jobs:
         self.assertIn("pull_request:", workflow)
         self.assertIn("push:", workflow)
         self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("Validate workflow YAML syntax", workflow)
+        self.assertIn("YAML.safe_load(File.read(path), aliases: true)", workflow)
+        self.assertIn(".github/workflows", workflow)
         self.assertIn("python3 -m panopticon.workflow_contracts --workflows-dir .github/workflows", workflow)
         self.assertIn("python3 -m unittest discover -t . -s tests", workflow)
+        yaml_validation = workflow.index("- name: Validate workflow YAML syntax")
+        self.assertLess(yaml_validation, workflow.index("- name: Validate reusable workflow contracts"))
+        self.assertLess(yaml_validation, workflow.index("- name: Run Python tests"))
 
 
 if __name__ == "__main__":

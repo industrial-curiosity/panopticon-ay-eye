@@ -980,8 +980,9 @@ The order SHALL be:
    dependency shard)
    that those steps build; running doc-generation first has no index to render
    from
-6. Each enabled feature's installed skill, followed by that feature's
-   deterministic validator
+6. Each enabled feature's installed skill. Its remediation SHALL use the
+   installed child artifacts and SHALL NOT require `features/manifest.json` in
+   the child repository.
 7. The finalization command (`python3 -m panopticon.init_repo --instance
    <instance>`) — the instance slug SHALL be self-discovered by reading the
    `uses:` line already wired into `.github/workflows/panopticon-pr.yml`, rather
@@ -1070,6 +1071,14 @@ checkpoint log state, for users who want to run a single step directly.
 - **WHEN** `/panopticon-init` reaches feature remediation
 - **THEN** it invokes the installed OKF skill, repairs deterministic findings,
   and reruns the OKF validator before finalization
+
+#### Scenario: Child feature remediation has no local manifest
+
+- **GIVEN** a child repository has an enabled feature receipt and installed
+  helper but no `features/manifest.json`
+- **WHEN** `/panopticon-init` revalidates repaired feature artifacts
+- **THEN** it continues through finalization without invoking the
+  registry-dependent feature-check CLI
 
 #### Scenario: Advisory feature work remains unresolved
 

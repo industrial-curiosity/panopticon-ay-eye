@@ -2,6 +2,15 @@
 
 All notable changes to Panopticon are documented in this file.
 
+## [repair-child-feature-resume] - 2026-09-11
+
+### Changed
+
+- Child initialization now resumes advisory feature remediation using
+  child-installed artifacts without requiring a local feature registry.
+- Canonical template validation now parses all workflow YAML before contract
+  and Python checks, with actionable syntax errors in the job summary.
+
 ## [add-template-sync-debugging] - 2026-09-08
 
 ### Added

@@ -410,7 +410,7 @@ class TestSecretVerification(unittest.TestCase):
         self.assertIn("could not query org secrets", report)
         self.assertIn("does not block local initialization", report)
 
-    def test_advisory_feature_and_org_findings_coexist_in_initialization_report(self):
+    def test_advisory_feature_without_local_manifest_has_finalization_continuation(self):
         with tempfile.TemporaryDirectory() as tmp:
             make_valid_child(tmp)
             root = Path(tmp)
@@ -430,7 +430,11 @@ class TestSecretVerification(unittest.TestCase):
         self.assertIn("## Child repository", report)
         self.assertIn("feature `okf`", report)
         self.assertIn(".agents/skills/panopticon-feature-okf/SKILL.md", report)
-        self.assertIn("python3 -m panopticon.features check --root . --docs-root docs", report)
+        self.assertIn(
+            "python3 -m panopticon.init_repo --instance acme/panopticon-instance",
+            report,
+        )
+        self.assertNotIn("python3 -m panopticon.features check", report)
         self.assertIn("## Organization configuration", report)
         self.assertIn("could not query org Actions settings", report)
 
