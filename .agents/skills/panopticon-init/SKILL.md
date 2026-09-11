@@ -31,10 +31,11 @@ its own — this skill only sequences them.
    interface extraction when needed, then renders the interface-docs and dependency-docs layers
    from the resulting `panopticon/index.json` and dependency shard
 6. Enabled feature remediation — read `panopticon/feature-receipt.json`, identify every feature
-   whose mode is `advisory` or `blocking`, invoke its installed
-   `panopticon-feature-<feature-id>` skill, and run that feature's deterministic validator. An
-   advisory finding is non-blocking for CI but remains required agent work; repair deterministic
-   findings and revalidate before continuing. Keep the checkpoint when a finding remains unresolved.
+   whose mode is `advisory` or `blocking`, and invoke its installed
+   `panopticon-feature-<feature-id>` skill. An advisory finding is non-blocking for CI but remains
+   required agent work; repair deterministic findings. Child repos do not contain the
+   instance-owned `features/manifest.json`, so let finalization validate the child receipt and
+   installed helper in step 7. Keep the checkpoint when a finding remains unresolved.
 7. Finalization: `python3 -m panopticon.init_repo --instance <instance>` — the last step, run only
    after 1–6 are complete. Do not ask the user to finalize early: documentation generation derives
    the bootstrap context it needs before `panopticon/config.json` exists.
@@ -75,9 +76,10 @@ For each step in order, skip it if already recorded in the checkpoint log, other
 2. On success, update the checkpoint log.
 3. Continue to the next step.
 
-If feature validation reports an unresolved advisory finding, retain the checkpoint and report the
-installed feature skill plus `python3 -m panopticon.features check --root . --docs-root <docs-location>`
-as the exact continuation action. If finalization reports unmet requirements, fix them (the
+If finalization reports an unresolved advisory feature finding, retain the checkpoint and report the
+installed feature skill plus the finalization command as the exact continuation action. Do not run
+`python3 -m panopticon.features check` in a child repo: it requires the instance-owned feature
+manifest. If finalization reports unmet requirements, fix them (the
 underlying skills remain invocable individually for this), then re-run finalization — do not delete
 the checkpoint log until finalization succeeds with no agent-remediable feature finding. A missing
 `panopticon/config.json` during documentation generation is not a reason to pause: continue in the

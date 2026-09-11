@@ -166,8 +166,7 @@ def format_initialization_report(code, child_root, instance, docs_location, chil
             f"feature `{feature_id}`",
             f"{detail or finding} ({mode} mode)",
             f"Follow `.agents/skills/panopticon-feature-{feature_id}/SKILL.md`, repair the finding, "
-            f"then run `python3 -m panopticon.features check --root . --docs-root {docs_location}` "
-            f"and rerun {rerun}.",
+            f"then rerun {rerun}. Finalization validates the child receipt and installed helper.",
         ))
     org_items = [
         _report_item(
