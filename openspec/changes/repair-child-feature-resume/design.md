@@ -35,12 +35,20 @@ child state solely to support a command whose existing finalization path is
 already sufficient. The alternative of weakening `panopticon.features check`
 would blur its instance-root contract and duplicate the receipt-only behavior.
 
+Template validation parses every workflow YAML file before it checks reusable
+workflow contracts or runs Python tests. This keeps malformed reusable
+workflows from appearing as a passing template PR, while retaining the
+canonical-repository guard so configured instances do not run template checks.
+
 ## Risks / Trade-offs
 
 - [Risk] A child receipt may be malformed. → `init_repo` retains its current
   controlled validation failure and blocks finalization.
 - [Risk] The installed helper may be missing or invalid. → `init_repo` reports
   the feature validation failure and keeps the checkpoint for remediation.
+- [Risk] A malformed workflow can prevent a reusable workflow from being
+  dispatched. → Template validation reports the affected file, parser reason,
+  and line before the workflow can pass a canonical-template PR.
 
 ## Migration Plan
 

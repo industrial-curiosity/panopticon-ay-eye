@@ -47,9 +47,11 @@ python3 -m panopticon.workflow_contracts --workflows-dir .github/workflows
 The command exits non-zero and identifies every undeclared reference. Either
 declare the caller value in the workflow's `on.workflow_call.inputs` or
 `on.workflow_call.secrets` map, or remove the reference if it belongs to a
-different provider. The credential-free template-validation workflow runs this
+different provider. The credential-free template-validation workflow first
+parses every `.yml` and `.yaml` file under `.github/workflows/`, then runs this
 same discovery command and the full Python suite for pull requests, pushes, and
-manual dispatches. Then rerun the command and the full test suite.
+manual dispatches. A YAML syntax failure reports the file, parser reason, and
+line number in the job summary. Then rerun the command and the full test suite.
 
 `tests/test_workflow_contracts.py` also verifies that template validation is
 guarded to the canonical template repository and that every shipped workflow job

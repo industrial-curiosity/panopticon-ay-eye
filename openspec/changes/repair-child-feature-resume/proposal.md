@@ -26,9 +26,14 @@ None.
 
 - `repo-initialization`: enabled feature remediation in a child repo must
   revalidate without requiring the instance feature registry.
+- `template-validation-scope`: template pull requests must reject malformed
+  workflow YAML before contract validation and tests.
 
 ## Impact
 
 - `.agents/skills/panopticon-init/SKILL.md`
 - `panopticon/init_repo.py` and its unit tests
 - `openspec/specs/repo-initialization/spec.md`
+- `.github/workflows/template-validation.yml` and
+  `tests/test_workflow_contracts.py`
+- `openspec/specs/template-validation-scope/spec.md`

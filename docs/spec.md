@@ -163,7 +163,10 @@ steps and inherit the summary responsibility from the invoked reusable job.
 The template-validation workflow's validation job is created only when
 `github.repository` exactly equals `industrial-curiosity/panopticon-ay-eye`.
 Template-derived instance repositories may retain the workflow file, but their
-instances skip checkout, workflow-contract validation, and template tests.
+instances skip checkout and template validation. In the canonical repository,
+the job parses every workflow YAML file before reusable-workflow contract
+validation and Python tests. A syntax failure reports the affected file,
+parser reason, and line number in the job summary.
 
 ## Evaluation and synchronization
 

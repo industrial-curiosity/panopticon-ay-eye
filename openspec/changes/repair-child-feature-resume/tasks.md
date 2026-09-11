@@ -17,3 +17,12 @@
 
 - [x] 3.1 Update README.md and docs/spec.md to reflect any user-facing or
   architectural changes introduced by this change.
+
+## 4. Template Workflow Syntax Validation
+
+- [x] 4.1 Add canonical-template PR validation that parses every workflow YAML
+  file before reusable-workflow contract validation and reports actionable
+  syntax failures.
+- [x] 4.2 Add regression coverage for the workflow-syntax validation step and
+  run the focused workflow tests, full Python suite, and strict OpenSpec
+  validation.
